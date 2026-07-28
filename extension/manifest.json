@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "VisionLearn AI",
+  "version": "0.1.0",
+  "description": "Understands STEM lecture slides — text, equations, diagrams, and charts — and lets you ask questions grounded in what's on screen.",
+  "action": {
+    "default_title": "VisionLearn AI"
+  },
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "src/service-worker/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content-script/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  }
+}

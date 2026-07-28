@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>VisionLearn AI — Dev Test Harness</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --border: #e2e2df;
+    --text: #1c1c1a;
+    --muted: #6b6b66;
+    --accent: #1c1c1a;
+    --accent-fg: #ffffff;
+    --error-bg: #fdecec;
+    --error-border: #f3b9b9;
+    --error-text: #8a1f1f;
+    --ok-bg: #eaf7ee;
+    --ok-border: #b9e6c6;
+    --ok-text: #1f6b34;
+    --code-bg: #f0f0ee;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181a;
+      --panel: #212225;
+      --border: #34363a;
+      --text: #eceeee;
+      --muted: #9a9da3;
+      --accent: #eceeee;
+      --accent-fg: #17181a;
+      --error-bg: #2c1616;
+      --error-border: #5a2626;
+      --error-text: #ff9b9b;
+      --ok-bg: #14261a;
+      --ok-border: #235034;
+      --ok-text: #7fe0a0;
+      --code-bg: #1a1b1d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.45;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin: 0 0 28px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .panel h2 {
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+  label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    margin-top: 14px;
+  }
+  label:first-of-type { margin-top: 0; }
+  label .hint { font-weight: 400; color: var(--muted); }
+  input[type="text"], input[type="number"], input[type="file"] {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 160px; }
+  button {
+    appearance: none;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 16px;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-weight: 500;
+    padding: 8px 14px;
+  }
+  .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .status-pill {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+  .status-pill.ok { background: var(--ok-bg); color: var(--ok-text); border: 1px solid var(--ok-border); }
+  .status-pill.err { background: var(--error-bg); color: var(--error-text); border: 1px solid var(--error-border); }
+  #result-area, #health-area { margin-top: 16px; }
+  .error-box {
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    color: var(--error-text);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 0.85rem;
+  }
+  .summary-text { font-size: 0.95rem; margin: 0 0 14px; }
+  .object-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+  }
+  .object-card .type {
+    font-weight: 700;
+    text-transform: capitalize;
+  }
+  .object-card .confidence { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .object-card .field-label { color: var(--muted); font-size: 0.75rem; margin-top: 6px; }
+  .object-card pre {
+    background: var(--code-bg);
+    padding: 6px 8px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 4px 0 0;
+    font-size: 0.8rem;
+  }
+  details summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 14px;
+  }
+  details pre {
+    background: var(--code-bg);
+    padding: 10px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.78rem;
+    margin-top: 8px;
+  }
+  .footer-note {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-top: 28px;
+    text-align: center;
+  }
+  #image-preview { margin-top: 12px; }
+  #image-preview img {
+    max-width: 220px;
+    max-height: 160px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: block;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>VisionLearn AI — Dev Test Harness</h1>
+  <p class="subtitle">
+    A local dev tool for poking at the backend directly. This is not the product UI —
+    the real UI lives in the Chrome extension's side panel (<code>extension/</code>).
+  </p>
+
+  <div class="panel">
+    <h2>Connection</h2>
+    <label for="backend-url">Backend URL</label>
+    <input type="text" id="backend-url" value="http://localhost:8001" />
+
+    <label for="api-key">X-API-Key <span class="hint">(LOCAL_API_KEY from your .env)</span></label>
+    <input type="text" id="api-key" placeholder="paste your LOCAL_API_KEY here" autocomplete="off" />
+
+    <div class="btn-row">
+      <button class="secondary" id="check-health-btn" type="button">Check Health</button>
+      <span id="health-pill"></span>
+    </div>
+    <div id="health-area"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Analyze a Slide</h2>
+
+    <input type="file" id="image-input" accept="image/png,image/jpeg" style="display:none" />
+
+    <div class="btn-row">
+      <button id="upload-btn" type="button">1. Upload Photo</button>
+      <span id="upload-filename" class="hint"></span>
+    </div>
+    <div id="image-preview"></div>
+
+    <div class="row">
+      <div>
+        <label for="slide-number">Slide number</label>
+        <input type="number" id="slide-number" value="1" min="1" />
+      </div>
+      <div>
+        <label for="presentation-id">
+          Presentation ID <span class="hint">(leave blank for a new one)</span>
+        </label>
+        <input type="text" id="presentation-id" placeholder="blank = new presentation" />
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button id="analyze-btn" type="button" disabled>2. Analyze Slide</button>
+      <button class="secondary" id="clear-presentation-btn" type="button">Clear Presentation ID</button>
+      <span id="analyze-pill"></span>
+    </div>
+
+    <div id="result-area"></div>
+  </div>
+
+  <p class="footer-note">
+    Settings are saved in this browser's localStorage only — nothing is sent anywhere
+    except the backend URL you configured above.
+  </p>
+</div>
+
+<script>
+  const backendUrlInput = document.getElementById("backend-url");
+  const apiKeyInput = document.getElementById("api-key");
+  const presentationIdInput = document.getElementById("presentation-id");
+  const slideNumberInput = document.getElementById("slide-number");
+  const imageInput = document.getElementById("image-input");
+
+  // Restore saved settings.
+  backendUrlInput.value = localStorage.getItem("vl_backend_url") || backendUrlInput.value;
+  apiKeyInput.value = localStorage.getItem("vl_api_key") || "";
+  backendUrlInput.addEventListener("change", () => localStorage.setItem("vl_backend_url", backendUrlInput.value.trim()));
+  apiKeyInput.addEventListener("change", () => localStorage.setItem("vl_api_key", apiKeyInput.value.trim()));
+
+  function setPill(el, ok, text) {
+    el.textContent = text;
+    el.className = "status-pill " + (ok ? "ok" : "err");
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // --- Step 1: Upload Photo ---
+  const uploadBtn = document.getElementById("upload-btn");
+  const uploadFilename = document.getElementById("upload-filename");
+  const imagePreview = document.getElementById("image-preview");
+  const analyzeBtn = document.getElementById("analyze-btn");
+
+  uploadBtn.addEventListener("click", () => imageInput.click());
+
+  imageInput.addEventListener("change", () => {
+    const file = imageInput.files[0];
+    imagePreview.innerHTML = "";
+    if (!file) {
+      uploadFilename.textContent = "";
+      analyzeBtn.disabled = true;
+      return;
+    }
+    uploadFilename.textContent = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(file);
+    imagePreview.appendChild(img);
+    analyzeBtn.disabled = false;
+  });
+
+  document.getElementById("check-health-btn").addEventListener("click", async () => {
+    const pill = document.getElementById("health-pill");
+    const area = document.getElementById("health-area");
+    pill.textContent = "";
+    area.innerHTML = "";
+    try {
+      const res = await fetch(`${backendUrlInput.value.trim()}/api/v1/health`);
+      const body = await res.json();
+      setPill(pill, res.ok && body.status === "ok", res.ok ? body.status : `HTTP ${res.status}`);
+      area.innerHTML = `<details open><summary>Response</summary><pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre></details>`;
+    } catch (err) {
+      setPill(pill, false, "unreachable");
+      area.innerHTML = `<div class="error-box">${escapeHtml(String(err))}</div>`;
+    }
+  });
+
+  document.getElementById("clear-presentation-btn").addEventListener("click", () => {
+    presentationIdInput.value = "";
+  });
+
+  document.getElementById("analyze-btn").addEventListener("click", async () => {
+    const pill = document.getElementById("analyze-pill");
+    const area = document.getElementById("result-area");
+    pill.textContent = "";
+    area.innerHTML = "";
+
+    const file = imageInput.files[0];
+    if (!file) {
+      area.innerHTML = `<div class="error-box">Choose an image file first.</div>`;
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("image", file);
+    formData.append("slide_number", slideNumberInput.value || "1");
+    const presentationId = presentationIdInput.value.trim();
+    if (presentationId) {
+      formData.append("presentation_id", presentationId);
+    }
+
+    const btn = document.getElementById("analyze-btn");
+    btn.disabled = true;
+    pill.textContent = "";
+    pill.className = "";
+    area.innerHTML = `<p class="subtitle">Analyzing…</p>`;
+
+    try {
+      const res = await fetch(`${backendUrlInput.value.trim()}/api/v1/slides/analyze`, {
+        method: "POST",
+        headers: { "X-API-Key": apiKeyInput.value.trim() },
+        body: formData,
+      });
+      const body = await res.json();
+
+      if (!res.ok) {
+        setPill(pill, false, `HTTP ${res.status}`);
+        area.innerHTML = `<div class="error-box">${escapeHtml(body.detail || JSON.stringify(body))}</div>`;
+        return;
+      }
+
+      setPill(pill, true, body.cache_hit ? "cache hit" : "analyzed");
+      // Remember the presentation_id so the next capture reuses the same deck.
+      presentationIdInput.value = body.presentation_id;
+
+      const objectsHtml = (body.objects || [])
+        .map(
+          (obj) => `
+            <div class="object-card">
+              <span class="type">${escapeHtml(obj.type)}</span>
+              <span class="confidence">${Math.round(obj.confidence * 100)}% confidence</span>
+              ${obj.extracted_text ? `<div class="field-label">extracted_text</div><pre>${escapeHtml(obj.extracted_text)}</pre>` : ""}
+              ${obj.latex ? `<div class="field-label">latex</div><pre>${escapeHtml(obj.latex)}</pre>` : ""}
+              ${obj.summary ? `<div class="field-label">summary</div><pre>${escapeHtml(obj.summary)}</pre>` : ""}
+            </div>`
+        )
+        .join("");
+
+      area.innerHTML = `
+        <p class="summary-text">${escapeHtml(body.summary)}</p>
+        ${objectsHtml || '<p class="subtitle">No objects detected.</p>'}
+        <details>
+          <summary>Raw response</summary>
+          <pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre>
+        </details>
+      `;
+    } catch (err) {
+      setPill(pill, false, "request failed");
+      area.innerHTML = `<div class="error-box">${escapeHtml(String(err))}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

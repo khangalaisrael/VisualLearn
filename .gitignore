@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv_verify/
+*.egg-info/
+.pytest_cache/
+
+# Node / extension
+node_modules/
+dist/
+.vite/
+
+# Env and local data
+.env
+*.db
+
+# OS
+.DS_Store
+Thumbs.db

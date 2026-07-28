@@ -1,0 +1,11 @@
+# Build context is now the repo root (see docker-compose.yml). This
+# replaces backend/.dockerignore, which only applied when the context was
+# ./backend (Sprint 1) and is no longer read by Docker.
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/*.egg-info
+node_modules
+extension/dist
+.git
