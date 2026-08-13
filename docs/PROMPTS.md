@@ -38,16 +38,18 @@ Used by both `OpenAIVLMAnalyzer` (default, see [ADR-009](./adr/ADR-009-openai-as
 
 **Effort:** `medium` on OpenAI (no separate effort control), `low` on Claude — a small, focused crop is a lighter task than full-slide analysis.
 
-## 3. Chat Prompts, by Query Mode (`chat_{mode}.v2`)
+## 3. Chat Prompts, by Query Mode (`chat_{mode}.v3`)
 
 All chat prompts share a system-prompt skeleton (assistant persona: "You are VisionLearn, a STEM tutor embedded in the student's lecture view. Never fabricate content not present in the provided slide data.") and differ in the context assembled into the cached prefix.
 
-**`v2` addition (same fix as `analysis.v3` above):** `v1` said nothing about math formatting, so streamed answers wrote math as plain ASCII (e.g. "Theta(n 2)" instead of $\Theta(n^2)$). `v2` adds an explicit instruction to wrap math notation in `$...$`/`$$...$$` LaTeX delimiters, with the same worked example as the analysis prompt. `v1` (unchanged) remains in the repo, unused, per the versioning convention.
+**`v2` addition (same fix as `analysis.v3` above):** `v1` said nothing about math formatting, so streamed answers wrote math as plain ASCII (e.g. "Theta(n 2)" instead of $\Theta(n^2)$). `v2` adds an explicit instruction to wrap math notation in `$...$`/`$$...$$` LaTeX delimiters, with the same worked example as the analysis prompt.
+
+**`v3` addition (direct user request):** `v2` said "answer using only the provided slide data... say so plainly" if it couldn't — so a follow-up that drifted even slightly off the slide's literal content got a non-answer instead of a real one. `v3` instead tells the model to prefer the slide data but fall back to its own STEM knowledge for out-of-scope questions, explicitly flagging when it does ("This isn't covered on the slide, but..."), while still never fabricating slide content that isn't in the data block. `v1`/`v2` (unchanged) remain in the repo, unused, per the versioning convention.
 
 | Mode | Context content | Notes |
 |---|---|---|
-| Figure | The selected object's `bounding_box`/`extracted_text`/`latex`/`summary` + its slide's summary. | Smallest context; `effort: low`. **Implemented** ([`prompts/chat_figure.v2.md`](../prompts/chat_figure.v2.md)). |
-| Slide | All objects on the current slide, ordered by reading position (approximated by `bounding_box.y` then `.x` — no explicit reading-order field exists yet). | `effort: medium`. **Implemented** ([`prompts/chat_slide.v2.md`](../prompts/chat_slide.v2.md)). |
+| Figure | The selected object's `bounding_box`/`extracted_text`/`latex`/`summary` + its slide's summary. | Smallest context; `effort: low`. **Implemented** ([`prompts/chat_figure.v3.md`](../prompts/chat_figure.v3.md)). |
+| Slide | All objects on the current slide, ordered by reading position (approximated by `bounding_box.y` then `.x` — no explicit reading-order field exists yet). | `effort: medium`. **Implemented** ([`prompts/chat_slide.v3.md`](../prompts/chat_slide.v3.md)). |
 | Presentation | Retrieved top-k objects/slide-summaries from `RetrievalService` + prior conversation turns. | `effort: high` — cross-slide synthesis benefits from deeper reasoning. **Not implemented** (M4, needs `RetrievalService`) — `POST /chat` rejects this mode with `400` for now. |
 | General | No slide grounding; persona only. | Same persona, explicitly told it has no slide context this turn. **Not implemented** — rejected with `400`. |
 | Auto | Backend resolves to one of the above before prompt assembly (see [ARCHITECTURE.md](./ARCHITECTURE.md) §4.3) — no separate prompt of its own. | **Not implemented** — rejected with `400`. |

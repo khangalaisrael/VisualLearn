@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v2", "slide": "chat_slide.v2"}
+_PROMPT_BY_MODE = {"figure": "chat_figure.v3", "slide": "chat_slide.v3"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium"}
 
 

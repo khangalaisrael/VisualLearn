@@ -47,6 +47,33 @@ curl http://localhost:8001/api/v1/health
 
 Interactive API docs (Swagger UI): `http://localhost:8001/docs`.
 
+## Always-on local setup
+
+VisionLearn is local-first by design ([ADR-007](../docs/adr/ADR-007-local-first-deployment.md)) — the
+backend only runs while `docker compose up` is active on your machine. To have it
+survive reboots and container crashes without manually running that command each time:
+
+1. **Enable Docker Desktop auto-start**: Docker Desktop → Settings → General →
+   "Start Docker Desktop when you sign in." All three services already use
+   `restart: unless-stopped` in `docker-compose.yml`, so once the Docker daemon is
+   back, they resume on their own — as long as they weren't explicitly stopped with
+   `docker compose down`.
+2. **Register a login task to bring the stack up**, covering first-run and the
+   `docker compose down` case: use `scripts/start-backend.ps1` (a thin wrapper
+   around `docker compose up -d` from the repo root) as a Windows Task Scheduler
+   entry triggered "At log on":
+   ```powershell
+   $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"C:\Users\israe\Desktop\VisualLearn\scripts\start-backend.ps1`""
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+   Register-ScheduledTask -TaskName "VisionLearnBackend" -Action $action -Trigger $trigger
+   ```
+3. **Verify it came back up** after a reboot:
+   ```bash
+   curl http://localhost:8001/api/v1/health
+   ```
+   or open the extension's Settings tab and click "Test Connection."
+
 ## Local development (outside Docker)
 
 ```bash

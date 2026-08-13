@@ -30,6 +30,61 @@ interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  timestamp: number;
+}
+
+const PRESET_QUESTIONS = ["Explain this slide", "Summarize", "Give an example", "Simplify"];
+
+/**
+ * Best-effort pull of the question out of the answer's "5. Suggested
+ * follow-up" section (prompts/chat_slide.v3.md's fixed 5-part structure)
+ * so it can be offered as a one-click button instead of the student
+ * re-typing it. The model doesn't always phrase this the same way — often
+ * a quoted question ("A logical next question might be: \"...?\""),
+ * sometimes just a bare question after the dash — so this tries a quoted
+ * substring first and falls back to text ending in "?", returning null
+ * (no button) rather than guessing wrong.
+ */
+function extractFollowUpQuestion(text: string): string | null {
+  const section = /5\.\s*\*\*Suggested follow-up\*\*\s*[—-]?\s*([\s\S]*)$/i.exec(text);
+  if (!section) return null;
+  const tail = section[1].trim();
+  if (!tail) return null;
+
+  const quoted = /["“]([^"”]+?)["”]/.exec(tail);
+  if (quoted) return quoted[1].trim();
+
+  const qMarkIndex = tail.indexOf("?");
+  if (qMarkIndex === -1) return null;
+  const upToQuestion = tail.slice(0, qMarkIndex + 1);
+  const colonIndex = upToQuestion.lastIndexOf(":");
+  return (colonIndex !== -1 ? upToQuestion.slice(colonIndex + 1) : upToQuestion).trim();
+}
+
+function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function TypingIndicator(): JSX.Element {
+  return (
+    <span className="inline-flex items-center gap-1" aria-label="VisionLearn is typing">
+      <span className="typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "0ms" }} />
+      <span className="typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "200ms" }} />
+      <span className="typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "400ms" }} />
+    </span>
+  );
+}
+
+function Avatar({ role }: { role: ChatMessage["role"] }): JSX.Element {
+  return role === "user" ? (
+    <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-600 text-[11px] font-medium text-white">
+      You
+    </span>
+  ) : (
+    <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-medium text-indigo-600">
+      VL
+    </span>
+  );
 }
 
 export function AskTab(): JSX.Element {
@@ -39,6 +94,8 @@ export function AskTab(): JSX.Element {
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const lastQuestionRef = useRef<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const listener = (message: SlideAnalyzedMessage | SlideAnalysisFailedMessage) => {
@@ -67,45 +124,73 @@ export function AskTab(): JSX.Element {
     });
   }, []);
 
-  const sendChatMessage = useCallback(async () => {
-    if (state.status !== "loaded" || !chatInput.trim() || isStreaming) {
-      return;
-    }
-    const { presentation_id, slide_id } = state.result;
-    const question = chatInput.trim();
-    setChatInput("");
-    setChatError(null);
-    setIsStreaming(true);
-
-    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: question };
-    const assistantMessageId = crypto.randomUUID();
-    setMessages((prev) => [...prev, userMessage, { id: assistantMessageId, role: "assistant", content: "" }]);
-
-    try {
-      for await (const event of streamChat({
-        conversation_id: conversationIdRef.current,
-        presentation_id,
-        query_mode: "slide",
-        slide_id,
-        object_id: null,
-        message: question,
-      })) {
-        if (event.type === "delta") {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantMessageId ? { ...m, content: m.content + event.text } : m))
-          );
-        } else if (event.type === "done") {
-          conversationIdRef.current = event.data.conversation_id;
-        } else if (event.type === "error") {
-          setChatError(event.data.message);
-        }
+  const askQuestion = useCallback(
+    async (question: string) => {
+      if (state.status !== "loaded" || !question || isStreaming) {
+        return;
       }
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsStreaming(false);
+      const { presentation_id, slide_id } = state.result;
+      lastQuestionRef.current = question;
+      setChatError(null);
+      setIsStreaming(true);
+
+      const userMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: question,
+        timestamp: Date.now(),
+      };
+      const assistantMessageId = crypto.randomUUID();
+      setMessages((prev) => [
+        ...prev,
+        userMessage,
+        { id: assistantMessageId, role: "assistant", content: "", timestamp: Date.now() },
+      ]);
+
+      try {
+        for await (const event of streamChat({
+          conversation_id: conversationIdRef.current,
+          presentation_id,
+          query_mode: "slide",
+          slide_id,
+          object_id: null,
+          message: question,
+        })) {
+          if (event.type === "delta") {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMessageId ? { ...m, content: m.content + event.text } : m))
+            );
+          } else if (event.type === "done") {
+            conversationIdRef.current = event.data.conversation_id;
+          } else if (event.type === "error") {
+            setChatError(event.data.message);
+          }
+        }
+      } catch (error) {
+        setChatError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setIsStreaming(false);
+      }
+    },
+    [state, isStreaming]
+  );
+
+  const sendChatMessage = useCallback(async () => {
+    const question = chatInput.trim();
+    if (!question) return;
+    setChatInput("");
+    await askQuestion(question);
+  }, [chatInput, askQuestion]);
+
+  const retryLastQuestion = useCallback(() => {
+    if (lastQuestionRef.current) {
+      void askQuestion(lastQuestionRef.current);
     }
-  }, [state, chatInput, isStreaming]);
+  }, [askQuestion]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, isStreaming]);
 
   return (
     <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
@@ -113,9 +198,11 @@ export function AskTab(): JSX.Element {
         Capture the current slide to see what VisionLearn extracted from it.
       </p>
 
-      <Button onClick={captureNow} disabled={state.status === "loading"}>
-        {state.status === "loading" ? "Analyzing…" : "Capture Current Slide"}
-      </Button>
+      <div className="sticky top-0 z-10 -mx-4 border-b border-indigo-100 bg-white px-4 py-2 shadow-subtle">
+        <Button onClick={captureNow} disabled={state.status === "loading"}>
+          {state.status === "loading" ? "Analyzing…" : "Capture Current Slide"}
+        </Button>
+      </div>
 
       {state.status === "loading" && (
         <ul className="flex flex-col gap-3">
@@ -149,29 +236,85 @@ export function AskTab(): JSX.Element {
         <div className="flex flex-1 flex-col gap-3 border-t border-slate-200 pt-4">
           <p className="text-sm font-medium text-slate-700">Ask about this slide</p>
 
-          <ul className="flex flex-col gap-2">
-            {messages.map((message) => (
-              <li
-                key={message.id}
-                className={
-                  message.role === "user"
-                    ? "max-w-[85%] self-end rounded-md bg-indigo-600 px-3 py-2 text-sm text-white"
-                    : "max-w-[85%] self-start whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-subtle"
-                }
+          <div className="flex flex-wrap gap-2">
+            {PRESET_QUESTIONS.map((question) => (
+              <button
+                key={question}
+                type="button"
+                disabled={isStreaming}
+                onClick={() => void askQuestion(question)}
+                className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {message.content ? (
-                  <MathText text={message.content} />
-                ) : isStreaming && message.role === "assistant" ? (
-                  "…"
-                ) : (
-                  ""
-                )}
-              </li>
+                {question}
+              </button>
             ))}
-          </ul>
+          </div>
+
+          {messages.length === 0 ? (
+            <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-400">
+              Ask a question about this slide to get started.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {messages.map((message) => {
+                const isPendingAssistant = !message.content && isStreaming && message.role === "assistant";
+                const followUpQuestion =
+                  message.role === "assistant" && !isPendingAssistant
+                    ? extractFollowUpQuestion(message.content)
+                    : null;
+                return (
+                  <li
+                    key={message.id}
+                    className={`flex max-w-[90%] flex-col gap-1 ${
+                      message.role === "user" ? "self-end items-end" : "self-start items-start"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {message.role === "assistant" && <Avatar role={message.role} />}
+                      <span className="text-xs text-slate-400">
+                        {message.role === "user" ? "You" : "VisionLearn"} · {formatTime(message.timestamp)}
+                      </span>
+                      {message.role === "user" && <Avatar role={message.role} />}
+                    </div>
+                    <div
+                      className={
+                        message.role === "user"
+                          ? "rounded-md bg-indigo-600 px-3 py-2 text-sm text-white"
+                          : "whitespace-pre-wrap rounded-md border border-indigo-100 bg-indigo-50/40 px-3 py-2 text-sm text-slate-700 shadow-subtle"
+                      }
+                    >
+                      {isPendingAssistant ? <TypingIndicator /> : <MathText text={message.content} />}
+                    </div>
+                    {followUpQuestion && (
+                      <button
+                        type="button"
+                        disabled={isStreaming}
+                        onClick={() => void askQuestion(followUpQuestion)}
+                        className="mt-0.5 flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-left text-xs font-medium text-indigo-700 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span aria-hidden="true">↳</span>
+                        {followUpQuestion}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </ul>
+          )}
 
           {chatError && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-subtle">{chatError}</div>
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-subtle">
+              <p className="font-medium">Something went wrong.</p>
+              <p>{chatError}</p>
+              <button
+                type="button"
+                onClick={retryLastQuestion}
+                className="mt-2 text-sm font-medium text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-800"
+              >
+                Retry
+              </button>
+            </div>
           )}
 
           <form

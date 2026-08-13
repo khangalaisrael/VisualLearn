@@ -29,7 +29,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="flex h-screen w-full flex-col bg-white">
-      <header className="border-b border-slate-200 px-4 py-3">
+      <header className="border-b border-slate-200 bg-gradient-to-b from-indigo-50/60 to-white px-4 py-3">
         <h1 className="text-base font-semibold tracking-tight text-slate-900">VisionLearn AI</h1>
       </header>
 
@@ -43,7 +43,7 @@ export function App(): JSX.Element {
             onClick={() => setActiveTab(tab.id)}
             className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors duration-[120ms] ${
               activeTab === tab.id
-                ? "border-b-2 border-indigo-600 text-slate-900"
+                ? "border-b-2 border-indigo-600 text-indigo-700"
                 : "border-b-2 border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
