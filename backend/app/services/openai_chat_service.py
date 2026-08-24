@@ -33,7 +33,14 @@ class OpenAIChatService:
         self._client = client
         self.model_name = model
 
-    async def stream_chat(self, *, system_prompt: str, message: str, effort: ChatEffort) -> AsyncIterator[ChatChunk]:
+    async def stream_chat(
+        self,
+        *,
+        system_prompt: str,
+        message: str,
+        effort: ChatEffort,
+        history: list[tuple[str, str]] = (),
+    ) -> AsyncIterator[ChatChunk]:
         # OpenAI's chat-completions API has no "effort"/thinking-depth
         # control on gpt-4o (that's an Anthropic-specific adaptive-thinking
         # concept) — effort is accepted for interface parity with
@@ -46,6 +53,7 @@ class OpenAIChatService:
             stream_options={"include_usage": True},
             messages=[
                 {"role": "system", "content": system_prompt},
+                *({"role": role, "content": content} for role, content in history),
                 {"role": "user", "content": message},
             ],
         )

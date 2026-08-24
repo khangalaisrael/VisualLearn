@@ -75,8 +75,8 @@ class FakeChatService:
 
     model_name = "fake-chat-model"
 
-    async def stream_chat(self, *, system_prompt: str, message: str, effort: str):
-        del system_prompt, message, effort
+    async def stream_chat(self, *, system_prompt: str, message: str, effort: str, history: list = ()):
+        del system_prompt, message, effort, history
         yield ChatChunk(delta="Fake ", done=False)
         yield ChatChunk(delta="answer.", done=False)
         yield ChatChunk(delta=None, done=True, usage=ChatUsage(input_tokens=10, output_tokens=2, cache_read_input_tokens=0))

@@ -34,4 +34,11 @@ class ChatChunk:
 class ChatService(Protocol):
     model_name: str
 
-    def stream_chat(self, *, system_prompt: str, message: str, effort: ChatEffort) -> AsyncIterator[ChatChunk]: ...
+    def stream_chat(
+        self,
+        *,
+        system_prompt: str,
+        message: str,
+        effort: ChatEffort,
+        history: list[tuple[str, str]] = (),
+    ) -> AsyncIterator[ChatChunk]: ...

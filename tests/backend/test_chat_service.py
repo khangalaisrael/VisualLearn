@@ -64,6 +64,24 @@ async def test_openai_chat_service_sends_correct_request_shape() -> None:
     assert kwargs["messages"][1] == {"role": "user", "content": "hi"}
 
 
+async def test_openai_chat_service_includes_prior_turns_in_request() -> None:
+    fake_client = AsyncMock()
+    fake_client.chat.completions.create.return_value = _FakeOpenAIStream([], SimpleNamespace(prompt_tokens=1, completion_tokens=1))
+
+    service = OpenAIChatService(client=fake_client, model="gpt-4o")
+    history = [("user", "What is Big-O?"), ("assistant", "It describes worst-case growth.")]
+    async for _ in service.stream_chat(system_prompt="persona+context", message="Can you give an example?", effort="medium", history=history):
+        pass
+
+    _, kwargs = fake_client.chat.completions.create.call_args
+    assert kwargs["messages"] == [
+        {"role": "system", "content": "persona+context"},
+        {"role": "user", "content": "What is Big-O?"},
+        {"role": "assistant", "content": "It describes worst-case growth."},
+        {"role": "user", "content": "Can you give an example?"},
+    ]
+
+
 def test_openai_chat_service_constructor_requires_api_key_or_client() -> None:
     try:
         OpenAIChatService()
@@ -117,6 +135,30 @@ async def test_claude_chat_service_streams_deltas_and_usage() -> None:
     assert final.usage.input_tokens == 10
     assert final.usage.output_tokens == 3
     assert final.usage.cache_read_input_tokens == 5
+
+
+async def test_claude_chat_service_includes_prior_turns_in_request() -> None:
+    fake_client = AsyncMock()
+    captured_kwargs: dict = {}
+
+    def _fake_stream(**kwargs):
+        captured_kwargs.update(kwargs)
+        return _FakeClaudeStream([], SimpleNamespace(input_tokens=1, output_tokens=1, cache_read_input_tokens=0))
+
+    fake_client.messages.stream = _fake_stream
+
+    service = ClaudeChatService(client=fake_client, model="claude-opus-4-8")
+    history = [("user", "What is Big-O?"), ("assistant", "It describes worst-case growth.")]
+    async for _ in service.stream_chat(
+        system_prompt="persona+context", message="Can you give an example?", effort="low", history=history
+    ):
+        pass
+
+    assert captured_kwargs["messages"] == [
+        {"role": "user", "content": "What is Big-O?"},
+        {"role": "assistant", "content": "It describes worst-case growth."},
+        {"role": "user", "content": "Can you give an example?"},
+    ]
 
 
 def test_claude_chat_service_constructor_requires_api_key_or_client() -> None:

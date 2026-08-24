@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v3", "slide": "chat_slide.v3"}
+_PROMPT_BY_MODE = {"figure": "chat_figure.v4", "slide": "chat_slide.v4"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium"}
 
 
@@ -118,6 +118,11 @@ async def _stream_response(
     full_text = ""
     try:
         messages = MessageRepository(db)
+        # Fetched before this turn's user message is persisted, so it's
+        # exactly the prior turns — this message is passed separately below.
+        prior_messages = await messages.list_by_conversation(conversation_id)
+        history = [(m.role, m.content) for m in prior_messages]
+
         await messages.create(
             conversation_id=conversation_id,
             role="user",
@@ -126,7 +131,9 @@ async def _stream_response(
             referenced_object_ids=referenced_object_ids,
         )
 
-        async for chunk in chat_service.stream_chat(system_prompt=system_prompt, message=message, effort=effort):
+        async for chunk in chat_service.stream_chat(
+            system_prompt=system_prompt, message=message, effort=effort, history=history
+        ):
             if chunk.delta:
                 full_text += chunk.delta
                 yield f"event: delta\ndata: {json.dumps({'text': chunk.delta})}\n\n"

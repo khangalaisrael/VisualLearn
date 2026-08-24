@@ -35,22 +35,10 @@ interface ChatMessage {
 
 const PRESET_QUESTIONS = ["Explain this slide", "Summarize", "Give an example", "Simplify"];
 
-/**
- * Best-effort pull of the question out of the answer's "5. Suggested
- * follow-up" section (prompts/chat_slide.v3.md's fixed 5-part structure)
- * so it can be offered as a one-click button instead of the student
- * re-typing it. The model doesn't always phrase this the same way — often
- * a quoted question ("A logical next question might be: \"...?\""),
- * sometimes just a bare question after the dash — so this tries a quoted
- * substring first and falls back to text ending in "?", returning null
- * (no button) rather than guessing wrong.
- */
-function extractFollowUpQuestion(text: string): string | null {
-  const section = /5\.\s*\*\*Suggested follow-up\*\*\s*[—-]?\s*([\s\S]*)$/i.exec(text);
-  if (!section) return null;
-  const tail = section[1].trim();
-  if (!tail) return null;
-
+/** Extracts a follow-up question from the tail of a "5. Suggested
+ * follow-up — ..." style section: a quoted "...?" if present, else the
+ * text up to the first "?" (trimmed after the last ":" if any). */
+function extractFromTail(tail: string): string | null {
   const quoted = /["“]([^"”]+?)["”]/.exec(tail);
   if (quoted) return quoted[1].trim();
 
@@ -59,6 +47,50 @@ function extractFollowUpQuestion(text: string): string | null {
   const upToQuestion = tail.slice(0, qMarkIndex + 1);
   const colonIndex = upToQuestion.lastIndexOf(":");
   return (colonIndex !== -1 ? upToQuestion.slice(colonIndex + 1) : upToQuestion).trim();
+}
+
+/**
+ * Best-effort pull of a follow-up question out of the model's answer so
+ * it can be offered as a one-click button instead of the student
+ * re-typing it. `chat_slide.v3.md`/`chat_figure.v3.md` ask for a fixed
+ * "5. **Suggested follow-up**" section, but free-text answers don't
+ * always comply (short/casual answers especially) — different wording,
+ * no bold, no numbering, or no heading at all. Three-step fallback, each
+ * strictly weaker than the last, so a button still shows up whenever the
+ * answer plausibly contains a follow-up question:
+ *   1. The exact heading the prompt asks for.
+ *   2. Any looser "(suggest|follow-up|next question)... :" style lead-in,
+ *      anywhere in the text, not just as a numbered heading.
+ *   3. The last quoted "...?" or the last "?"-terminated sentence in the
+ *      whole message, if nothing else matched — the model asked *some*
+ *      question even if it didn't label it as a suggestion.
+ * Returns null only when none of these find anything, rather than
+ * guessing wrong.
+ */
+function extractFollowUpQuestion(text: string): string | null {
+  const strictHeading = /5\.\s*\*\*Suggested follow-up\*\*\s*[—:-]?\s*([\s\S]*)$/i.exec(text);
+  if (strictHeading) {
+    const found = extractFromTail(strictHeading[1].trim());
+    if (found) return found;
+  }
+
+  const looseHeading = /(?:suggested\s+)?follow-?up[^:]{0,40}:\s*([\s\S]*)$/i.exec(text);
+  if (looseHeading) {
+    const found = extractFromTail(looseHeading[1].trim());
+    if (found) return found;
+  }
+
+  const lastQuoted = [...text.matchAll(/["“]([^"”]{4,}?\?)["”]/g)].pop();
+  if (lastQuoted) return lastQuoted[1].trim();
+
+  const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim());
+  const lastQuestion = [...sentences].reverse().find((s) => s.endsWith("?"));
+  if (!lastQuestion) return null;
+
+  // Trim a leading lead-in clause ("A good next question might be: ...")
+  // that the sentence-split fallback can't otherwise strip.
+  const colonIndex = lastQuestion.lastIndexOf(":");
+  return colonIndex !== -1 ? lastQuestion.slice(colonIndex + 1).trim() : lastQuestion;
 }
 
 function formatTime(timestamp: number): string {
@@ -280,7 +312,7 @@ export function AskTab(): JSX.Element {
                       className={
                         message.role === "user"
                           ? "rounded-md bg-indigo-600 px-3 py-2 text-sm text-white"
-                          : "whitespace-pre-wrap rounded-md border border-indigo-100 bg-indigo-50/40 px-3 py-2 text-sm text-slate-700 shadow-subtle"
+                          : "rounded-md border border-indigo-100 bg-indigo-50/40 px-3.5 py-3 text-sm leading-relaxed text-slate-700 shadow-subtle"
                       }
                     >
                       {isPendingAssistant ? <TypingIndicator /> : <MathText text={message.content} />}

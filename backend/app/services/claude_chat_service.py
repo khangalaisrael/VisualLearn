@@ -33,13 +33,23 @@ class ClaudeChatService:
         self._client = client
         self.model_name = model
 
-    async def stream_chat(self, *, system_prompt: str, message: str, effort: ChatEffort) -> AsyncIterator[ChatChunk]:
+    async def stream_chat(
+        self,
+        *,
+        system_prompt: str,
+        message: str,
+        effort: ChatEffort,
+        history: list[tuple[str, str]] = (),
+    ) -> AsyncIterator[ChatChunk]:
         async with self._client.messages.stream(
             model=self.model_name,
             max_tokens=_MAX_TOKENS,
             system=system_prompt,
             output_config={"effort": effort},
-            messages=[{"role": "user", "content": message}],
+            messages=[
+                *({"role": role, "content": content} for role, content in history),
+                {"role": "user", "content": message},
+            ],
         ) as stream:
             async for delta in stream.text_stream:
                 yield ChatChunk(delta=delta, done=False)
