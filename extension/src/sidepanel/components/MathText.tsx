@@ -6,13 +6,10 @@
  * than duplicated between AskTab's object cards and its chat bubbles.
  *
  * Non-math text segments also get light formatting for **bold** spans,
- * `#`/`##`/`###` headings, `- `/`* ` bullet lists, `1. ` numbered lists,
- * and paragraph breaks — chat answers commonly use these (more so since
- * prompts/chat_slide.v4.md dropped the old fixed 5-section template in
- * favor of adaptive, teacher-style answers) and rendering them as one raw
- * blob was hard to read. This is a small regex pass, not a full markdown
- * parser, kept in-repo rather than pulling in a markdown dependency for a
- * narrow need.
+ * `- `/`* ` bullet lists, and line breaks — chat answers commonly use
+ * these and rendering them as one raw blob was hard to read. This is a
+ * small regex pass, not a full markdown parser, kept in-repo rather than
+ * pulling in a markdown dependency for a narrow need.
  */
 
 import katex from "katex";
@@ -49,7 +46,7 @@ function splitSegments(text: string): Segment[] {
 
 const BOLD_PATTERN = /\*\*([^*]+)\*\*/g;
 
-function renderBold(text: string, keyPrefix: string): ReactNode[] {
+function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
   let count = 0;
@@ -67,151 +64,38 @@ function renderBold(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
-/**
- * Renders one line/paragraph's raw text with both math and bold handled
- * together, so inline math (`the value $x^2$ here`) stays inside the same
- * paragraph instead of splitting it — math extraction has to happen
- * per-block, not once over the whole message, or a mid-paragraph formula
- * would land between two separate `<p>` tags.
- */
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
-  const segments = splitSegments(text);
-  return segments.flatMap((segment, i) =>
-    segment.kind === "math" ? (
-      <KatexSpan key={`${keyPrefix}-m${i}`} latex={segment.content} displayMode={segment.displayMode} />
-    ) : (
-      renderBold(segment.content, `${keyPrefix}-t${i}`)
-    )
-  );
-}
+function renderTextBlock(text: string, keyPrefix: string): ReactNode[] {
+  const lines = text.split("\n");
+  const nodes: ReactNode[] = [];
+  let bulletLines: string[] = [];
 
-const HEADING_STYLES: Record<number, string> = {
-  1: "text-[15px] font-semibold text-indigo-700",
-  2: "text-sm font-semibold text-indigo-700",
-  3: "text-sm font-semibold text-indigo-600",
-};
-
-const HEADING_PATTERN = /^(#{1,3})\s+(.*)/;
-const BULLET_PATTERN = /^[-*]\s+(.*)/;
-const NUMBERED_PATTERN = /^\d+\.\s+(.*)/;
-
-type RunType = "heading1" | "heading2" | "heading3" | "bullet" | "numbered" | "para";
-
-function classifyLine(line: string): { type: RunType; content: string } | null {
-  if (line.trim().length === 0) return null;
-  const heading = HEADING_PATTERN.exec(line);
-  if (heading) return { type: `heading${heading[1].length}` as RunType, content: heading[2] };
-  const bullet = BULLET_PATTERN.exec(line);
-  if (bullet) return { type: "bullet", content: bullet[1] };
-  const numbered = NUMBERED_PATTERN.exec(line);
-  if (numbered) return { type: "numbered", content: numbered[1] };
-  return { type: "para", content: line };
-}
-
-function renderRun(type: RunType, lines: string[], key: string, numberedStart: number): ReactNode {
-  if (type === "bullet") {
-    return (
-      <ul key={key} className="list-disc pl-5">
-        {lines.map((line, i) => (
-          <li key={i}>{renderInline(line, `${key}-${i}`)}</li>
+  const flushBullets = () => {
+    if (bulletLines.length === 0) return;
+    nodes.push(
+      <ul key={`${keyPrefix}-ul${nodes.length}`} className="list-disc pl-5">
+        {bulletLines.map((line, i) => (
+          <li key={i}>{renderInline(line, `${keyPrefix}-ul${nodes.length}-${i}`)}</li>
         ))}
       </ul>
     );
-  }
-  if (type === "numbered") {
-    return (
-      <ol key={key} className="list-decimal pl-5" start={numberedStart}>
-        {lines.map((line, i) => (
-          <li key={i}>{renderInline(line, `${key}-${i}`)}</li>
-        ))}
-      </ol>
-    );
-  }
-  if (type === "heading1" || type === "heading2" || type === "heading3") {
-    const level = Number(type.slice(-1));
-    return (
-      <p key={key} className={HEADING_STYLES[level]}>
-        {renderInline(lines[0], key)}
-      </p>
-    );
-  }
-  return (
-    <p key={key}>
-      {lines.map((line, i) => (
-        <Fragment key={i}>
-          {i > 0 && <br />}
-          {renderInline(line, `${key}-${i}`)}
-        </Fragment>
-      ))}
-    </p>
-  );
-}
-
-/**
- * Groups consecutive same-type lines (a run of bullets, a run of numbered
- * items, consecutive plain prose lines) into one block element each — a
- * blank line or a type change ends the current run. Headings always end
- * their own run immediately: models routinely write `### Heading` with
- * no blank line before the following paragraph/list (unlike the old
- * "heading must be alone in its blank-line-separated block" approach,
- * which left the heading marker unrecognized and printed as literal
- * `###` text whenever that happened).
- */
-function renderTextBlock(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const classifiedLines = text.split("\n").map(classifyLine);
-  let runType: RunType | null = null;
-  let runLines: string[] = [];
-  let runIndex = 0;
-  // Numbered-list numbering must stay sequential across the whole message,
-  // not just within one <ol> — CSS/browser numbering restarts at 1 for
-  // every new <ol>, and a run ends (new <ol>) on any non-blank-line
-  // interruption (a heading, an aside, prose between items). This counter
-  // tracks how many numbered items have been rendered so far so each new
-  // numbered <ol> can start where the last one left off via `start=`.
-  let numberedCount = 0;
-
-  const flush = () => {
-    if (runType !== null && runLines.length > 0) {
-      const start = runType === "numbered" ? numberedCount + 1 : 1;
-      nodes.push(renderRun(runType, runLines, `${keyPrefix}-r${runIndex++}`, start));
-      if (runType === "numbered") numberedCount += runLines.length;
-    }
-    runType = null;
-    runLines = [];
+    bulletLines = [];
   };
 
-  for (let i = 0; i < classifiedLines.length; i++) {
-    const classified = classifiedLines[i];
-    if (classified === null) {
-      // A blank line only ends a bullet/numbered run if it isn't just
-      // separating loosely-formatted items of the same list — models
-      // routinely put a blank line between numbered items for
-      // readability, and treating that as a hard break would restart
-      // each item as its own single-item <ol> (1, 1, 1 instead of 1, 2,
-      // 3, since list-decimal numbering is scoped per <ol>).
-      if (runType === "bullet" || runType === "numbered") {
-        const next = classifiedLines.slice(i + 1).find((c) => c !== null) ?? null;
-        if (next && next.type === runType) continue;
-      }
-      flush();
-      continue;
+  lines.forEach((line, i) => {
+    const bulletMatch = /^[-*]\s+(.*)/.exec(line);
+    if (bulletMatch) {
+      bulletLines.push(bulletMatch[1]);
+      return;
     }
-    const isHeading = classified.type.startsWith("heading");
-    if (isHeading) {
-      flush();
-      runType = classified.type;
-      runLines = [classified.content];
-      flush();
-      continue;
+    flushBullets();
+    if (line.length > 0) {
+      nodes.push(<Fragment key={`${keyPrefix}-l${i}`}>{renderInline(line, `${keyPrefix}-l${i}`)}</Fragment>);
     }
-    if (runType !== null && runType !== classified.type) {
-      flush();
+    if (i < lines.length - 1) {
+      nodes.push(<br key={`${keyPrefix}-br${i}`} />);
     }
-    runType = classified.type;
-    runLines.push(classified.content);
-  }
-  flush();
+  });
+  flushBullets();
 
   return nodes;
 }
@@ -235,9 +119,19 @@ function KatexSpan({ latex, displayMode }: { latex: string; displayMode: boolean
 }
 
 export function MathText({ text }: { text: string }): JSX.Element {
-  const blocks = useMemo(() => renderTextBlock(text, "t"), [text]);
-  // `space-y` rather than per-block margin so a single-block caller (a
-  // table cell, an equation display) gets zero extra spacing — it only
-  // takes effect between siblings, i.e. multi-paragraph chat answers.
-  return <div className="space-y-2">{blocks}</div>;
+  const segments = useMemo(() => splitSegments(text), [text]);
+
+  return (
+    <>
+      {segments.map((segment, index) => (
+        <Fragment key={index}>
+          {segment.kind === "math" ? (
+            <KatexSpan latex={segment.content} displayMode={segment.displayMode} />
+          ) : (
+            renderTextBlock(segment.content, `t${index}`)
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
 }
