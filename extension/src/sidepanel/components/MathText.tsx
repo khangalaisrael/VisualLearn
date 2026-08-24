@@ -108,7 +108,7 @@ function classifyLine(line: string): { type: RunType; content: string } | null {
   return { type: "para", content: line };
 }
 
-function renderRun(type: RunType, lines: string[], key: string): ReactNode {
+function renderRun(type: RunType, lines: string[], key: string, numberedStart: number): ReactNode {
   if (type === "bullet") {
     return (
       <ul key={key} className="list-disc pl-5">
@@ -120,7 +120,7 @@ function renderRun(type: RunType, lines: string[], key: string): ReactNode {
   }
   if (type === "numbered") {
     return (
-      <ol key={key} className="list-decimal pl-5">
+      <ol key={key} className="list-decimal pl-5" start={numberedStart}>
         {lines.map((line, i) => (
           <li key={i}>{renderInline(line, `${key}-${i}`)}</li>
         ))}
@@ -163,10 +163,19 @@ function renderTextBlock(text: string, keyPrefix: string): ReactNode[] {
   let runType: RunType | null = null;
   let runLines: string[] = [];
   let runIndex = 0;
+  // Numbered-list numbering must stay sequential across the whole message,
+  // not just within one <ol> — CSS/browser numbering restarts at 1 for
+  // every new <ol>, and a run ends (new <ol>) on any non-blank-line
+  // interruption (a heading, an aside, prose between items). This counter
+  // tracks how many numbered items have been rendered so far so each new
+  // numbered <ol> can start where the last one left off via `start=`.
+  let numberedCount = 0;
 
   const flush = () => {
     if (runType !== null && runLines.length > 0) {
-      nodes.push(renderRun(runType, runLines, `${keyPrefix}-r${runIndex++}`));
+      const start = runType === "numbered" ? numberedCount + 1 : 1;
+      nodes.push(renderRun(runType, runLines, `${keyPrefix}-r${runIndex++}`, start));
+      if (runType === "numbered") numberedCount += runLines.length;
     }
     runType = null;
     runLines = [];
