@@ -16,16 +16,25 @@ const DEFAULT_BACKEND_URL = "http://127.0.0.1:8001";
 // writes to chrome.storage.local — this default only applies until then.
 const DEFAULT_LOCAL_API_KEY = "change-me-to-a-random-value";
 
+// Matches the backend's own default (backend/app/core/config.py) so a
+// fresh install behaves identically whether the model is picked in the
+// extension's Settings tab or left at the backend's .env default.
+const DEFAULT_MODEL = "gpt-4o";
+
 export interface BackendConfig {
   backendUrl: string;
   apiKey: string;
+  vlmModel: string;
+  chatModel: string;
 }
 
 export async function getConfig(): Promise<BackendConfig> {
-  const stored = await chrome.storage.local.get(["backendUrl", "apiKey"]);
+  const stored = await chrome.storage.local.get(["backendUrl", "apiKey", "vlmModel", "chatModel"]);
   return {
     backendUrl: (stored.backendUrl as string | undefined) ?? DEFAULT_BACKEND_URL,
     apiKey: (stored.apiKey as string | undefined) ?? DEFAULT_LOCAL_API_KEY,
+    vlmModel: (stored.vlmModel as string | undefined) ?? DEFAULT_MODEL,
+    chatModel: (stored.chatModel as string | undefined) ?? DEFAULT_MODEL,
   };
 }
 
@@ -63,11 +72,12 @@ export class ApiError extends Error {
 }
 
 export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAnalysisResponse> {
-  const { backendUrl, apiKey } = await getConfig();
+  const { backendUrl, apiKey, vlmModel } = await getConfig();
 
   const formData = new FormData();
   formData.append("image", params.image, "slide.png");
   formData.append("slide_number", String(params.slideNumber));
+  formData.append("model", vlmModel);
   if (params.presentationId) {
     formData.append("presentation_id", params.presentationId);
   }
@@ -124,12 +134,16 @@ function parseSseEvent(raw: string): ChatStreamEvent | null {
  * and splits it into events on blank-line boundaries.
  */
 export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
-  const { backendUrl, apiKey } = await getConfig();
+  const { backendUrl, apiKey, chatModel } = await getConfig();
 
   const response = await fetch(`${backendUrl}/api/v1/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-    body: JSON.stringify(request),
+    // request.model, when the caller already set one, wins over the
+    // Settings-tab default — no caller does this today, but this keeps
+    // streamChat consistent with analyzeSlide's "config unless overridden"
+    // behavior rather than silently clobbering a future explicit choice.
+    body: JSON.stringify({ model: chatModel, ...request }),
   });
 
   if (!response.ok || !response.body) {

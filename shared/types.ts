@@ -13,7 +13,8 @@ export type ObjectType =
   | "diagram"
   | "graph"
   | "table"
-  | "image";
+  | "image"
+  | "code";
 
 export interface BoundingBox {
   x: number;
@@ -28,6 +29,9 @@ export interface SlideObject {
   bounding_box: BoundingBox;
   extracted_text: string | null;
   latex: string | null;
+  // Only for "code" objects (the programming language, e.g. "python"),
+  // null otherwise — same pattern as `latex`.
+  language: string | null;
   summary: string | null;
   confidence: number;
 }
@@ -50,6 +54,10 @@ export interface ChatRequest {
   slide_id: string | null;
   object_id: string | null;
   message: string;
+  // Optional per-request OpenAI model override ("gpt-4o" / "gpt-4o-mini"),
+  // set from the Settings tab's Chat Model picker. null/omitted keeps the
+  // server-configured default.
+  model?: string | null;
 }
 
 export interface ChatUsage {

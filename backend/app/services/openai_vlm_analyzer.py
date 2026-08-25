@@ -6,7 +6,7 @@ API-access/billing decision, not a reversal of ADR-004's VLM-first
 architecture (a single multimodal call with structured outputs, replacing
 separate OCR / math-OCR / layout-detection stages). This class implements
 that same architecture against a different provider, sharing the same
-prompt (prompts/analysis.v3.md) and output schema
+prompt (prompts/analysis.v4.md) and output schema
 (app/services/vlm_output.py) as ClaudeVLMAnalyzer.
 """
 
@@ -38,7 +38,7 @@ class OpenAIVLMAnalyzer:
             client = openai.AsyncOpenAI(api_key=api_key)
         self._client = client
         self.model_name = model
-        self._system_prompt = load_prompt("analysis.v3")
+        self._system_prompt = load_prompt("analysis.v4")
         self._graph_localization_prompt = load_prompt("graph_localization.v1")
 
     async def analyze(self, image_bytes: bytes) -> AnalysisResult:

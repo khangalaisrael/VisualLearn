@@ -15,7 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-ObjectType = Literal["title", "paragraph", "equation", "diagram", "graph", "table", "image"]
+ObjectType = Literal["title", "paragraph", "equation", "diagram", "graph", "table", "image", "code"]
 
 
 class BoundingBox(BaseModel):
@@ -61,6 +61,9 @@ class SlideObject(BaseModel):
     bounding_box: BoundingBox
     extracted_text: str | None = None
     latex: str | None = None
+    # Only for "code" objects (the programming language, e.g. "python"),
+    # null otherwise — same "only for its own type" pattern as `latex`.
+    language: str | None = None
     summary: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     graph_structure: GraphStructure | None = None
@@ -90,6 +93,10 @@ class ChatRequest(BaseModel):
     slide_id: str | None = None
     object_id: str | None = None
     message: str
+    # Optional per-request override of the active OpenAI model (gpt-4o /
+    # gpt-4o-mini), set from the extension's Settings tab. None keeps the
+    # server-configured default (app/api/deps.py's resolve_chat_service).
+    model: str | None = None
 
 
 class ChatUsage(BaseModel):

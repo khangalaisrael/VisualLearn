@@ -33,6 +33,7 @@ async def test_parse_analysis_payload_builds_graph_structure_when_present() -> N
                 "bounding_box": {"x": 0, "y": 0, "width": 1, "height": 1},
                 "extracted_text": None,
                 "latex": None,
+                "language": None,
                 "summary": "a graph",
                 "confidence": 0.9,
                 # Trigger only — discarded in favor of locate_graph_fn's response.
@@ -69,6 +70,7 @@ async def test_parse_analysis_payload_leaves_graph_structure_none_without_graph_
                 "bounding_box": {"x": 0, "y": 0, "width": 1, "height": 1},
                 "extracted_text": "hello",
                 "latex": None,
+                "language": None,
                 "summary": None,
                 "confidence": 0.9,
                 # graph_nodes / graph_weight_labels omitted, as a real
@@ -95,6 +97,7 @@ async def test_parse_analysis_payload_tolerates_malformed_localization_response(
                 "bounding_box": {"x": 0, "y": 0, "width": 1, "height": 1},
                 "extracted_text": None,
                 "latex": None,
+                "language": None,
                 "summary": None,
                 "confidence": 0.9,
                 "graph_nodes": [{"label": "placeholder", "x": 0.5, "y": 0.5, "radius": 0.1}],
@@ -122,6 +125,7 @@ async def test_parse_analysis_payload_tolerates_locate_graph_fn_error() -> None:
                 "bounding_box": {"x": 0, "y": 0, "width": 1, "height": 1},
                 "extracted_text": None,
                 "latex": None,
+                "language": None,
                 "summary": None,
                 "confidence": 0.9,
                 "graph_nodes": [{"label": "placeholder", "x": 0.5, "y": 0.5, "radius": 0.1}],
@@ -135,3 +139,31 @@ async def test_parse_analysis_payload_tolerates_locate_graph_fn_error() -> None:
 
     result = await parse_analysis_payload(payload, image_bytes, locate_graph_fn)
     assert result.objects[0].graph_structure is None
+
+
+async def test_parse_analysis_payload_round_trips_code_object_language() -> None:
+    image_bytes, _width, _height = _make_line_image()
+    payload = {
+        "summary": "s",
+        "objects": [
+            {
+                "type": "code",
+                "bounding_box": {"x": 0, "y": 0, "width": 1, "height": 1},
+                "extracted_text": "def f(x):\n    return x ** 2",
+                "latex": None,
+                "language": "python",
+                "summary": "A squaring function.",
+                "confidence": 0.9,
+            }
+        ],
+    }
+
+    async def locate_graph_fn(_crop_bytes: bytes) -> dict:
+        raise AssertionError("locate_graph_fn must not be called for a non-graph object")
+
+    result = await parse_analysis_payload(payload, image_bytes, locate_graph_fn)
+
+    obj = result.objects[0]
+    assert obj.type == "code"
+    assert obj.language == "python"
+    assert obj.extracted_text == "def f(x):\n    return x ** 2"

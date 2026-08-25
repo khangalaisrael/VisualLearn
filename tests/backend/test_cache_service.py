@@ -29,7 +29,7 @@ def _result() -> AnalysisResult:
 
 async def test_get_returns_none_when_not_cached(db_session) -> None:
     cache = CacheService(FakeRedis(), db_session)
-    assert await cache.get("nonexistent-hash") is None
+    assert await cache.get("nonexistent-hash", "claude-opus-4-8") is None
 
 
 async def test_set_then_get_round_trips(db_session) -> None:
@@ -39,7 +39,7 @@ async def test_set_then_get_round_trips(db_session) -> None:
     await cache.set("hash-1", result, model_used="claude-opus-4-8")
     await db_session.commit()
 
-    retrieved = await cache.get("hash-1")
+    retrieved = await cache.get("hash-1", "claude-opus-4-8")
     assert retrieved is not None
     assert retrieved.summary == "A test slide."
     assert retrieved.objects[0].extracted_text == "Hello"
@@ -57,11 +57,11 @@ async def test_get_backfills_redis_from_durable_store_after_redis_miss(db_sessio
     fresh_redis = FakeRedis()
     reader = CacheService(fresh_redis, db_session)
 
-    retrieved = await reader.get("hash-2")
+    retrieved = await reader.get("hash-2", "claude-opus-4-8")
     assert retrieved is not None
     assert retrieved.summary == "A test slide."
     # Backfilled: the fresh Redis instance now holds the entry too.
-    assert await fresh_redis.get("analysis:hash-2") is not None
+    assert await fresh_redis.get("analysis:claude-opus-4-8:hash-2") is not None
 
 
 async def test_different_hash_is_independent(db_session) -> None:
@@ -69,7 +69,19 @@ async def test_different_hash_is_independent(db_session) -> None:
     await cache.set("hash-a", _result(), model_used="claude-opus-4-8")
     await db_session.commit()
 
-    assert await cache.get("hash-b") is None
+    assert await cache.get("hash-b", "claude-opus-4-8") is None
+
+
+async def test_different_model_is_independent(db_session) -> None:
+    # Same image hash, two different models: each caches independently, so
+    # a gpt-4o-mini request never silently gets back a gpt-4o result (or
+    # vice versa) just because the image was already analyzed once.
+    cache = CacheService(FakeRedis(), db_session)
+    await cache.set("hash-shared", _result(), model_used="gpt-4o")
+    await db_session.commit()
+
+    assert await cache.get("hash-shared", "gpt-4o-mini") is None
+    assert await cache.get("hash-shared", "gpt-4o") is not None
 
 
 class _FailingRedis:
@@ -103,7 +115,7 @@ async def test_get_falls_back_to_durable_store_when_redis_is_down(db_session) ->
     # ...then read it back with Redis unavailable. Must not raise, and must
     # still return the cached result from Postgres.
     reader = CacheService(_FailingRedis(), db_session)
-    retrieved = await reader.get("hash-resilient")
+    retrieved = await reader.get("hash-resilient", "claude-opus-4-8")
 
     assert retrieved is not None
     assert retrieved.summary == "A test slide."

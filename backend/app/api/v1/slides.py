@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_slide_analyzer, verify_api_key
+from app.api.deps import get_slide_analyzer, resolve_slide_analyzer, verify_api_key
 from app.core.cache import get_redis
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -47,6 +47,7 @@ async def analyze_slide(
     image: UploadFile = File(...),
     presentation_id: str | None = Form(default=None),
     slide_number: int = Form(...),
+    model: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
     analyzer: SlideAnalyzer = Depends(get_slide_analyzer),
@@ -58,7 +59,12 @@ async def analyze_slide(
     client-supplied hash that didn't match its bytes would silently poison
     the analysis cache — recomputing costs one cheap SHA-256 pass over
     bytes already in memory and removes that trust boundary entirely.
+
+    `model` is an optional per-request override (extension Settings tab's
+    model picker) applied on top of the server-configured default analyzer
+    — see app/api/deps.py's resolve_slide_analyzer.
     """
+    analyzer = resolve_slide_analyzer(analyzer, model)
     settings = get_settings()
     image_bytes = await image.read()
 
@@ -94,7 +100,7 @@ async def analyze_slide(
         presentation = await presentations.create(title="Untitled presentation", source_type="live_capture")
 
     start = time.perf_counter()
-    cached_result = await cache.get(image_hash)
+    cached_result = await cache.get(image_hash, analyzer.model_name)
     if cached_result is not None:
         result = cached_result
         cache_hit = True

@@ -101,7 +101,7 @@ OUTPUT_SCHEMA = {
                 "properties": {
                     "type": {
                         "type": "string",
-                        "enum": ["title", "paragraph", "equation", "diagram", "graph", "table", "image"],
+                        "enum": ["title", "paragraph", "equation", "diagram", "graph", "table", "image", "code"],
                     },
                     "bounding_box": {
                         "type": "object",
@@ -116,6 +116,7 @@ OUTPUT_SCHEMA = {
                     },
                     "extracted_text": {"type": ["string", "null"]},
                     "latex": {"type": ["string", "null"]},
+                    "language": {"type": ["string", "null"]},
                     "summary": {"type": ["string", "null"]},
                     "confidence": {"type": "number"},
                     "graph_nodes": {
@@ -151,6 +152,7 @@ OUTPUT_SCHEMA = {
                     "bounding_box",
                     "extracted_text",
                     "latex",
+                    "language",
                     "summary",
                     "confidence",
                     "graph_nodes",
@@ -208,6 +210,7 @@ async def to_slide_object(raw: dict, image_bytes: bytes, locate_graph_fn: Locate
         bounding_box=BoundingBox(**raw["bounding_box"]),
         extracted_text=raw["extracted_text"],
         latex=raw["latex"],
+        language=raw["language"],
         summary=raw["summary"],
         confidence=clamp_confidence(raw["confidence"]),
         graph_structure=await _build_graph_structure_safely(raw, image_bytes, locate_graph_fn),

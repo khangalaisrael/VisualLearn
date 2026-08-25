@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
 
+    # Which OpenAI model OpenAIVLMAnalyzer calls for slide capture analysis.
+    # "gpt-4o" (default) is the higher-accuracy, higher-cost option; "gpt-4o-mini"
+    # is ~16x cheaper per token but weaker at dense equation/diagram reading —
+    # see docs/adr/ADR-009-openai-as-active-vlm-provider.md. Does not affect
+    # chat — see openai_chat_model below.
+    openai_vlm_model: str = "gpt-4o"
+
+    # Which OpenAI model OpenAIChatService calls for Ask-tab chat. Same
+    # gpt-4o / gpt-4o-mini tradeoff as openai_vlm_model above, set
+    # independently since capture accuracy and chat accuracy needs may differ.
+    openai_chat_model: str = "gpt-4o"
+
     # Shared secret between the extension and this backend (see ADR-007).
     # CORS is intentionally left open (see main.py) — this header is the
     # actual access control for a locally-run, single-user backend.

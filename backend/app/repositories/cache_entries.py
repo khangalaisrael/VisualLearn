@@ -13,8 +13,10 @@ class CacheEntryRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def get_by_hash(self, image_hash: str) -> CacheEntry | None:
-        result = await self._db.execute(select(CacheEntry).where(CacheEntry.image_hash == image_hash))
+    async def get_by_hash(self, image_hash: str, model: str) -> CacheEntry | None:
+        result = await self._db.execute(
+            select(CacheEntry).where(CacheEntry.image_hash == image_hash, CacheEntry.model_used == model)
+        )
         return result.scalar_one_or_none()
 
     async def create(

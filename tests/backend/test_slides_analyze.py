@@ -180,3 +180,41 @@ async def test_analyze_rejects_oversized_upload(client: AsyncClient) -> None:
         assert response.status_code == 413
     finally:
         settings.max_upload_bytes = original_limit
+
+
+async def test_analyze_model_field_matching_default_is_a_no_op(client: AsyncClient) -> None:
+    # PlaceholderSlideAnalyzer.model_name == "placeholder" (tests/backend/
+    # conftest.py's override). Sending that back as `model` must behave
+    # identically to omitting the field entirely.
+    response = await client.post(
+        "/api/v1/slides/analyze",
+        files={"image": ("slide.png", _fake_png_bytes(), "image/png")},
+        data={"slide_number": "1", "model": "placeholder"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+    assert response.status_code == 200
+    assert response.json()["cache_hit"] is False
+
+
+async def test_analyze_model_override_without_openai_backend_is_rejected(client: AsyncClient) -> None:
+    # The active analyzer under test is PlaceholderSlideAnalyzer, not
+    # OpenAIVLMAnalyzer — requesting a different real model must be
+    # rejected (422), never silently ignored or, worse, allowed to
+    # construct a real OpenAI client with no key configured.
+    response = await client.post(
+        "/api/v1/slides/analyze",
+        files={"image": ("slide.png", _fake_png_bytes(), "image/png")},
+        data={"slide_number": "1", "model": "gpt-4o-mini"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+    assert response.status_code == 422
+
+
+async def test_analyze_rejects_unsupported_model_name(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/slides/analyze",
+        files={"image": ("slide.png", _fake_png_bytes(), "image/png")},
+        data={"slide_number": "1", "model": "not-a-real-model"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+    assert response.status_code == 422

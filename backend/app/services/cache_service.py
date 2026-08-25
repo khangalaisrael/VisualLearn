@@ -14,8 +14,14 @@ Redis write fails.
 
 Keyed globally by image hash, not scoped to a presentation: the same
 screenshot bytes reappearing in a different deck should still skip the
-Claude call (see api/v1/slides.py for how this differs from the
+model call (see api/v1/slides.py for how this differs from the
 presentation-scoped slide de-duplication in repositories/slides.py).
+
+Also scoped by model: the same image analyzed under a different model
+(the extension's model picker lets a caller choose gpt-4o vs gpt-4o-mini
+per request) caches independently, so a cheaper/less-accurate result
+never gets silently served in place of the one the caller actually asked
+for, or vice versa.
 """
 
 import json
@@ -42,13 +48,13 @@ class CacheService:
         self._redis = redis
         self._cache_entries = CacheEntryRepository(db)
 
-    async def get(self, image_hash: str) -> AnalysisResult | None:
-        redis_key = _REDIS_KEY_PREFIX + image_hash
+    async def get(self, image_hash: str, model: str) -> AnalysisResult | None:
+        redis_key = f"{_REDIS_KEY_PREFIX}{model}:{image_hash}"
         cached_json = await self._safe_redis_get(redis_key)
         if cached_json is not None:
             return self._deserialize(cached_json)
 
-        entry = await self._cache_entries.get_by_hash(image_hash)
+        entry = await self._cache_entries.get_by_hash(image_hash, model)
         if entry is None:
             return None
 
@@ -60,7 +66,7 @@ class CacheService:
         serialized = self._serialize(result)
         cached_json = json.dumps(serialized)
 
-        await self._safe_redis_set(_REDIS_KEY_PREFIX + image_hash, cached_json)
+        await self._safe_redis_set(f"{_REDIS_KEY_PREFIX}{model_used}:{image_hash}", cached_json)
         await self._cache_entries.create(
             image_hash=image_hash,
             analysis_result=serialized,

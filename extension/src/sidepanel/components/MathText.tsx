@@ -1,13 +1,15 @@
 /**
- * Renders text containing inline/block LaTeX math alongside plain text.
- * Chat answers and equation objects both mix prose with LaTeX (delimited
- * as $$...$$, \[...\], $...$, or \(...\) — the model isn't told which
- * style to use, so all four are recognized), so this is shared rather
- * than duplicated between AskTab's object cards and its chat bubbles.
+ * Renders text containing inline/block LaTeX math and fenced code blocks
+ * alongside plain text. Chat answers and equation objects both mix prose
+ * with LaTeX (delimited as $$...$$, \[...\], $...$, or \(...\) — the model
+ * isn't told which style to use, so all four are recognized), so this is
+ * shared rather than duplicated between AskTab's object cards and its chat
+ * bubbles. Chat answers can also contain ``` fenced code blocks (see
+ * prompts/chat_figure.v5.md / chat_slide.v5.md), rendered via CodeBlock.
  *
- * Non-math text segments also get light formatting for **bold** spans,
- * `- `/`* ` bullet lists, and line breaks — chat answers commonly use
- * these and rendering them as one raw blob was hard to read. This is a
+ * Non-math, non-code text segments also get light formatting for **bold**
+ * spans, `- `/`* ` bullet lists, and line breaks — chat answers commonly
+ * use these and rendering them as one raw blob was hard to read. This is a
  * small regex pass, not a full markdown parser, kept in-repo rather than
  * pulling in a markdown dependency for a narrow need.
  */
@@ -15,15 +17,18 @@
 import katex from "katex";
 import { Fragment, type ReactNode, useMemo } from "react";
 
+import { CodeBlock } from "./CodeBlock";
+
 interface Segment {
-  kind: "text" | "math";
+  kind: "text" | "math" | "code";
   content: string;
   displayMode: boolean;
+  language?: string;
 }
 
 const MATH_PATTERN = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$\n]+?)\$|\\\(([\s\S]+?)\\\)/g;
 
-function splitSegments(text: string): Segment[] {
+function splitMathSegments(text: string): Segment[] {
   const segments: Segment[] = [];
   let lastIndex = 0;
 
@@ -40,6 +45,36 @@ function splitSegments(text: string): Segment[] {
   }
   if (lastIndex < text.length) {
     segments.push({ kind: "text", content: text.slice(lastIndex), displayMode: false });
+  }
+  return segments;
+}
+
+// Carved out before math splitting runs, so `$`/`\(`/etc. characters
+// appearing inside a code fence (e.g. shell prompts, regex literals) are
+// never mistaken for LaTeX delimiters — code segments are extracted first,
+// and the math pass only ever sees what's left over.
+const CODE_FENCE_PATTERN = /```(\w*)\n?([\s\S]*?)```/g;
+
+function splitSegments(text: string): Segment[] {
+  const segments: Segment[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(CODE_FENCE_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      segments.push(...splitMathSegments(text.slice(lastIndex, index)));
+    }
+    const [, language, code] = match;
+    segments.push({
+      kind: "code",
+      content: code.replace(/\n$/, ""),
+      displayMode: false,
+      language: language || undefined,
+    });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    segments.push(...splitMathSegments(text.slice(lastIndex)));
   }
   return segments;
 }
@@ -127,6 +162,8 @@ export function MathText({ text }: { text: string }): JSX.Element {
         <Fragment key={index}>
           {segment.kind === "math" ? (
             <KatexSpan latex={segment.content} displayMode={segment.displayMode} />
+          ) : segment.kind === "code" ? (
+            <CodeBlock code={segment.content} language={segment.language} />
           ) : (
             renderTextBlock(segment.content, `t${index}`)
           )}

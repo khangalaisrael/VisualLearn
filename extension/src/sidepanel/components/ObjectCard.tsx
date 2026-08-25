@@ -7,6 +7,7 @@
 
 import type { ObjectType, SlideObject } from "@shared/types";
 
+import { CodeBlock } from "./CodeBlock";
 import { MathText } from "./MathText";
 
 const TYPE_STYLES: Record<ObjectType, string> = {
@@ -17,6 +18,7 @@ const TYPE_STYLES: Record<ObjectType, string> = {
   graph: "bg-purple-100 text-purple-700",
   table: "bg-amber-100 text-amber-700",
   image: "bg-teal-100 text-teal-700",
+  code: "bg-cyan-100 text-cyan-700",
 };
 
 /**
@@ -107,6 +109,10 @@ export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
         </div>
       )}
 
+      {object.type === "code" && object.extracted_text && (
+        <CodeBlock code={object.extracted_text} language={object.language} />
+      )}
+
       {object.type === "table" && object.extracted_text ? (
         tableRows ? (
           <TableView rows={tableRows} />
@@ -117,6 +123,7 @@ export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
         )
       ) : (
         object.type !== "equation" &&
+        object.type !== "code" &&
         object.extracted_text && <p className="text-slate-700">{object.extracted_text}</p>
       )}
 

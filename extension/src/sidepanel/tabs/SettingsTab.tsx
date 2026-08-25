@@ -19,6 +19,8 @@ type ConnectionState =
 export function SettingsTab(): JSX.Element {
   const [backendUrl, setBackendUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [vlmModel, setVlmModel] = useState("gpt-4o");
+  const [chatModel, setChatModel] = useState("gpt-4o");
   const [saved, setSaved] = useState(false);
   const [connection, setConnection] = useState<ConnectionState>({ status: "idle" });
 
@@ -26,11 +28,13 @@ export function SettingsTab(): JSX.Element {
     getConfig().then((config) => {
       setBackendUrl(config.backendUrl);
       setApiKey(config.apiKey);
+      setVlmModel(config.vlmModel);
+      setChatModel(config.chatModel);
     });
   }, []);
 
   const save = async () => {
-    await setConfig({ backendUrl: backendUrl.trim(), apiKey: apiKey.trim() });
+    await setConfig({ backendUrl: backendUrl.trim(), apiKey: apiKey.trim(), vlmModel, chatModel });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -76,6 +80,26 @@ export function SettingsTab(): JSX.Element {
           placeholder="LOCAL_API_KEY from .env"
           className={`${inputClass} font-mono`}
         />
+      </label>
+
+      <label className="flex flex-col gap-1.5 text-sm">
+        <span className="font-medium text-slate-700">Slide Analysis Model</span>
+        <select value={vlmModel} onChange={(event) => setVlmModel(event.target.value)} className={inputClass}>
+          <option value="gpt-4o">gpt-4o — Accurate, higher cost</option>
+          <option value="gpt-4o-mini">gpt-4o-mini — Fast, lower cost</option>
+        </select>
+        <span className="text-xs text-slate-500">
+          Used for "Capture Current Slide". Equations and diagrams read best with gpt-4o.
+        </span>
+      </label>
+
+      <label className="flex flex-col gap-1.5 text-sm">
+        <span className="font-medium text-slate-700">Chat Model</span>
+        <select value={chatModel} onChange={(event) => setChatModel(event.target.value)} className={inputClass}>
+          <option value="gpt-4o">gpt-4o — Accurate, higher cost</option>
+          <option value="gpt-4o-mini">gpt-4o-mini — Fast, lower cost</option>
+        </select>
+        <span className="text-xs text-slate-500">Used for questions asked in the Ask tab.</span>
       </label>
 
       <div className="flex items-center gap-3">

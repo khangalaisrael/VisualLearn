@@ -43,7 +43,7 @@ class ClaudeVLMAnalyzer:
             client = anthropic.AsyncAnthropic(api_key=api_key)
         self._client = client
         self.model_name = model
-        self._system_prompt = load_prompt("analysis.v3")
+        self._system_prompt = load_prompt("analysis.v4")
         self._graph_localization_prompt = load_prompt("graph_localization.v1")
 
     async def analyze(self, image_bytes: bytes) -> AnalysisResult:

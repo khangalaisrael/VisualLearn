@@ -2,7 +2,7 @@
 
 Status: Draft v1 · Companion docs: [ARCHITECTURE.md](./ARCHITECTURE.md) · [API_CONTRACT.md](./API_CONTRACT.md)
 
-Per the Engineering Playbook's requirement to "maintain a Prompt Library," prompts are versioned artifacts (`analysis.v1`, `chat_slide.v1`, ...) so a prompt change can be A/B'd or rolled back independently of code. `analysis.v3` and `graph_localization.v1` are implemented as of Milestone 2 (`v3` per the math-notation fix below); `chat_figure.v2`/`chat_slide.v2` as of Milestone 3 (§3 below). The quiz/notes prompts remain design-time sketches until their milestones land.
+Per the Engineering Playbook's requirement to "maintain a Prompt Library," prompts are versioned artifacts (`analysis.v1`, `chat_slide.v1`, ...) so a prompt change can be A/B'd or rolled back independently of code. `analysis.v4` and `graph_localization.v1` are implemented as of Milestone 2 (`v4` adds code-object detection, see below); `chat_figure.v5`/`chat_slide.v5` as of Milestone 3 (§3 below). The quiz/notes prompts remain design-time sketches until their milestones land.
 
 ## 1. Conventions
 
@@ -11,13 +11,15 @@ Per the Engineering Playbook's requirement to "maintain a Prompt Library," promp
 - **Structured outputs over prefill.** Every prompt that needs a specific shape back uses `output_config.format` (JSON Schema), not assistant-message prefilling — this is required behavior on current Claude models, not a style preference.
 - **Versioning.** File naming: `{purpose}.v{n}.md` under the top-level `prompts/` directory, loaded by `backend/app/core/prompt_loader.py`.
 
-## 2. Slide Analysis Prompt (`analysis.v3`)
+## 2. Slide Analysis Prompt (`analysis.v4`)
 
 Used by both `OpenAIVLMAnalyzer` (default, see [ADR-009](./adr/ADR-009-openai-as-active-vlm-provider.md)) and `ClaudeVLMAnalyzer` (see [ARCHITECTURE.md](./ARCHITECTURE.md) §4.1–4.2) — one call replaces the separate OCR / Math OCR / layout-detection / figure-classification stages from the original spec, regardless of which provider is active.
 
-**System prompt:** [`prompts/analysis.v3.md`](../prompts/analysis.v3.md) — loaded verbatim as the `system` message/parameter by both analyzers. Provider-agnostic on purpose: plain instruction text, nothing Claude- or OpenAI-specific in it. `v1`/`v2` (unchanged) remain in the repo per the versioning convention below — this is an additive new version, not an in-place edit.
+**System prompt:** [`prompts/analysis.v4.md`](../prompts/analysis.v4.md) — loaded verbatim as the `system` message/parameter by both analyzers. Provider-agnostic on purpose: plain instruction text, nothing Claude- or OpenAI-specific in it. `v1`/`v2`/`v3` (unchanged) remain in the repo per the versioning convention below — this is an additive new version, not an in-place edit.
 
 **`v3` addition:** `v2` scoped LaTeX formatting exclusively to the `latex` field on `equation`-type objects, so math notation embedded in a `diagram`/`paragraph`/`table` object's `extracted_text` or `summary` (e.g. inequalities, subscripts, Big-O notation) was transcribed as raw ASCII text instead of typeset LaTeX. `v3` adds a "Math notation formatting" section instructing the model to wrap inline math anywhere it appears — not just in dedicated equation objects — in `$...$` delimiters, with worked examples. The extension's `MathText` component (`extension/src/sidepanel/components/MathText.tsx`) already recognized these delimiters everywhere; it just had nothing to render before this fix.
+
+**`v4` addition (direct user request — code detection):** slides containing source code had no dedicated object type — code was misclassified as `paragraph` and lost its formatting. `v4` adds a `code` object type and a `language` field (the code-object equivalent of `equation`/`latex`), plus an explicit carve-out excluding `code` objects from the "Math notation formatting" rule above (code operators like `<=`/`**`/`->` must never be LaTeX-wrapped). The extension's `ObjectCard.tsx` renders `code` objects via a new self-hosted syntax highlighter (`highlight.js`) instead of falling through to plain paragraph text.
 
 **Output constraint:** each provider's structured-outputs feature (Anthropic's `output_config.format`, OpenAI's `response_format` with `json_schema` + `strict`) is given the same JSON Schema for `{"summary": str, "objects": [SlideObject, ...]}`, defined once in `backend/app/services/vlm_output.py` rather than derived from `SlideObject` (see [API_CONTRACT.md](./API_CONTRACT.md) §2 for that Pydantic model). Deliberate differences from a literal `SlideObject` mirror:
 - **`id` is not requested from the model.** Assigning stable unique identifiers is a server-side concern; the shared parsing logic generates a UUID per object after parsing the response instead of trusting the model to invent non-colliding ids.
@@ -38,7 +40,7 @@ Used by both `OpenAIVLMAnalyzer` (default, see [ADR-009](./adr/ADR-009-openai-as
 
 **Effort:** `medium` on OpenAI (no separate effort control), `low` on Claude — a small, focused crop is a lighter task than full-slide analysis.
 
-## 3. Chat Prompts, by Query Mode (`chat_{mode}.v4`)
+## 3. Chat Prompts, by Query Mode (`chat_{mode}.v5`)
 
 All chat prompts share a system-prompt skeleton (assistant persona: "You are VisionLearn, a STEM tutor embedded in the student's lecture view. Never fabricate content not present in the provided slide data.") and differ in the context assembled into the cached prefix.
 
@@ -48,10 +50,12 @@ All chat prompts share a system-prompt skeleton (assistant persona: "You are Vis
 
 **`v4` addition (direct user request — "make the whole response better... study what makes an explanation good"):** `v3` still forced every answer, on-topic or off, into a fixed "1. Summary 2. Detailed explanation 3. Related concepts 4. References 5. Suggested follow-up" template — mechanical rather than genuinely well-taught, and a mismatch for a one-line "simplify" question or a fully off-topic answer alike. `v4` replaces the numbered template with adaptive pedagogy guidance (orient before detailing, concrete before abstract, define terms on first use, anchor to the slide naturally instead of a bolted-on References line, match depth to the question, end with a natural unlabeled follow-up when it fits). The extension's `extractFollowUpQuestion` (`AskTab.tsx`) already has a fallback chain that finds a trailing question even without the old heading, so this needed no client-side change. `v1`/`v2`/`v3` (unchanged) remain in the repo, unused, per the versioning convention.
 
+**`v5` addition (direct user request — code detection, paired with `analysis.v4`):** neither prompt gave the model any instruction for formatting source code in an answer, so a code-containing response came back as unformatted prose instead of a fenced block. `v5` adds an instruction to wrap any code in the answer in a fenced code block (triple backticks + language tag), explicitly excluded from the existing LaTeX math-delimiter instruction so code operators aren't mistaken for math notation. The extension's `MathText` component now recognizes fenced code blocks as a third segment kind (alongside text/math) and renders them via a new `CodeBlock` component using a self-hosted `highlight.js`.
+
 | Mode | Context content | Notes |
 |---|---|---|
-| Figure | The selected object's `bounding_box`/`extracted_text`/`latex`/`summary` + its slide's summary. | Smallest context; `effort: low`. **Implemented** ([`prompts/chat_figure.v4.md`](../prompts/chat_figure.v4.md)). |
-| Slide | All objects on the current slide, ordered by reading position (approximated by `bounding_box.y` then `.x` — no explicit reading-order field exists yet). | `effort: medium`. **Implemented** ([`prompts/chat_slide.v4.md`](../prompts/chat_slide.v4.md)). |
+| Figure | The selected object's `bounding_box`/`extracted_text`/`latex`/`language`/`summary` + its slide's summary. | Smallest context; `effort: low`. **Implemented** ([`prompts/chat_figure.v5.md`](../prompts/chat_figure.v5.md)). |
+| Slide | All objects on the current slide, ordered by reading position (approximated by `bounding_box.y` then `.x` — no explicit reading-order field exists yet). | `effort: medium`. **Implemented** ([`prompts/chat_slide.v5.md`](../prompts/chat_slide.v5.md)). |
 | Presentation | Retrieved top-k objects/slide-summaries from `RetrievalService` + prior conversation turns. | `effort: high` — cross-slide synthesis benefits from deeper reasoning. **Not implemented** (M4, needs `RetrievalService`) — `POST /chat` rejects this mode with `400` for now. |
 | General | No slide grounding; persona only. | Same persona, explicitly told it has no slide context this turn. **Not implemented** — rejected with `400`. |
 | Auto | Backend resolves to one of the above before prompt assembly (see [ARCHITECTURE.md](./ARCHITECTURE.md) §4.3) — no separate prompt of its own. | **Not implemented** — rejected with `400`. |

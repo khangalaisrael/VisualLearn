@@ -18,6 +18,11 @@ from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 
 logger = logging.getLogger(__name__)
 
+# Models the extension's Settings-tab picker is allowed to request per
+# capture/chat call (see SettingsTab.tsx). Constrained rather than
+# free-text so a typo can't reach OpenAI's API and produce an opaque error.
+_ALLOWED_OPENAI_MODELS = {"gpt-4o", "gpt-4o-mini"}
+
 
 def _build_slide_analyzer() -> SlideAnalyzer:
     """Selects the active SlideAnalyzer implementation once at import time.
@@ -34,7 +39,7 @@ def _build_slide_analyzer() -> SlideAnalyzer:
     """
     settings = get_settings()
     if settings.openai_api_key:
-        return OpenAIVLMAnalyzer(api_key=settings.openai_api_key)
+        return OpenAIVLMAnalyzer(api_key=settings.openai_api_key, model=settings.openai_vlm_model)
     if settings.anthropic_api_key:
         return ClaudeVLMAnalyzer(api_key=settings.anthropic_api_key)
     logger.warning(
@@ -74,7 +79,7 @@ def _build_chat_service() -> ChatService | None:
     """
     settings = get_settings()
     if settings.openai_api_key:
-        return OpenAIChatService(api_key=settings.openai_api_key)
+        return OpenAIChatService(api_key=settings.openai_api_key, model=settings.openai_chat_model)
     if settings.anthropic_api_key:
         return ClaudeChatService(api_key=settings.anthropic_api_key)
     logger.warning(
@@ -93,6 +98,45 @@ async def get_chat_service() -> ChatService | None:
     this dependency directly (tests/backend/conftest.py) to guarantee they
     never call a real provider API."""
     return _chat_service
+
+
+def resolve_slide_analyzer(default: SlideAnalyzer, requested_model: str | None) -> SlideAnalyzer:
+    """Applies a per-request model override from the extension's Settings
+    picker on top of the process-wide default `SlideAnalyzer`.
+
+    Deliberately a plain function, not a second FastAPI dependency: it
+    needs the request body's `model` field, which plain `Depends()` can't
+    see without duplicating the route's own parameter parsing. Routes call
+    this themselves, right after `Depends(get_slide_analyzer)` resolves.
+
+    The `isinstance` check is also what keeps tests safe: `default` is
+    always `PlaceholderSlideAnalyzer` under `tests/backend/conftest.py`'s
+    dependency override, so this never falls through to constructing a
+    real `OpenAIVLMAnalyzer` unless a real one was already active.
+    """
+    if not requested_model or requested_model == default.model_name:
+        return default
+    if requested_model not in _ALLOWED_OPENAI_MODELS:
+        raise HTTPException(status_code=422, detail=f"Unsupported model '{requested_model}'")
+    if not isinstance(default, OpenAIVLMAnalyzer):
+        raise HTTPException(status_code=422, detail="Model override requires an OpenAI-configured backend")
+    settings = get_settings()
+    return OpenAIVLMAnalyzer(api_key=settings.openai_api_key, model=requested_model)
+
+
+def resolve_chat_service(default: ChatService | None, requested_model: str | None) -> ChatService | None:
+    """Mirrors `resolve_slide_analyzer` for chat. `default` may be `None`
+    (no provider key configured) — callers must handle that themselves
+    before calling this, same as they already do for the un-overridden
+    case."""
+    if default is None or not requested_model or requested_model == default.model_name:
+        return default
+    if requested_model not in _ALLOWED_OPENAI_MODELS:
+        raise HTTPException(status_code=422, detail=f"Unsupported model '{requested_model}'")
+    if not isinstance(default, OpenAIChatService):
+        raise HTTPException(status_code=422, detail="Model override requires an OpenAI-configured backend")
+    settings = get_settings()
+    return OpenAIChatService(api_key=settings.openai_api_key, model=requested_model)
 
 
 async def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:

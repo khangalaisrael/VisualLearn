@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
-from app.api.deps import get_chat_service, verify_api_key
+from app.api.deps import get_chat_service, resolve_chat_service, verify_api_key
 from app.core.prompt_loader import load_prompt
 from app.db.session import get_db
 from app.models.orm import ObjectRecord
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v4", "slide": "chat_slide.v4"}
+_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium"}
 
 
@@ -53,6 +53,8 @@ def _format_object(obj: ObjectRecord) -> str:
         lines.append(f"  extracted_text: {obj.extracted_text}")
     if obj.latex:
         lines.append(f"  latex: {obj.latex}")
+    if obj.language:
+        lines.append(f"  language: {obj.language}")
     if obj.summary:
         lines.append(f"  summary: {obj.summary}")
     return "\n".join(lines)
@@ -181,6 +183,7 @@ async def chat(
 ) -> StreamingResponse:
     if chat_service is None:
         raise HTTPException(status_code=503, detail="Chat is not configured (no provider API key set)")
+    chat_service = resolve_chat_service(chat_service, request.model)
 
     if request.query_mode not in _PROMPT_BY_MODE:
         raise HTTPException(status_code=400, detail=f"query_mode '{request.query_mode}' is not yet supported")

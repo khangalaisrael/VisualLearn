@@ -81,13 +81,18 @@ class CacheEntry(Base):
     (app/services/cache_service.py) — see docs/DATA_MODEL.md `cache_entries`
     and docs/ARCHITECTURE.md §5. Keyed globally by image hash, independent
     of any single presentation or slide, so an identical screenshot
-    reappearing in a different deck still skips the Claude call.
+    reappearing in a different deck still skips the model call — and scoped
+    by `model_used` too, so a gpt-4o-mini result never gets served for a
+    gpt-4o request or vice versa (see the extension's model picker).
     """
 
     __tablename__ = "cache_entries"
+    __table_args__ = (
+        UniqueConstraint("image_hash", "model_used", name="uq_cache_entry_image_hash_model_used"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    image_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    image_hash: Mapped[str] = mapped_column(String(64))
     slide_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("slides.id"), nullable=True)
     analysis_result: Mapped[dict] = mapped_column(JSON)
     model_used: Mapped[str] = mapped_column(String(64))
@@ -112,6 +117,7 @@ class ObjectRecord(Base):
     bounding_box: Mapped[dict] = mapped_column(JSON)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     latex: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language: Mapped[str | None] = mapped_column(String(32), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[float] = mapped_column(Float)
     # Deviation from docs/DATA_MODEL.md's original draft (predates ADR-010):

@@ -184,3 +184,46 @@ async def test_analyze_same_image_second_presentation_does_not_collide_on_object
     assert second.status_code == 200
     assert second.json()["cache_hit"] is True
     assert second.json()["objects"][0]["id"] != first.json()["objects"][0]["id"]
+
+
+async def test_chat_model_field_matching_default_is_a_no_op(client: AsyncClient) -> None:
+    # FakeChatService.model_name == "fake-chat-model" (tests/backend/
+    # conftest.py's override). Sending that back as `model` must behave
+    # identically to omitting the field entirely.
+    analysis = await _analyze_slide(client)
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "slide",
+            "slide_id": analysis["slide_id"],
+            "message": "What is this?",
+            "model": "fake-chat-model",
+        },
+        headers=_HEADERS,
+    )
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[-1][0] == "done"
+
+
+async def test_chat_model_override_without_openai_backend_is_rejected(client: AsyncClient) -> None:
+    # The active chat service under test is FakeChatService, not
+    # OpenAIChatService — requesting a different real model must be
+    # rejected (422), never silently ignored or allowed to construct a
+    # real OpenAI client with no key configured.
+    analysis = await _analyze_slide(client)
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "slide",
+            "slide_id": analysis["slide_id"],
+            "message": "What is this?",
+            "model": "gpt-4o-mini",
+        },
+        headers=_HEADERS,
+    )
+    assert response.status_code == 422
