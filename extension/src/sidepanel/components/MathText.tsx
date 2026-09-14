@@ -8,10 +8,11 @@
  * prompts/chat_figure.v5.md / chat_slide.v5.md), rendered via CodeBlock.
  *
  * Non-math, non-code text segments also get light formatting for **bold**
- * spans, `- `/`* ` bullet lists, and line breaks — chat answers commonly
- * use these and rendering them as one raw blob was hard to read. This is a
- * small regex pass, not a full markdown parser, kept in-repo rather than
- * pulling in a markdown dependency for a narrow need.
+ * spans, `#`/`##`/`###` headings, `- `/`* ` bullet lists, and line breaks —
+ * chat answers commonly use these and rendering them as one raw blob was
+ * hard to read. This is a small regex pass, not a full markdown parser,
+ * kept in-repo rather than pulling in a markdown dependency for a narrow
+ * need.
  */
 
 import katex from "katex";
@@ -79,6 +80,14 @@ function splitSegments(text: string): Segment[] {
   return segments;
 }
 
+const HEADING_PATTERN = /^(#{1,6})\s+(.*)/;
+
+const HEADING_CLASSES = [
+  "block text-base font-semibold text-slate-800",
+  "block text-sm font-semibold text-slate-800",
+  "block text-sm font-semibold text-slate-700",
+] as const;
+
 const BOLD_PATTERN = /\*\*([^*]+)\*\*/g;
 
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
@@ -117,6 +126,19 @@ function renderTextBlock(text: string, keyPrefix: string): ReactNode[] {
   };
 
   lines.forEach((line, i) => {
+    const headingMatch = HEADING_PATTERN.exec(line);
+    if (headingMatch) {
+      flushBullets();
+      const level = headingMatch[1].length;
+      const HeadingTag = (level === 1 ? "h1" : level === 2 ? "h2" : "h3") as "h1" | "h2" | "h3";
+      const className = HEADING_CLASSES[Math.min(level, 3) - 1];
+      nodes.push(
+        <HeadingTag key={`${keyPrefix}-h${i}`} className={className}>
+          {renderInline(headingMatch[2], `${keyPrefix}-h${i}`)}
+        </HeadingTag>
+      );
+      return;
+    }
     const bulletMatch = /^[-*]\s+(.*)/.exec(line);
     if (bulletMatch) {
       bulletLines.push(bulletMatch[1]);
