@@ -45,7 +45,7 @@ export interface SlideAnalysisResponse {
   summary: string;
 }
 
-export type QueryMode = "figure" | "slide" | "presentation" | "general" | "auto";
+export type QueryMode = "figure" | "slide" | "algorithm" | "presentation" | "general" | "auto";
 
 export interface ChatRequest {
   conversation_id: string | null;

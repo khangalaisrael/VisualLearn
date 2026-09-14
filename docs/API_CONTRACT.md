@@ -111,8 +111,8 @@ Ask a question grounded in a query mode. Response is Server-Sent Events, relayed
 ChatRequest:
   conversation_id: str | null     # null → new conversation
   presentation_id: str | null     # required unless query_mode == "general"
-  query_mode: "figure" | "slide" | "presentation" | "general" | "auto"
-  slide_id: str | null            # required for "slide"/"figure"
+  query_mode: "figure" | "slide" | "algorithm" | "presentation" | "general" | "auto"
+  slide_id: str | null            # required for "slide"/"figure"/"algorithm"
   object_id: str | null           # required for "figure"
   message: str
 ```

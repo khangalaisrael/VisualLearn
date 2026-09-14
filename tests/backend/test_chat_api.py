@@ -90,6 +90,30 @@ async def test_chat_slide_mode_streams_answer(client: AsyncClient) -> None:
     assert done_events[0]["referenced_object_ids"] == [analysis["objects"][0]["id"]]
 
 
+async def test_chat_algorithm_mode_streams_answer(client: AsyncClient) -> None:
+    """Milestone: docs/AlgorithmsMVP.md Phase 1 — "algorithm" mode reuses
+    the "slide" context builder (same referenced_object_ids behavior) but
+    with an algorithms-aware prompt."""
+    analysis = await _analyze_slide(client)
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": analysis["slide_id"],
+            "message": "Why is this O(n log n)?",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    done_events = [data for name, data in events if name == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["referenced_object_ids"] == [analysis["objects"][0]["id"]]
+
+
 async def test_chat_figure_mode_requires_object_id(client: AsyncClient) -> None:
     analysis = await _analyze_slide(client)
 

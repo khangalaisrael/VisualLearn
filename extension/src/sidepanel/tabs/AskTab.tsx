@@ -5,6 +5,12 @@
  * grounded on every object detected on the captured slide. "Figure" mode
  * (grounded on a single selected object) needs the overlay renderer, which
  * doesn't exist yet, so there is no object picker here.
+ *
+ * The "Algorithm mode" checkbox switches the query_mode to "algorithm"
+ * (docs/AlgorithmsMVP.md Phase 1) instead of "slide" for the next question —
+ * same slide grounding, but an algorithms-aware prompt (complexity
+ * reasoning, recurrences, common misconceptions). There's no automatic
+ * detection of algorithmic slide content yet, so it's a manual toggle.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -127,7 +133,9 @@ export function AskTab(): JSX.Element {
   const [chatError, setChatError] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const latestUserMessageRef = useRef<HTMLLIElement | null>(null);
+  const [latestUserMessageId, setLatestUserMessageId] = useState<string | null>(null);
+  const [algorithmMode, setAlgorithmMode] = useState(false);
 
   useEffect(() => {
     const listener = (message: SlideAnalyzedMessage | SlideAnalysisFailedMessage) => {
@@ -178,12 +186,13 @@ export function AskTab(): JSX.Element {
         userMessage,
         { id: assistantMessageId, role: "assistant", content: "", timestamp: Date.now() },
       ]);
+      setLatestUserMessageId(userMessage.id);
 
       try {
         for await (const event of streamChat({
           conversation_id: conversationIdRef.current,
           presentation_id,
-          query_mode: "slide",
+          query_mode: algorithmMode ? "algorithm" : "slide",
           slide_id,
           object_id: null,
           message: question,
@@ -204,7 +213,7 @@ export function AskTab(): JSX.Element {
         setIsStreaming(false);
       }
     },
-    [state, isStreaming]
+    [state, isStreaming, algorithmMode]
   );
 
   const sendChatMessage = useCallback(async () => {
@@ -221,8 +230,8 @@ export function AskTab(): JSX.Element {
   }, [askQuestion]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, isStreaming]);
+    latestUserMessageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [latestUserMessageId]);
 
   return (
     <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
@@ -266,7 +275,23 @@ export function AskTab(): JSX.Element {
 
       {state.status === "loaded" && (
         <div className="flex flex-1 flex-col gap-3 border-t border-slate-200 pt-4">
-          <p className="text-sm font-medium text-slate-700">Ask about this slide</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-slate-700">Ask about this slide</p>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+              <input
+                type="checkbox"
+                checked={algorithmMode}
+                onChange={(event) => setAlgorithmMode(event.target.checked)}
+                className="h-3.5 w-3.5 rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-400"
+              />
+              Algorithm mode
+            </label>
+          </div>
+          {algorithmMode && (
+            <p className="-mt-1 text-xs text-slate-400">
+              Answers will focus on complexity analysis, recurrences, and step-by-step reasoning.
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-2">
             {PRESET_QUESTIONS.map((question) => (
@@ -297,6 +322,7 @@ export function AskTab(): JSX.Element {
                 return (
                   <li
                     key={message.id}
+                    ref={message.id === latestUserMessageId ? latestUserMessageRef : undefined}
                     className={`flex max-w-[90%] flex-col gap-1 ${
                       message.role === "user" ? "self-end items-end" : "self-start items-start"
                     }`}
@@ -331,7 +357,6 @@ export function AskTab(): JSX.Element {
                   </li>
                 );
               })}
-              <div ref={messagesEndRef} />
             </ul>
           )}
 

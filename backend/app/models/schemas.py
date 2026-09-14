@@ -78,14 +78,17 @@ class SlideAnalysisResponse(BaseModel):
     summary: str
 
 
-QueryMode = Literal["figure", "slide", "presentation", "general", "auto"]
+QueryMode = Literal["figure", "slide", "algorithm", "presentation", "general", "auto"]
 
 
 class ChatRequest(BaseModel):
-    """POST /chat request body (docs/API_CONTRACT.md §3). Only "figure" and
-    "slide" query_mode values are handled as of Milestone 3 — "presentation"
-    and "auto" arrive with M4's RetrievalService, "general" has no grounding
-    story yet; the router rejects all three with 400 for now."""
+    """POST /chat request body (docs/API_CONTRACT.md §3). "figure", "slide",
+    and "algorithm" query_mode values are handled as of Milestone 3 —
+    "presentation" and "auto" arrive with M4's RetrievalService, "general"
+    has no grounding story yet; the router rejects those three with 400 for
+    now. "algorithm" is grounded the same way as "slide" (same context
+    builder, same slide_id requirement) but uses an algorithms-aware prompt
+    (docs/AlgorithmsMVP.md Phase 1)."""
 
     conversation_id: str | None = None
     presentation_id: str | None = None

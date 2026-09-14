@@ -1,9 +1,11 @@
 """POST /chat — docs/API_CONTRACT.md §3.
 
-Milestone 3 scope: only "figure" and "slide" query_mode values are
-handled. "presentation" and "auto" need RetrievalService (M4); "general"
-has no grounding story yet — all three are rejected with 400 rather than
-silently degraded to something else.
+Milestone 3 scope: "figure", "slide", and "algorithm" query_mode values
+are handled. "presentation" and "auto" need RetrievalService (M4);
+"general" has no grounding story yet — all three are rejected with 400
+rather than silently degraded to something else. "algorithm" reuses the
+"slide" context builder (docs/AlgorithmsMVP.md Phase 1) — it's the same
+grounding, just a different, algorithms-aware prompt.
 
 Response is `text/event-stream` (SSE), not a JSON body — see
 `_stream_response` for the exact event shapes, matching the contract:
@@ -36,8 +38,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5"}
-_EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium"}
+_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v1"}
+_EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium"}
 
 
 def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
