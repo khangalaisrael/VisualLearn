@@ -49,6 +49,10 @@ Ordering principle: ship the highest-value reasoning (complexity + recurrences, 
 
 **Goal:** trace concrete algorithms step-by-step (§12), cover the standard sorting/searching catalog with comparisons (§15/§16).
 
+**Shipped (2026-09-15) — the tracing slice**: `backend/app/services/algorithm_tracer.py` runs real, instrumented reference implementations of the six standard sorts (bubble, insertion, selection, merge, quick, heap) and both searches (linear, binary) — an execution trace by actually executing the algorithm, not the model narrating one from memory. `_build_trace_block` in `backend/app/api/v1/chat.py` detects a catalog algorithm name and an input array by keyword/regex match against the student's message and the slide's extracted text, runs the trace, and injects it into `algorithm`-mode context as ground truth (`prompts/chat_algorithm.v3.md`). Binary search on an unsorted array deliberately returns no trace rather than one that pretends the precondition holds (docs/TheoryOfAlgorithm.md §23's "binary search works on any array" misconception). Verified with 23 unit tests (`tests/backend/test_algorithm_tracer.py`, sorts checked against Python's own `sorted()`) plus end-to-end against the live Docker stack — the model reproduced the verified trace for insertion sort on `[5, 2, 4, 6, 1, 3]` exactly.
+
+**Not yet shipped from Phase 3**: no comparative complexity/stability/in-place summary across the catalog (§15's "for each algorithm: best/average/worst case, stable?, in-place?" table), no detection from the slide's *code* specifically (only its extracted text/summary — a slide with recognizable code but no matching keyword phrase like "insertion sort" won't trigger a trace), no tracing of algorithms outside this fixed catalog (recursive algorithms like binary search's recursive form, arbitrary student-written pseudocode).
+
 ## Phase 4 — Graphs, DP, Greedy, Proofs
 
 §13/§14 graph algorithms, §17–20 (D&C formalized, DP, greedy, correctness proofs). This is where the doc's full breadth starts mattering; by this point there should be real usage data guiding which of these actually gets asked about.

@@ -160,6 +160,55 @@ async def test_chat_algorithm_mode_injects_verified_recurrence_analysis(
     assert "Θ(n log n)" in system_prompt
 
 
+async def test_chat_algorithm_mode_injects_verified_trace_from_message(client: AsyncClient) -> None:
+    """docs/AlgorithmsMVP.md Phase 3: when the student's own message names
+    a catalog algorithm and an input array, "algorithm" mode's context
+    must include the verified execution trace (algorithm_tracer.py) —
+    detection doesn't require the array to be on the slide itself."""
+    analysis = await _analyze_slide(client)
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": analysis["slide_id"],
+            "message": "Trace insertion sort on [5, 2, 4, 6, 1, 3]",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert FakeChatService.captured_system_prompts, "chat_service.stream_chat was never called"
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    assert "Verified algorithm trace" in system_prompt
+    assert "result: [1, 2, 3, 4, 5, 6]" in system_prompt
+
+
+async def test_chat_algorithm_mode_without_recognized_algorithm_or_array_omits_trace_block(
+    client: AsyncClient,
+) -> None:
+    analysis = await _analyze_slide(client)
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": analysis["slide_id"],
+            "message": "Explain this slide",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    # The prompt template itself mentions "Verified algorithm trace" when
+    # describing how to use one, so check for the injected block's own
+    # marker text instead of that phrase.
+    assert "computed exactly by actually running the algorithm" not in system_prompt
+
+
 async def test_chat_figure_mode_requires_object_id(client: AsyncClient) -> None:
     analysis = await _analyze_slide(client)
 

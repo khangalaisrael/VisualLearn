@@ -35,6 +35,8 @@ from app.repositories.messages import MessageRepository
 from app.repositories.objects import ObjectRepository
 from app.repositories.presentations import PresentationRepository
 from app.repositories.slides import SlideRepository
+from app.services.algorithm_tracer import find_algorithm_name, find_array, find_target, format_result
+from app.services.algorithm_tracer import trace as trace_algorithm
 from app.services.chat_service import ChatEffort, ChatService
 from app.services.recurrence_solver import RecurrenceAnalysis, analyze_recurrence
 
@@ -42,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v2"}
+_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v3"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium"}
 
 
@@ -140,20 +142,51 @@ async def _build_algorithm_context(db: AsyncSession, request: ChatRequest) -> tu
                 analyses.append(analysis)
                 break
 
-    verified_block = ""
+    recurrence_block = ""
     if analyses:
-        verified_block = (
+        recurrence_block = (
             "\n\nVerified recurrence analysis (computed exactly by a symbolic solver, not by "
             "you — trust this over your own derivation of the same recurrence; if a case is "
             "marked 'inconclusive', derive that one yourself and say explicitly that it doesn't "
             "fit the standard Master Theorem shape):\n\n" + "\n\n".join(_format_recurrence_analysis(a) for a in analyses)
         )
 
+    trace_block = _build_trace_block(request.message, objects)
+
     context = (
         f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\n"
-        f"Objects on this slide:\n{objects_text}{verified_block}\n</slide_data>"
+        f"Objects on this slide:\n{objects_text}{recurrence_block}{trace_block}\n</slide_data>"
     )
     return context, [str(o.id) for o in objects]
+
+
+def _build_trace_block(message: str, objects: list[ObjectRecord]) -> str:
+    """Detects a sorting/searching-catalog request (docs/AlgorithmsMVP.md
+    Phase 3) from the student's message and the slide's extracted text,
+    and — if both an algorithm and an input array are found — returns a
+    verified execution trace block (algorithm_tracer.py, which actually
+    runs the algorithm rather than asking the model to simulate it), or
+    "" if nothing was recognized."""
+    slide_text = " ".join(
+        text for obj in objects for text in (obj.extracted_text, obj.summary) if text
+    )
+
+    algorithm_key = find_algorithm_name(message) or find_algorithm_name(slide_text)
+    array = find_array(message) or find_array(slide_text)
+    if algorithm_key is None or array is None:
+        return ""
+
+    target = find_target(message)
+    result = trace_algorithm(algorithm_key, array, target)
+    if result is None:
+        return ""
+
+    return (
+        "\n\nVerified algorithm trace (computed exactly by actually running the algorithm on "
+        "this input, not by you simulating it — trust this over your own mental execution):\n\n"
+        + "\n".join(result.steps)
+        + f"\n\nresult: {format_result(result.result)}"
+    )
 
 
 async def _resolve_conversation(db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID) -> uuid.UUID:
