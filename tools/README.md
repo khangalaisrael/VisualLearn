@@ -23,3 +23,26 @@ local-first, single-user deployment (see
 [docs/adr/ADR-007-local-first-deployment.md](../docs/adr/ADR-007-local-first-deployment.md)) —
 the real access control is the `X-API-Key` header, which this page sends
 for you.
+
+## `eval_algorithms.py`
+
+A manual eval harness for the "algorithm" chat mode
+([docs/AlgorithmsMVP.md](../docs/AlgorithmsMVP.md)) — hits the real chat
+model over HTTP against a small hand-picked set of cases spanning all 5
+shipped phases (loop complexity, recurrences, sorting/search traces,
+BFS/DFS/Dijkstra, and each explanation mode). Costs real API money and
+isn't fully deterministic (the LLM can phrase things differently call to
+call, especially on the softer heuristic checks), so it's run by hand,
+not part of `pytest`/CI.
+
+**Usage** (with the Docker stack up — `docker compose up -d db redis
+backend`):
+
+```bash
+cd backend && LOCAL_API_KEY=<your .env value> python ../tools/eval_algorithms.py
+```
+
+Seeds slide/object rows directly via the repositories (bypassing
+`/slides/analyze` and the VLM) so failures point at the chat prompt, not
+at VLM extraction quality — that's a separate, already-observed source
+of variance (see `AlgorithmsMVP.md` Phase 4's missing-edge-weight note).
