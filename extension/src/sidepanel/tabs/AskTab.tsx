@@ -3,8 +3,9 @@
  * from it, and chat about it. Milestone 3 (see docs/ROADMAP.md) wires the
  * chat box below the capture result to POST /chat in "slide" query mode,
  * grounded on every object detected on the captured slide. "Figure" mode
- * (grounded on a single selected object) needs the overlay renderer, which
- * doesn't exist yet, so there is no object picker here.
+ * (grounded on a single selected object) is triggered from the page's
+ * overlay renderer, not a picker in this tab — see the figure-mode note
+ * below.
  *
  * The "Algorithm mode" checkbox switches the query_mode to "algorithm"
  * (docs/AlgorithmsMVP.md Phase 1) instead of "slide" for the next question —
@@ -16,6 +17,15 @@
  * `explanation_mode` (docs/AlgorithmsMVP.md Phase 5) — "University" is the
  * default and a no-op server-side, matching the algorithm prompt's
  * baseline tone.
+ *
+ * Figure mode is triggered from the page itself, not this tab: clicking a
+ * figure in the content script's overlay (content-script/overlay.ts)
+ * sends OPEN_FIGURE_CHAT, which the service worker turns into a
+ * FIGURE_SELECTED message (relayed live if this panel is already open,
+ * or persisted to chrome.storage.local for this tab to pick up on mount
+ * if it just got opened — see the mount effect below). Once set, the next
+ * question(s) use query_mode "figure" grounded on that one object instead
+ * of the whole slide, until cleared.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -23,6 +33,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChat } from "../../shared/api-client";
 import type {
   CaptureRequestMessage,
+  FigureSelectedMessage,
   SlideAnalysisFailedMessage,
   SlideAnalyzedMessage,
 } from "../../service-worker/messages";
@@ -31,6 +42,12 @@ import { MathText } from "../components/MathText";
 import type { ExplanationMode } from "@shared/types";
 import { ObjectCard } from "../components/ObjectCard";
 import { ObjectCardSkeleton } from "../components/ObjectCardSkeleton";
+
+const PENDING_FIGURE_SELECTION_KEY = "pendingFigureSelection";
+
+interface FigureSelection {
+  objectId: string;
+}
 
 type LoadState =
   | { status: "idle" }
@@ -151,21 +168,63 @@ export function AskTab(): JSX.Element {
   const [latestUserMessageId, setLatestUserMessageId] = useState<string | null>(null);
   const [algorithmMode, setAlgorithmMode] = useState(false);
   const [explanationMode, setExplanationMode] = useState<ExplanationMode>("university");
+  const [figureSelection, setFigureSelection] = useState<FigureSelection | null>(null);
+  // Mirrors `state`'s loaded slide_id (or null) without applyFigureSelection
+  // needing `state` itself as a dependency — keeps it referentially stable
+  // so the message-listener effects below don't tear down and re-register
+  // on every state change.
+  const loadedSlideIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    loadedSlideIdRef.current = state.status === "loaded" ? state.result.slide_id : null;
+  }, [state]);
+
+  const applyFigureSelection = useCallback((slide: SlideAnalyzedMessage["result"], objectId: string) => {
+    // If this panel already has the same slide loaded (the common case —
+    // it was open, the student clicked a figure on the page they were
+    // already chatting about), keep the existing conversation going,
+    // just now scoped to one figure. Otherwise (panel was just opened by
+    // the click, or a different slide was loaded) cold-restore full
+    // "loaded" state from the slide data the message carries — see
+    // OpenFigureChatMessage's docstring for why it carries the full
+    // result rather than just ids.
+    if (loadedSlideIdRef.current !== slide.slide_id) {
+      setState({ status: "loaded", result: slide });
+      setMessages([]);
+      conversationIdRef.current = null;
+    }
+    setFigureSelection({ objectId });
+  }, []);
 
   useEffect(() => {
-    const listener = (message: SlideAnalyzedMessage | SlideAnalysisFailedMessage) => {
+    const listener = (message: SlideAnalyzedMessage | SlideAnalysisFailedMessage | FigureSelectedMessage) => {
       if (message.type === "SLIDE_ANALYZED") {
         setState({ status: "loaded", result: message.result });
         setMessages([]);
+        setFigureSelection(null);
         conversationIdRef.current = null;
       } else if (message.type === "SLIDE_ANALYSIS_FAILED") {
         setState({ status: "error", message: message.message });
+      } else if (message.type === "FIGURE_SELECTED") {
+        applyFigureSelection(message.slide, message.objectId);
       }
       return false;
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
-  }, []);
+  }, [applyFigureSelection]);
+
+  // Handles the case where clicking a figure on the page opened this
+  // panel fresh — the live message above would have been sent before
+  // this listener existed, so the service worker also persists it (see
+  // service-worker/index.ts's handleOpenFigureChat) for pickup here.
+  useEffect(() => {
+    void chrome.storage.local.get(PENDING_FIGURE_SELECTION_KEY).then((stored) => {
+      const pending = stored[PENDING_FIGURE_SELECTION_KEY] as FigureSelectedMessage | undefined;
+      if (!pending) return;
+      chrome.storage.local.remove(PENDING_FIGURE_SELECTION_KEY).catch(() => undefined);
+      applyFigureSelection(pending.slide, pending.objectId);
+    });
+  }, [applyFigureSelection]);
 
   const captureNow = useCallback(() => {
     setState({ status: "loading" });
@@ -207,11 +266,11 @@ export function AskTab(): JSX.Element {
         for await (const event of streamChat({
           conversation_id: conversationIdRef.current,
           presentation_id,
-          query_mode: algorithmMode ? "algorithm" : "slide",
+          query_mode: figureSelection ? "figure" : algorithmMode ? "algorithm" : "slide",
           slide_id,
-          object_id: null,
+          object_id: figureSelection?.objectId ?? null,
           message: question,
-          ...(algorithmMode ? { explanation_mode: explanationMode } : {}),
+          ...(!figureSelection && algorithmMode ? { explanation_mode: explanationMode } : {}),
         })) {
           if (event.type === "delta") {
             setMessages((prev) =>
@@ -229,7 +288,7 @@ export function AskTab(): JSX.Element {
         setIsStreaming(false);
       }
     },
-    [state, isStreaming, algorithmMode, explanationMode]
+    [state, isStreaming, algorithmMode, explanationMode, figureSelection]
   );
 
   const sendChatMessage = useCallback(async () => {
@@ -292,18 +351,38 @@ export function AskTab(): JSX.Element {
       {state.status === "loaded" && (
         <div className="flex flex-1 flex-col gap-3 border-t border-slate-200 pt-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium text-slate-700">Ask about this slide</p>
-            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-              <input
-                type="checkbox"
-                checked={algorithmMode}
-                onChange={(event) => setAlgorithmMode(event.target.checked)}
-                className="h-3.5 w-3.5 rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-400"
-              />
-              Algorithm mode
-            </label>
+            <p className="text-sm font-medium text-slate-700">
+              {figureSelection ? "Ask about this figure" : "Ask about this slide"}
+            </p>
+            {!figureSelection && (
+              <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <input
+                  type="checkbox"
+                  checked={algorithmMode}
+                  onChange={(event) => setAlgorithmMode(event.target.checked)}
+                  className="h-3.5 w-3.5 rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-400"
+                />
+                Algorithm mode
+              </label>
+            )}
           </div>
-          {algorithmMode && (
+          {figureSelection && (
+            <div className="-mt-1 flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+              <span>
+                Focused on:{" "}
+                {state.result.objects.find((o) => o.id === figureSelection.objectId)?.type ?? "selected figure"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setFigureSelection(null)}
+                className="ml-auto text-indigo-500 hover:text-indigo-700"
+                aria-label="Clear figure selection, go back to asking about the whole slide"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {!figureSelection && algorithmMode && (
             <div className="-mt-1 flex flex-wrap items-center gap-2">
               <p className="text-xs text-slate-400">
                 Answers will focus on complexity analysis, recurrences, and step-by-step reasoning.
