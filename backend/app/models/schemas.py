@@ -80,6 +80,11 @@ class SlideAnalysisResponse(BaseModel):
 
 QueryMode = Literal["figure", "slide", "algorithm", "presentation", "general", "auto"]
 
+# docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. Only
+# consulted for query_mode == "algorithm" (see chat.py's
+# _EXPLANATION_MODE_INSTRUCTIONS) — other modes ignore this field.
+ExplanationMode = Literal["simple", "university", "rigorous", "exam", "socratic"]
+
 
 class ChatRequest(BaseModel):
     """POST /chat request body (docs/API_CONTRACT.md §3). "figure", "slide",
@@ -101,6 +106,9 @@ class ChatRequest(BaseModel):
     # gpt-4o-mini), set from the extension's Settings tab. None keeps the
     # server-configured default (app/api/deps.py's resolve_chat_service).
     model: str | None = None
+    # Only used for query_mode == "algorithm" (docs/AlgorithmsMVP.md
+    # Phase 5) — ignored otherwise, so other modes don't need to send it.
+    explanation_mode: ExplanationMode = "university"
 
 
 class ChatUsage(BaseModel):

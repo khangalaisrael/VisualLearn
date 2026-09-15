@@ -29,7 +29,7 @@ from app.api.deps import get_chat_service, resolve_chat_service, verify_api_key
 from app.core.prompt_loader import load_prompt
 from app.db.session import get_db
 from app.models.orm import ObjectRecord
-from app.models.schemas import ChatRequest, GraphStructure
+from app.models.schemas import ChatRequest, ExplanationMode, GraphStructure
 from app.repositories.conversations import ConversationRepository
 from app.repositories.messages import MessageRepository
 from app.repositories.objects import ObjectRepository
@@ -48,6 +48,58 @@ router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
 _PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v4"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium"}
+
+# docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. "university"
+# has no entry — it's what chat_algorithm.v4.md's baseline tone already is,
+# so there's nothing to append and the prompt stays unchanged for the
+# default case.
+_EXPLANATION_MODE_INSTRUCTIONS: dict[str, str] = {
+    "simple": (
+        "Explain as if the student has never encountered this concept before. Skip formal "
+        "notation wherever you can; the moment you must use a term or symbol, define it in "
+        "plain language. Lead with a small concrete example or an everyday analogy before any "
+        "general statement — intuition first, formalism only if it's actually needed."
+    ),
+    "rigorous": (
+        "Give a rigorous treatment: formal definitions, complete derivations without skipping "
+        "steps, explicit assumptions, and edge cases, on top of the usual complexity analysis. "
+        "It's fine for the answer to be longer than usual here — thoroughness matters more than "
+        "brevity in this mode."
+    ),
+    "exam": (
+        "Optimize for exam prep: lead with what needs to be remembered and the general method "
+        "for solving problems shaped like this one, flag common traps students fall into on this "
+        "topic, and keep the explanation tight rather than exploratory. Skip background the "
+        "question already implies the student has."
+    ),
+    "socratic": (
+        "OVERRIDE — this rule takes precedence over every other instruction below, including "
+        "'never state a complexity class without deriving it' and any instruction to walk through "
+        "or present a derivation: do not give the final answer, a complexity class, or any part of "
+        "a derivation in this turn, even though you already know it and would normally show your "
+        "work in full. The point of this mode is the question, not the answer. Ask exactly one "
+        "guiding question that leads the student to the next step themselves, phrased the way a "
+        "good tutor would ask it, and stop there — one short question, nothing else, not even as a "
+        "lead-in. If the conversation history shows the student has already made progress, build "
+        "the next question on that instead of restarting from the beginning. Reveal the full "
+        "answer only once the student has worked their way to it themselves, or explicitly asks "
+        "you to just tell them — and even then, confirm what they got right first rather than only "
+        "restating the answer yourself."
+    ),
+}
+
+
+def _explanation_mode_prefix(mode: ExplanationMode) -> str:
+    """Returns a block to PREPEND before the base algorithm prompt (not
+    append after it) — a live test showed appending "socratic" mode's
+    instruction after the base prompt's own "always fully derive, never
+    skip a step" instructions wasn't enough; the model kept giving the
+    full answer regardless of the block's wording or of whether a
+    verified block was even present. Leading with the mode instruction
+    and explicitly declaring it overrides the base prompt (see the
+    "OVERRIDE" framing above) is what actually worked."""
+    instruction = _EXPLANATION_MODE_INSTRUCTIONS.get(mode)
+    return f"## Explanation mode: {mode}\n\n{instruction}\n\n" if instruction else ""
 
 
 def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
@@ -152,8 +204,19 @@ async def _build_algorithm_context(db: AsyncSession, request: ChatRequest) -> tu
                 analyses.append(analysis)
                 break
 
+    socratic = request.explanation_mode == "socratic"
+
+    # Socratic mode withholds the verified blocks entirely rather than
+    # relabeling them "don't reveal" — tried in an earlier revision, but a
+    # live test showed the model narrated the full derivation anyway once
+    # the numeric answer was sitting in context, regardless of how the
+    # section was labeled (see docs/AlgorithmsMVP.md Phase 5's socratic
+    # mode note). Withholding the data itself is the only reliable fix;
+    # the tradeoff is the socratic student doesn't get the verification
+    # safety net this turn, which is an acceptable loss since socratic
+    # mode's whole point is the model asking, not stating, math.
     recurrence_block = ""
-    if analyses:
+    if analyses and not socratic:
         recurrence_block = (
             "\n\nVerified recurrence analysis (computed exactly by a symbolic solver, not by "
             "you — trust this over your own derivation of the same recurrence; if a case is "
@@ -161,8 +224,8 @@ async def _build_algorithm_context(db: AsyncSession, request: ChatRequest) -> tu
             "fit the standard Master Theorem shape):\n\n" + "\n\n".join(_format_recurrence_analysis(a) for a in analyses)
         )
 
-    trace_block = _build_trace_block(request.message, objects)
-    graph_trace_block = _build_graph_trace_block(request.message, objects)
+    trace_block = "" if socratic else _build_trace_block(request.message, objects)
+    graph_trace_block = "" if socratic else _build_graph_trace_block(request.message, objects)
 
     context = (
         f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\n"
@@ -353,7 +416,11 @@ async def chat(
     conversation_id = await _resolve_conversation(db, request, presentation_uuid)
     await db.commit()
 
-    system_prompt = f"{load_prompt(_PROMPT_BY_MODE[request.query_mode])}\n\n{context_text}"
+    base_prompt = load_prompt(_PROMPT_BY_MODE[request.query_mode])
+    explanation_mode_prefix = ""
+    if request.query_mode == "algorithm":
+        explanation_mode_prefix = _explanation_mode_prefix(request.explanation_mode)
+    system_prompt = f"{explanation_mode_prefix}{base_prompt}\n\n{context_text}"
     effort = _EFFORT_BY_MODE[request.query_mode]
 
     return StreamingResponse(

@@ -11,6 +11,11 @@
  * same slide grounding, but an algorithms-aware prompt (complexity
  * reasoning, recurrences, common misconceptions). There's no automatic
  * detection of algorithmic slide content yet, so it's a manual toggle.
+ *
+ * The explanation-mode dropdown (only shown in Algorithm mode) sends
+ * `explanation_mode` (docs/AlgorithmsMVP.md Phase 5) — "University" is the
+ * default and a no-op server-side, matching the algorithm prompt's
+ * baseline tone.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -23,6 +28,7 @@ import type {
 } from "../../service-worker/messages";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
+import type { ExplanationMode } from "@shared/types";
 import { ObjectCard } from "../components/ObjectCard";
 import { ObjectCardSkeleton } from "../components/ObjectCardSkeleton";
 
@@ -40,6 +46,14 @@ interface ChatMessage {
 }
 
 const PRESET_QUESTIONS = ["Explain this slide", "Summarize", "Give an example", "Simplify"];
+
+const EXPLANATION_MODES: { value: ExplanationMode; label: string }[] = [
+  { value: "university", label: "University" },
+  { value: "simple", label: "Simple" },
+  { value: "rigorous", label: "Rigorous" },
+  { value: "exam", label: "Exam" },
+  { value: "socratic", label: "Socratic" },
+];
 
 /** Extracts a follow-up question from the tail of a "5. Suggested
  * follow-up — ..." style section: a quoted "...?" if present, else the
@@ -136,6 +150,7 @@ export function AskTab(): JSX.Element {
   const latestUserMessageRef = useRef<HTMLLIElement | null>(null);
   const [latestUserMessageId, setLatestUserMessageId] = useState<string | null>(null);
   const [algorithmMode, setAlgorithmMode] = useState(false);
+  const [explanationMode, setExplanationMode] = useState<ExplanationMode>("university");
 
   useEffect(() => {
     const listener = (message: SlideAnalyzedMessage | SlideAnalysisFailedMessage) => {
@@ -196,6 +211,7 @@ export function AskTab(): JSX.Element {
           slide_id,
           object_id: null,
           message: question,
+          ...(algorithmMode ? { explanation_mode: explanationMode } : {}),
         })) {
           if (event.type === "delta") {
             setMessages((prev) =>
@@ -213,7 +229,7 @@ export function AskTab(): JSX.Element {
         setIsStreaming(false);
       }
     },
-    [state, isStreaming, algorithmMode]
+    [state, isStreaming, algorithmMode, explanationMode]
   );
 
   const sendChatMessage = useCallback(async () => {
@@ -288,9 +304,25 @@ export function AskTab(): JSX.Element {
             </label>
           </div>
           {algorithmMode && (
-            <p className="-mt-1 text-xs text-slate-400">
-              Answers will focus on complexity analysis, recurrences, and step-by-step reasoning.
-            </p>
+            <div className="-mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-slate-400">
+                Answers will focus on complexity analysis, recurrences, and step-by-step reasoning.
+              </p>
+              <label className="ml-auto flex items-center gap-1.5 text-xs text-slate-500">
+                Explain like:
+                <select
+                  value={explanationMode}
+                  onChange={(event) => setExplanationMode(event.target.value as ExplanationMode)}
+                  className="rounded-sm border border-slate-300 bg-white px-1.5 py-0.5 text-xs text-slate-700 focus:border-indigo-400"
+                >
+                  {EXPLANATION_MODES.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           )}
 
           <div className="flex flex-wrap gap-2">

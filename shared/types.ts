@@ -47,6 +47,11 @@ export interface SlideAnalysisResponse {
 
 export type QueryMode = "figure" | "slide" | "algorithm" | "presentation" | "general" | "auto";
 
+// docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. Only
+// consulted server-side for query_mode === "algorithm" — other modes
+// ignore this field.
+export type ExplanationMode = "simple" | "university" | "rigorous" | "exam" | "socratic";
+
 export interface ChatRequest {
   conversation_id: string | null;
   presentation_id: string | null;
@@ -58,6 +63,8 @@ export interface ChatRequest {
   // set from the Settings tab's Chat Model picker. null/omitted keeps the
   // server-configured default.
   model?: string | null;
+  // Only meaningful for query_mode === "algorithm"; omit for other modes.
+  explanation_mode?: ExplanationMode;
 }
 
 export interface ChatUsage {

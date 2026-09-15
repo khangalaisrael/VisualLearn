@@ -160,6 +160,50 @@ async def test_chat_algorithm_mode_injects_verified_recurrence_analysis(
     assert "Θ(n log n)" in system_prompt
 
 
+async def test_chat_algorithm_mode_socratic_withholds_verified_recurrence_analysis(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Regression test: an earlier revision merely relabeled the verified
+    block "ANSWER KEY — DO NOT REVEAL YET" instead of omitting it, but a
+    live test showed the model narrated the full derivation anyway once
+    the numeric answer was sitting in context, regardless of the label.
+    Socratic mode now withholds the verified recurrence block entirely —
+    the only fix that reliably worked — at the cost of the verification
+    safety net for that turn."""
+    analysis = await _analyze_slide(client)
+    slide_id = analysis["slide_id"]
+
+    recurrence_object = SlideObject(
+        id="unused-placeholder-id",
+        type="equation",
+        bounding_box=BoundingBox(x=0.1, y=0.1, width=0.5, height=0.1),
+        extracted_text="T(n) = 2T(n/2) + n",
+        confidence=0.95,
+    )
+    await ObjectRepository(db_session).create_many(uuid.UUID(slide_id), [recurrence_object])
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": slide_id,
+            "message": "Why is this O(n log n)?",
+            "explanation_mode": "socratic",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    # The prompt template itself mentions "Verified recurrence analysis"
+    # when describing how to use one, so check for the injected block's
+    # own content (only present when the block is actually built) instead.
+    assert "Master Theorem case: case_2" not in system_prompt
+    assert "recursion tree:" not in system_prompt
+
+
 async def test_chat_algorithm_mode_injects_verified_trace_from_message(client: AsyncClient) -> None:
     """docs/AlgorithmsMVP.md Phase 3: when the student's own message names
     a catalog algorithm and an input array, "algorithm" mode's context
@@ -251,6 +295,48 @@ async def test_chat_algorithm_mode_injects_verified_graph_traversal(
     assert "Verified graph traversal" in system_prompt
     assert "BFS visit order: A -> B -> C" in system_prompt
     assert "graph_nodes: A, B, C" in system_prompt
+
+
+async def test_chat_algorithm_mode_explanation_mode_appends_instruction(client: AsyncClient) -> None:
+    """docs/AlgorithmsMVP.md Phase 5: a non-default explanation_mode must
+    append its instruction block to the algorithm-mode system prompt."""
+    analysis = await _analyze_slide(client)
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": analysis["slide_id"],
+            "message": "Explain this",
+            "explanation_mode": "socratic",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    assert "## Explanation mode: socratic" in system_prompt
+    assert "Ask exactly one guiding question" in system_prompt
+
+
+async def test_chat_algorithm_mode_default_explanation_mode_is_a_no_op(client: AsyncClient) -> None:
+    analysis = await _analyze_slide(client)
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": analysis["slide_id"],
+            "message": "Explain this",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    assert "## Explanation mode" not in system_prompt
 
 
 async def test_chat_figure_mode_requires_object_id(client: AsyncClient) -> None:
