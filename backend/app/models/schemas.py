@@ -86,9 +86,10 @@ class ChatRequest(BaseModel):
     and "algorithm" query_mode values are handled as of Milestone 3 —
     "presentation" and "auto" arrive with M4's RetrievalService, "general"
     has no grounding story yet; the router rejects those three with 400 for
-    now. "algorithm" is grounded the same way as "slide" (same context
-    builder, same slide_id requirement) but uses an algorithms-aware prompt
-    (docs/AlgorithmsMVP.md Phase 1)."""
+    now. "algorithm" grounds on the same objects as "slide" (same
+    slide_id requirement) but also runs a deterministic Master Theorem
+    check on any recurrence found and uses an algorithms-aware prompt
+    (docs/AlgorithmsMVP.md Phase 1 & 2)."""
 
     conversation_id: str | None = None
     presentation_id: str | None = None

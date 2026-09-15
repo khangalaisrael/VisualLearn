@@ -3,9 +3,12 @@
 Milestone 3 scope: "figure", "slide", and "algorithm" query_mode values
 are handled. "presentation" and "auto" need RetrievalService (M4);
 "general" has no grounding story yet — all three are rejected with 400
-rather than silently degraded to something else. "algorithm" reuses the
-"slide" context builder (docs/AlgorithmsMVP.md Phase 1) — it's the same
-grounding, just a different, algorithms-aware prompt.
+rather than silently degraded to something else. "algorithm" grounds the
+same way as "slide" (same objects, same slide_id requirement) but also
+runs each object through recurrence_solver.py's deterministic Master
+Theorem checker and injects any verified results into the context
+(docs/AlgorithmsMVP.md Phase 2), on top of using an algorithms-aware
+prompt.
 
 Response is `text/event-stream` (SSE), not a JSON body — see
 `_stream_response` for the exact event shapes, matching the contract:
@@ -33,12 +36,13 @@ from app.repositories.objects import ObjectRepository
 from app.repositories.presentations import PresentationRepository
 from app.repositories.slides import SlideRepository
 from app.services.chat_service import ChatEffort, ChatService
+from app.services.recurrence_solver import RecurrenceAnalysis, analyze_recurrence
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v1"}
+_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v2"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium"}
 
 
@@ -92,6 +96,63 @@ async def _build_slide_context(db: AsyncSession, request: ChatRequest) -> tuple[
     objects = await ObjectRepository(db).list_by_slide(slide_id)
     objects_text = "\n\n".join(_format_object(o) for o in objects) or "(no objects extracted)"
     context = f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\nObjects on this slide:\n{objects_text}\n</slide_data>"
+    return context, [str(o.id) for o in objects]
+
+
+def _format_recurrence_analysis(analysis: RecurrenceAnalysis) -> str:
+    lines = [
+        f"- recurrence: T(n) = {analysis.a:g}T(n/{analysis.b:g}) + {analysis.f_n}",
+        f"  n^(log_b a) = {analysis.n_pow_log_b_a}",
+        f"  Master Theorem case: {analysis.master_case}",
+    ]
+    if analysis.complexity:
+        lines.append(f"  complexity: {analysis.complexity}")
+    lines.append(f"  reasoning: {analysis.notes}")
+    lines.append(f"  recursion tree:\n{analysis.recursion_tree}")
+    return "\n".join(lines)
+
+
+async def _build_algorithm_context(db: AsyncSession, request: ChatRequest) -> tuple[str, list[str]]:
+    """Same grounding as "slide" mode, plus a deterministically verified
+    Master Theorem analysis (backend/app/services/recurrence_solver.py) for
+    any recurrence found among the slide's objects — closes the
+    verification gap flagged in docs/AlgorithmsMVP.md Phase 1, since the
+    chat model's own complexity math is never the only source of truth for
+    the recurrences this checker can handle."""
+    if not request.slide_id:
+        raise HTTPException(status_code=400, detail="Algorithm mode requires slide_id")
+
+    slide_id = _parse_uuid(request.slide_id, "slide_id")
+    slide = await SlideRepository(db).get(slide_id)
+    if slide is None:
+        raise HTTPException(status_code=404, detail="Unknown slide_id")
+
+    objects = await ObjectRepository(db).list_by_slide(slide_id)
+    objects_text = "\n\n".join(_format_object(o) for o in objects) or "(no objects extracted)"
+
+    analyses: list[RecurrenceAnalysis] = []
+    for obj in objects:
+        for candidate in (obj.latex, obj.extracted_text):
+            if not candidate:
+                continue
+            analysis = analyze_recurrence(candidate)
+            if analysis is not None:
+                analyses.append(analysis)
+                break
+
+    verified_block = ""
+    if analyses:
+        verified_block = (
+            "\n\nVerified recurrence analysis (computed exactly by a symbolic solver, not by "
+            "you — trust this over your own derivation of the same recurrence; if a case is "
+            "marked 'inconclusive', derive that one yourself and say explicitly that it doesn't "
+            "fit the standard Master Theorem shape):\n\n" + "\n\n".join(_format_recurrence_analysis(a) for a in analyses)
+        )
+
+    context = (
+        f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\n"
+        f"Objects on this slide:\n{objects_text}{verified_block}\n</slide_data>"
+    )
     return context, [str(o.id) for o in objects]
 
 
@@ -199,6 +260,8 @@ async def chat(
 
     if request.query_mode == "figure":
         context_text, referenced_object_ids = await _build_figure_context(db, request)
+    elif request.query_mode == "algorithm":
+        context_text, referenced_object_ids = await _build_algorithm_context(db, request)
     else:
         context_text, referenced_object_ids = await _build_slide_context(db, request)
 

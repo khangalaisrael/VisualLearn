@@ -71,12 +71,21 @@ class FakeChatService:
     below — guarantees tests never call a real provider API regardless of
     whether OPENAI_API_KEY/ANTHROPIC_API_KEY happen to be set in whatever
     environment `pytest` runs in (mirrors PlaceholderSlideAnalyzer's role
-    for get_slide_analyzer)."""
+    for get_slide_analyzer).
+
+    `captured_system_prompts` is a class attribute (shared across the
+    fresh instance each request gets via dependency injection) so tests
+    can assert on what context the router actually built — e.g. that
+    "algorithm" mode's verified-recurrence block made it into the prompt
+    (docs/AlgorithmsMVP.md Phase 2). The `client` fixture resets it per
+    test."""
 
     model_name = "fake-chat-model"
+    captured_system_prompts: list[str] = []
 
     async def stream_chat(self, *, system_prompt: str, message: str, effort: str, history: list = ()):
-        del system_prompt, message, effort, history
+        FakeChatService.captured_system_prompts.append(system_prompt)
+        del message, effort, history
         yield ChatChunk(delta="Fake ", done=False)
         yield ChatChunk(delta="answer.", done=False)
         yield ChatChunk(delta=None, done=True, usage=ChatUsage(input_tokens=10, output_tokens=2, cache_read_input_tokens=0))
@@ -88,6 +97,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     # analysis cache must actually persist across the multiple requests a
     # single test might make (e.g. upload the same image twice).
     fake_redis = FakeRedis()
+    FakeChatService.captured_system_prompts = []
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session

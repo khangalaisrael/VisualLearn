@@ -4,9 +4,15 @@ FakeChatService — no real provider API is ever called."""
 
 import io
 import json
+import uuid
 
+from conftest import FakeChatService
 from httpx import AsyncClient
 from PIL import Image
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.schemas import BoundingBox, SlideObject
+from app.repositories.objects import ObjectRepository
 
 _HEADERS = {"X-API-Key": "test-api-key"}
 
@@ -112,6 +118,46 @@ async def test_chat_algorithm_mode_streams_answer(client: AsyncClient) -> None:
     done_events = [data for name, data in events if name == "done"]
     assert len(done_events) == 1
     assert done_events[0]["referenced_object_ids"] == [analysis["objects"][0]["id"]]
+
+
+async def test_chat_algorithm_mode_injects_verified_recurrence_analysis(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """docs/AlgorithmsMVP.md Phase 2: when a slide has a recurrence object,
+    "algorithm" mode's context must include the deterministic Master
+    Theorem result (recurrence_solver.py) — not just leave complexity
+    verification entirely to the chat model."""
+    analysis = await _analyze_slide(client)
+    slide_id = analysis["slide_id"]
+
+    recurrence_object = SlideObject(
+        id="unused-placeholder-id",  # ObjectRepository.create_many mints its own id
+        type="equation",
+        bounding_box=BoundingBox(x=0.1, y=0.1, width=0.5, height=0.1),
+        extracted_text="T(n) = 2T(n/2) + n",
+        latex=r"T(n) = 2T\left(\frac{n}{2}\right) + n",
+        confidence=0.95,
+    )
+    await ObjectRepository(db_session).create_many(uuid.UUID(slide_id), [recurrence_object])
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": slide_id,
+            "message": "Why is this O(n log n)?",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert FakeChatService.captured_system_prompts, "chat_service.stream_chat was never called"
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    assert "Verified recurrence analysis" in system_prompt
+    assert "Master Theorem case: case_2" in system_prompt
+    assert "Θ(n log n)" in system_prompt
 
 
 async def test_chat_figure_mode_requires_object_id(client: AsyncClient) -> None:
