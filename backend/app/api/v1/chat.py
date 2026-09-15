@@ -29,7 +29,7 @@ from app.api.deps import get_chat_service, resolve_chat_service, verify_api_key
 from app.core.prompt_loader import load_prompt
 from app.db.session import get_db
 from app.models.orm import ObjectRecord
-from app.models.schemas import ChatRequest
+from app.models.schemas import ChatRequest, GraphStructure
 from app.repositories.conversations import ConversationRepository
 from app.repositories.messages import MessageRepository
 from app.repositories.objects import ObjectRepository
@@ -38,13 +38,15 @@ from app.repositories.slides import SlideRepository
 from app.services.algorithm_tracer import find_algorithm_name, find_array, find_target, format_result
 from app.services.algorithm_tracer import trace as trace_algorithm
 from app.services.chat_service import ChatEffort, ChatService
+from app.services.graph_algorithm_tracer import find_graph_algorithm, find_start_node
+from app.services.graph_algorithm_tracer import trace as trace_graph_algorithm
 from app.services.recurrence_solver import RecurrenceAnalysis, analyze_recurrence
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v3"}
+_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v4"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium"}
 
 
@@ -65,6 +67,14 @@ def _format_object(obj: ObjectRecord) -> str:
         lines.append(f"  language: {obj.language}")
     if obj.summary:
         lines.append(f"  summary: {obj.summary}")
+    if obj.graph_structure:
+        graph = GraphStructure(**obj.graph_structure)
+        edges_desc = "; ".join(
+            f"{e.node_a}--{e.node_b}" + (f" (weight {e.weight:g})" if e.weight is not None else "") + f" [{e.direction}]"
+            for e in graph.edges
+        ) or "(none)"
+        lines.append(f"  graph_nodes: {', '.join(graph.nodes)}")
+        lines.append(f"  graph_edges: {edges_desc}")
     return "\n".join(lines)
 
 
@@ -152,10 +162,11 @@ async def _build_algorithm_context(db: AsyncSession, request: ChatRequest) -> tu
         )
 
     trace_block = _build_trace_block(request.message, objects)
+    graph_trace_block = _build_graph_trace_block(request.message, objects)
 
     context = (
         f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\n"
-        f"Objects on this slide:\n{objects_text}{recurrence_block}{trace_block}\n</slide_data>"
+        f"Objects on this slide:\n{objects_text}{recurrence_block}{trace_block}{graph_trace_block}\n</slide_data>"
     )
     return context, [str(o.id) for o in objects]
 
@@ -186,6 +197,47 @@ def _build_trace_block(message: str, objects: list[ObjectRecord]) -> str:
         "this input, not by you simulating it — trust this over your own mental execution):\n\n"
         + "\n".join(result.steps)
         + f"\n\nresult: {format_result(result.result)}"
+    )
+
+
+def _build_graph_trace_block(message: str, objects: list[ObjectRecord]) -> str:
+    """Detects a BFS/DFS traversal request (docs/AlgorithmsMVP.md Phase 4)
+    against the first graph-shaped object on the slide (its
+    `graph_structure`, already extracted by the hybrid VLM + CV pipeline —
+    see ADR-010 — at slide-analyze time, not re-derived here), and — if
+    the request is recognized — returns a verified traversal-order block
+    (graph_algorithm_tracer.py, which actually runs the traversal), or ""
+    if nothing was recognized."""
+    graph_object = next((o for o in objects if o.graph_structure), None)
+    if graph_object is None:
+        return ""
+
+    algorithm_key = find_graph_algorithm(message)
+    if algorithm_key is None:
+        return ""
+
+    graph = ObjectRepository.to_slide_object(graph_object).graph_structure
+    if graph is None or not graph.nodes:
+        return ""
+
+    start = find_start_node(message, graph.nodes)
+    used_default_start = start is None
+    if start is None:
+        start = graph.nodes[0]
+
+    result = trace_graph_algorithm(algorithm_key, graph.nodes, graph.edges, start)
+    if result is None:
+        return ""
+
+    default_note = (
+        f" (no start node named in the question — defaulted to {start}, the first node on the slide)"
+        if used_default_start
+        else ""
+    )
+    return (
+        f"\n\nVerified graph traversal (computed exactly by actually running {algorithm_key.upper()} "
+        f"on the slide's extracted graph structure, not by you simulating it){default_note}:\n\n"
+        + "\n".join(result.steps)
     )
 
 

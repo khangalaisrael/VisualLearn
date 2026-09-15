@@ -11,7 +11,7 @@ from httpx import AsyncClient
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.schemas import BoundingBox, SlideObject
+from app.models.schemas import BoundingBox, GraphEdge, GraphStructure, SlideObject
 from app.repositories.objects import ObjectRepository
 
 _HEADERS = {"X-API-Key": "test-api-key"}
@@ -207,6 +207,50 @@ async def test_chat_algorithm_mode_without_recognized_algorithm_or_array_omits_t
     # describing how to use one, so check for the injected block's own
     # marker text instead of that phrase.
     assert "computed exactly by actually running the algorithm" not in system_prompt
+
+
+async def test_chat_algorithm_mode_injects_verified_graph_traversal(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """docs/AlgorithmsMVP.md Phase 4: when a slide has a graph object and
+    the student asks for a BFS/DFS traversal, "algorithm" mode's context
+    must include the deterministic visit order (graph_algorithm_tracer.py)."""
+    analysis = await _analyze_slide(client)
+    slide_id = analysis["slide_id"]
+
+    graph_object = SlideObject(
+        id="unused-placeholder-id",
+        type="graph",
+        bounding_box=BoundingBox(x=0.1, y=0.1, width=0.8, height=0.6),
+        summary="A small undirected graph.",
+        confidence=0.9,
+        graph_structure=GraphStructure(
+            nodes=["A", "B", "C"],
+            edges=[
+                GraphEdge(node_a="A", node_b="B", direction="undirected"),
+                GraphEdge(node_a="B", node_b="C", direction="undirected"),
+            ],
+        ),
+    )
+    await ObjectRepository(db_session).create_many(uuid.UUID(slide_id), [graph_object])
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": slide_id,
+            "message": "Run BFS starting at A",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    assert "Verified graph traversal" in system_prompt
+    assert "BFS visit order: A -> B -> C" in system_prompt
+    assert "graph_nodes: A, B, C" in system_prompt
 
 
 async def test_chat_figure_mode_requires_object_id(client: AsyncClient) -> None:
