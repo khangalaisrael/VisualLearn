@@ -297,6 +297,52 @@ async def test_chat_algorithm_mode_injects_verified_graph_traversal(
     assert "graph_nodes: A, B, C" in system_prompt
 
 
+async def test_chat_algorithm_mode_injects_verified_dijkstra_distances(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """docs/AlgorithmsMVP.md Phase 4 extension: Dijkstra's shortest-path
+    distances must come from actually running the algorithm
+    (graph_algorithm_tracer.py), not the chat model's own reasoning."""
+    analysis = await _analyze_slide(client)
+    slide_id = analysis["slide_id"]
+
+    graph_object = SlideObject(
+        id="unused-placeholder-id",
+        type="graph",
+        bounding_box=BoundingBox(x=0.1, y=0.1, width=0.8, height=0.6),
+        summary="A small weighted graph.",
+        confidence=0.9,
+        graph_structure=GraphStructure(
+            nodes=["A", "B", "C"],
+            edges=[
+                GraphEdge(node_a="A", node_b="B", weight=4, direction="undirected"),
+                GraphEdge(node_a="A", node_b="C", weight=1, direction="undirected"),
+                GraphEdge(node_a="C", node_b="B", weight=1, direction="undirected"),
+            ],
+        ),
+    )
+    await ObjectRepository(db_session).create_many(uuid.UUID(slide_id), [graph_object])
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "presentation_id": analysis["presentation_id"],
+            "query_mode": "algorithm",
+            "slide_id": slide_id,
+            "message": "Find the shortest path from A using Dijkstra",
+        },
+        headers=_HEADERS,
+    )
+
+    assert response.status_code == 200
+    system_prompt = FakeChatService.captured_system_prompts[-1]
+    assert "Verified graph traversal" in system_prompt
+    # A->B direct is 4, but A->C->B (1+1=2) is shorter — confirms the
+    # verified block reflects the indirect path, not the direct edge.
+    assert "B=2" in system_prompt
+
+
 async def test_chat_algorithm_mode_explanation_mode_appends_instruction(client: AsyncClient) -> None:
     """docs/AlgorithmsMVP.md Phase 5: a non-default explanation_mode must
     append its instruction block to the algorithm-mode system prompt."""

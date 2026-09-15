@@ -1,6 +1,7 @@
 """Tests for backend/app/services/graph_algorithm_tracer.py — deterministic
-BFS/DFS over a slide's extracted GraphStructure (docs/AlgorithmsMVP.md
-Phase 4). Pure function tests, no DB/app fixtures needed."""
+BFS/DFS/Dijkstra over a slide's extracted GraphStructure
+(docs/AlgorithmsMVP.md Phase 4). Pure function tests, no DB/app fixtures
+needed."""
 
 import pytest
 
@@ -14,6 +15,14 @@ _UNDIRECTED_EDGES = [
     GraphEdge(node_a="B", node_b="D", direction="undirected"),
     GraphEdge(node_a="C", node_b="D", direction="undirected"),
     GraphEdge(node_a="D", node_b="E", direction="undirected"),
+]
+_WEIGHTED_EDGES = [
+    GraphEdge(node_a="A", node_b="B", weight=4, direction="undirected"),
+    GraphEdge(node_a="A", node_b="C", weight=1, direction="undirected"),
+    GraphEdge(node_a="C", node_b="B", weight=1, direction="undirected"),
+    GraphEdge(node_a="B", node_b="D", weight=1, direction="undirected"),
+    GraphEdge(node_a="C", node_b="D", weight=5, direction="undirected"),
+    GraphEdge(node_a="D", node_b="E", weight=3, direction="undirected"),
 ]
 
 
@@ -55,6 +64,43 @@ def test_disconnected_nodes_are_not_visited():
 
 def test_unknown_start_node_returns_none():
     assert trace("bfs", _NODES, _UNDIRECTED_EDGES, "Z") is None
+
+
+def test_dijkstra_finds_correct_shortest_distances():
+    # Classic example: A->B direct is 4, but A->C->B is 1+1=2, shorter.
+    result = trace("dijkstra", _NODES, _WEIGHTED_EDGES, "A")
+    assert result is not None
+    assert result.distances == {"A": 0, "B": 2, "C": 1, "D": 3, "E": 6}
+
+
+def test_dijkstra_prefers_indirect_shorter_path_over_direct_edge():
+    result = trace("dijkstra", _NODES, _WEIGHTED_EDGES, "A")
+    assert result is not None
+    assert any("relax edge A->C" in step or "relax edge A->B" in step for step in result.steps)
+    # The direct A-B edge (weight 4) must lose to the A-C-B path (1+1=2).
+    assert result.distances["B"] == 2
+
+
+def test_dijkstra_unreachable_node_is_excluded_from_distances():
+    result = trace("dijkstra", [*_NODES, "Z"], _WEIGHTED_EDGES, "A")
+    assert result is not None
+    assert "Z" not in result.distances
+
+
+def test_dijkstra_refuses_when_any_edge_is_unweighted():
+    # docs/AlgorithmsMVP.md Phase 4: never guess a missing weight — a
+    # partial or made-up weight could silently produce a wrong shortest
+    # path rather than an honestly-declined one.
+    edges_with_gap = [*_WEIGHTED_EDGES, GraphEdge(node_a="D", node_b="E", weight=None, direction="undirected")]
+    assert trace("dijkstra", _NODES, edges_with_gap, "A") is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Run Dijkstra from A", "Find the shortest path starting at A", "dijkstra's algorithm please"],
+)
+def test_find_graph_algorithm_recognizes_dijkstra(text):
+    assert find_graph_algorithm(text) == "dijkstra"
 
 
 def test_unrecognized_algorithm_returns_none():
