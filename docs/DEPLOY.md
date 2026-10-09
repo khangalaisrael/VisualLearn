@@ -91,6 +91,14 @@ VITE_BACKEND_URL=https://<your hostname> npm run build
 
 Load `extension/dist` via `chrome://extensions` → Developer mode → **Load unpacked**. In the side panel's Settings tab, paste the `LOCAL_API_KEY` from the VM's `.env`, then click Save and Test Connection. The URL field already defaults to the hosted URL. It can still be overridden, so pointing at a local backend keeps working.
 
+## Costs & limits — re-check before going public
+
+- **Oracle: $0** as long as only Always Free-eligible resources exist (one A1.Flex VM ≤ the free OCPU/RAM pool, boot volume within 200 GB total block storage, ≤10 TB/month egress). Oracle bills resources *created*, not users served: more traffic makes the VM slower, not pricier. The backend stores extracted text and chat only, never slide images, so disk use stays tiny.
+- **Ways to accidentally pay Oracle:** a non-free shape, a second large VM or extra block volumes, Object Storage beyond the free tier, paid load balancers/managed services. Look for the "Always Free-eligible" label. Oracle revises the free limits occasionally; re-check its Always Free page.
+- **Set a $1 budget alert** (Billing → Budgets) so any charge emails you immediately.
+- **The real cost is the AI provider:** ~$0.01–0.017 per capture on gpt-4o (~16x less on gpt-4o-mini), plus chat. Set a monthly spending cap in the OpenAI/Anthropic dashboards *before* anyone else has the API key, and don't distribute publicly until Phase 2 (sign-in) and Phase 4 (rate limits) exist.
+- **Johannesburg A1 capacity:** "Out of capacity" is common on free-only accounts (one availability domain). Upgrading to Pay As You Go usually resolves it; Always Free resources stay free on PAYG.
+
 ## What's next
 
 See [PublicHostingMVP.md](PublicHostingMVP.md): Phase 2 (Google sign-in replaces the shared key), Phase 3 (per-user data isolation), Phase 4 (rate limits), Phase 5 (privacy policy + Chrome Web Store submission). Don't submit to the store before Phases 2–4.
