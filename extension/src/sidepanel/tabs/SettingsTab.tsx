@@ -12,7 +12,7 @@ import { Button } from "../components/Button";
 
 type ConnectionState =
   | { status: "idle" }
-  | { status: "checking" }
+  | { status: "checking"; waking?: boolean }
   | { status: "ok"; modelProvider: boolean }
   | { status: "error"; message: string };
 
@@ -61,7 +61,7 @@ export function SettingsTab(): JSX.Element {
   const testConnection = async () => {
     setConnection({ status: "checking" });
     try {
-      const health = await checkHealth(backendUrl.trim());
+      const health = await checkHealth(backendUrl.trim(), () => setConnection({ status: "checking", waking: true }));
       setConnection({ status: "ok", modelProvider: health.model_provider });
     } catch (error) {
       setConnection({ status: "error", message: error instanceof Error ? error.message : String(error) });
@@ -127,7 +127,11 @@ export function SettingsTab(): JSX.Element {
         {saved && <span className="text-sm text-emerald-600">Saved</span>}
       </div>
 
-      {connection.status === "checking" && <p className="text-sm text-slate-500">Checking…</p>}
+      {connection.status === "checking" && (
+        <p className="text-sm text-slate-500">
+          {connection.waking ? "Waking up the server — this takes about a minute after a quiet period…" : "Checking…"}
+        </p>
+      )}
 
       {connection.status === "ok" && (
         <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800 shadow-subtle">
@@ -143,8 +147,8 @@ export function SettingsTab(): JSX.Element {
           <p className="font-medium">Couldn't reach the backend.</p>
           <p>{connection.message}</p>
           <p className="mt-1 text-red-500">
-            Check that Docker Compose is running (<code className="font-mono">docker compose ps</code>) and the URL
-            above is correct.
+            Check that the URL above is correct and the backend is running (locally:{" "}
+            <code className="font-mono">docker compose ps</code>; hosted: the Space's status page).
           </p>
         </div>
       )}

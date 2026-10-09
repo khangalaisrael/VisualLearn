@@ -1,0 +1,23 @@
+# Pings the Hugging Face Space every 6 hours so the free tier's 48-hour
+# idle sleep never kicks in (docs/DEPLOY_HF.md § Sleeping). Set the
+# repository variable HF_SPACE_URL (e.g. https://yourname-visionlearn.hf.space)
+# to enable it; without it the job is skipped.
+#
+# Note: GitHub pauses scheduled workflows in repositories with no activity
+# for 60 days — re-enable it from the Actions tab if that happens.
+name: Keep Hugging Face Space awake
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: vars.HF_SPACE_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        # A sleeping Space takes ~1 minute to wake, hence the generous
+        # timeout and retries.
+        run: curl -fsS --max-time 120 --retry 4 --retry-delay 30 --retry-all-errors "${{ vars.HF_SPACE_URL }}/api/v1/health"

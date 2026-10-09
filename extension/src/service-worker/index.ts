@@ -7,6 +7,7 @@
 
 import { analyzeSlide } from "../shared/api-client";
 import type {
+  BackendWakingMessage,
   BackgroundMessage,
   CaptureRequestMessage,
   FigureSelectedMessage,
@@ -46,6 +47,10 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
       image: imageBlob,
       presentationId: message.presentationId,
       slideNumber: message.slideNumber,
+      onWaking: () => {
+        const waking: BackendWakingMessage = { type: "BACKEND_WAKING" };
+        chrome.runtime.sendMessage(waking).catch(() => undefined);
+      },
     });
 
     const outgoing: SlideAnalyzedMessage = { type: "SLIDE_ANALYZED", result };

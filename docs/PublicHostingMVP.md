@@ -12,6 +12,8 @@ Ordering principle: get a real public URL serving the existing stack first (prov
 
 ## Phase 1 — Deploy the existing stack to an Oracle Cloud Always Free VM, unchanged
 
+**Update (2026-10-09):** Oracle's free A1 capacity in Johannesburg was unavailable and Pay As You Go needs a ~US$100 card hold, so the active path is now Hugging Face Spaces + Neon + Upstash — see [DEPLOY_HF.md](DEPLOY_HF.md). The Oracle files below remain valid for a VM later.
+
 **Status (2026-10-09): repo side done** — `docker-compose.prod.yml`, `deploy/Caddyfile`, `scripts/setup-oracle-vm.sh`, and the extension's `VITE_BACKEND_URL` build-time default are in place, and the extension has its icon set (a Phase 5 store requirement, pulled forward). Step-by-step runbook: [DEPLOY.md](DEPLOY.md). Remaining: the Oracle account/VM steps below (yours), then bring-up on the VM.
 
 **Goal:** the exact backend that works today (`docker-compose.yml`'s `db`/`redis`/`backend` services), reachable at a public HTTPS URL instead of `localhost:8001`. No auth changes, no code changes to the app itself — this phase is purely deployment plumbing, so it's the lowest-risk place to start and immediately validates the whole pipeline (a real VM → Docker Compose → real API calls) before any harder work.

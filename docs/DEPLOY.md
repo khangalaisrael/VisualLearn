@@ -1,5 +1,7 @@
 # Deploying VisionLearn publicly
 
+> **Free, no-card option:** [DEPLOY_HF.md](DEPLOY_HF.md) (Hugging Face Spaces + Neon + Upstash) is the currently recommended path. This page covers a self-managed VM (Oracle Cloud), which needs a Pay As You Go card verification in practice.
+
 Runbook for [PublicHostingMVP.md](PublicHostingMVP.md) **Phase 1**: the existing backend on an Oracle Cloud Always Free VM behind HTTPS, plus building the extension against that URL.
 
 > **Not safe to share yet.** Until Phase 2 (OAuth) and Phase 4 (rate limits) land, the only access control is the shared `LOCAL_API_KEY`. Anyone holding it can spend your OpenAI/Anthropic credit. Treat the deployment as private staging, and set spending caps in the provider dashboards.
