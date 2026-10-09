@@ -59,9 +59,10 @@ export interface ChatRequest {
   slide_id: string | null;
   object_id: string | null;
   message: string;
-  // Optional per-request OpenAI model override ("gpt-4o" / "gpt-4o-mini"),
-  // set from the Settings tab's Chat Model picker. null/omitted keeps the
-  // server-configured default.
+  // Optional per-request model override ("gpt-4o" / "gpt-4o-mini" on an
+  // OpenAI backend, "claude-haiku-5-5" / "claude-sonnet-5-5" on an Anthropic
+  // one), set from the Settings tab's Chat Model picker. null/omitted keeps
+  // the server-configured default.
   model?: string | null;
   // Only meaningful for query_mode === "algorithm"; omit for other modes.
   explanation_mode?: ExplanationMode;

@@ -1,0 +1,24 @@
+# Reverse proxy + automatic HTTPS for the production stack
+# (docker-compose.prod.yml). Caddy obtains and renews a Let's Encrypt
+# certificate for $DOMAIN on its own — ports 80 and 443 must be reachable
+# from the internet (see docs/DEPLOY.md for Oracle's two firewall layers).
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+
+	# Matches backend's max_upload_bytes (8 MB) with headroom for the
+	# multipart envelope; anything larger is rejected before reaching
+	# the app.
+	request_body {
+		max_size 10MB
+	}
+
+	reverse_proxy backend:8000 {
+		# /chat streams Server-Sent Events — flush each chunk immediately
+		# instead of buffering the response.
+		flush_interval -1
+	}
+}

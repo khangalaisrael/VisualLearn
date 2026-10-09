@@ -22,6 +22,12 @@ export interface SlideAnalysisFailedMessage {
   message: string;
 }
 
+/** The backend is a sleeping hosted service (Render free tier) that's booting (see
+ * api-client.ts's fetchWakingBackend) — the capture is still in flight. */
+export interface BackendWakingMessage {
+  type: "BACKEND_WAKING";
+}
+
 /**
  * Sent by the content script's overlay renderer (docs/VisionLearn_Premium_UI_Guide.md's
  * ObjectOverlay/FloatingToolbar) when the student clicks a selected
@@ -47,4 +53,8 @@ export interface FigureSelectedMessage {
 }
 
 export type BackgroundMessage = CaptureRequestMessage | OpenFigureChatMessage;
-export type SidePanelMessage = SlideAnalyzedMessage | SlideAnalysisFailedMessage | FigureSelectedMessage;
+export type SidePanelMessage =
+  | SlideAnalyzedMessage
+  | SlideAnalysisFailedMessage
+  | BackendWakingMessage
+  | FigureSelectedMessage;

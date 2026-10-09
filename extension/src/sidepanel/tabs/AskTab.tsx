@@ -32,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { streamChat } from "../../shared/api-client";
 import type {
+  BackendWakingMessage,
   CaptureRequestMessage,
   FigureSelectedMessage,
   SlideAnalysisFailedMessage,
@@ -51,7 +52,7 @@ interface FigureSelection {
 
 type LoadState =
   | { status: "idle" }
-  | { status: "loading" }
+  | { status: "loading"; waking?: boolean }
   | { status: "loaded"; result: SlideAnalyzedMessage["result"] }
   | { status: "error"; message: string };
 
@@ -144,6 +145,16 @@ function TypingIndicator(): JSX.Element {
   );
 }
 
+// Shown while a sleeping hosted backend (Render free tier) boots (api-client.ts's
+// fetchWakingBackend) — otherwise a ~1 minute wait looks like a hang.
+function WakingNotice(): JSX.Element {
+  return (
+    <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 shadow-subtle">
+      Waking up the server — this takes about a minute after a quiet period. Hang tight…
+    </p>
+  );
+}
+
 function Avatar({ role }: { role: ChatMessage["role"] }): JSX.Element {
   return role === "user" ? (
     <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-600 text-[11px] font-medium text-white">
@@ -162,6 +173,7 @@ export function AskTab(): JSX.Element {
   const [chatInput, setChatInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [chatWaking, setChatWaking] = useState(false);
   const conversationIdRef = useRef<string | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
   const latestUserMessageRef = useRef<HTMLLIElement | null>(null);
@@ -196,7 +208,9 @@ export function AskTab(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    const listener = (message: SlideAnalyzedMessage | SlideAnalysisFailedMessage | FigureSelectedMessage) => {
+    const listener = (
+      message: SlideAnalyzedMessage | SlideAnalysisFailedMessage | BackendWakingMessage | FigureSelectedMessage
+    ) => {
       if (message.type === "SLIDE_ANALYZED") {
         setState({ status: "loaded", result: message.result });
         setMessages([]);
@@ -204,6 +218,8 @@ export function AskTab(): JSX.Element {
         conversationIdRef.current = null;
       } else if (message.type === "SLIDE_ANALYSIS_FAILED") {
         setState({ status: "error", message: message.message });
+      } else if (message.type === "BACKEND_WAKING") {
+        setState((prev) => (prev.status === "loading" ? { status: "loading", waking: true } : prev));
       } else if (message.type === "FIGURE_SELECTED") {
         applyFigureSelection(message.slide, message.objectId);
       }
@@ -263,7 +279,7 @@ export function AskTab(): JSX.Element {
       setLatestUserMessageId(userMessage.id);
 
       try {
-        for await (const event of streamChat({
+        const request = {
           conversation_id: conversationIdRef.current,
           presentation_id,
           query_mode: figureSelection ? "figure" : algorithmMode ? "algorithm" : "slide",
@@ -271,7 +287,9 @@ export function AskTab(): JSX.Element {
           object_id: figureSelection?.objectId ?? null,
           message: question,
           ...(!figureSelection && algorithmMode ? { explanation_mode: explanationMode } : {}),
-        })) {
+        } as const;
+        for await (const event of streamChat(request, () => setChatWaking(true))) {
+          setChatWaking(false);
           if (event.type === "delta") {
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantMessageId ? { ...m, content: m.content + event.text } : m))
@@ -286,6 +304,7 @@ export function AskTab(): JSX.Element {
         setChatError(error instanceof Error ? error.message : String(error));
       } finally {
         setIsStreaming(false);
+        setChatWaking(false);
       }
     },
     [state, isStreaming, algorithmMode, explanationMode, figureSelection]
@@ -319,6 +338,8 @@ export function AskTab(): JSX.Element {
           {state.status === "loading" ? "Analyzing…" : "Capture Current Slide"}
         </Button>
       </div>
+
+      {state.status === "loading" && state.waking && <WakingNotice />}
 
       {state.status === "loading" && (
         <ul className="flex flex-col gap-3">
@@ -470,6 +491,8 @@ export function AskTab(): JSX.Element {
               })}
             </ul>
           )}
+
+          {chatWaking && <WakingNotice />}
 
           {chatError && (
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-subtle">

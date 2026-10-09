@@ -19,9 +19,12 @@ from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 logger = logging.getLogger(__name__)
 
 # Models the extension's Settings-tab picker is allowed to request per
-# capture/chat call (see SettingsTab.tsx). Constrained rather than
-# free-text so a typo can't reach OpenAI's API and produce an opaque error.
+# capture/chat call (see SettingsTab.tsx), per provider. Constrained rather
+# than free-text so a typo can't reach a provider API and produce an opaque
+# error. An override only applies when it belongs to the provider that is
+# actually configured — a backend has one active provider's key.
 _ALLOWED_OPENAI_MODELS = {"gpt-4o", "gpt-4o-mini"}
+_ALLOWED_CLAUDE_MODELS = {"claude-haiku-5-5", "claude-sonnet-5-5"}
 
 
 def _build_slide_analyzer() -> SlideAnalyzer:
@@ -41,7 +44,7 @@ def _build_slide_analyzer() -> SlideAnalyzer:
     if settings.openai_api_key:
         return OpenAIVLMAnalyzer(api_key=settings.openai_api_key, model=settings.openai_vlm_model)
     if settings.anthropic_api_key:
-        return ClaudeVLMAnalyzer(api_key=settings.anthropic_api_key)
+        return ClaudeVLMAnalyzer(api_key=settings.anthropic_api_key, model=settings.anthropic_vlm_model)
     logger.warning(
         "Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set — falling back to "
         "PlaceholderSlideAnalyzer. Set one in .env to enable real slide analysis "
@@ -81,7 +84,7 @@ def _build_chat_service() -> ChatService | None:
     if settings.openai_api_key:
         return OpenAIChatService(api_key=settings.openai_api_key, model=settings.openai_chat_model)
     if settings.anthropic_api_key:
-        return ClaudeChatService(api_key=settings.anthropic_api_key)
+        return ClaudeChatService(api_key=settings.anthropic_api_key, model=settings.anthropic_chat_model)
     logger.warning(
         "Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set — chat is unavailable. "
         "Set one in .env to enable POST /chat."
@@ -100,6 +103,25 @@ async def get_chat_service() -> ChatService | None:
     return _chat_service
 
 
+def _check_requested_model(requested_model: str, *, default_is_openai: bool, default_is_claude: bool) -> None:
+    """Shared validation for both resolvers: rejects unknown model names, and
+    known ones from a provider this backend isn't configured for (e.g. a
+    stored "gpt-4o" choice sent to a Claude-only backend) — with a message
+    that tells the user how to fix it from the Settings tab."""
+    if requested_model not in _ALLOWED_OPENAI_MODELS | _ALLOWED_CLAUDE_MODELS:
+        raise HTTPException(status_code=422, detail=f"Unsupported model '{requested_model}'")
+    if requested_model in _ALLOWED_OPENAI_MODELS and not default_is_openai:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Model '{requested_model}' requires an OpenAI-configured backend — choose \"Server default\" in Settings",
+        )
+    if requested_model in _ALLOWED_CLAUDE_MODELS and not default_is_claude:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Model '{requested_model}' requires an Anthropic-configured backend — choose \"Server default\" in Settings",
+        )
+
+
 def resolve_slide_analyzer(default: SlideAnalyzer, requested_model: str | None) -> SlideAnalyzer:
     """Applies a per-request model override from the extension's Settings
     picker on top of the process-wide default `SlideAnalyzer`.
@@ -109,19 +131,20 @@ def resolve_slide_analyzer(default: SlideAnalyzer, requested_model: str | None) 
     see without duplicating the route's own parameter parsing. Routes call
     this themselves, right after `Depends(get_slide_analyzer)` resolves.
 
-    The `isinstance` check is also what keeps tests safe: `default` is
+    The `isinstance` checks are also what keep tests safe: `default` is
     always `PlaceholderSlideAnalyzer` under `tests/backend/conftest.py`'s
     dependency override, so this never falls through to constructing a
-    real `OpenAIVLMAnalyzer` unless a real one was already active.
+    real provider client unless one of that provider was already active.
     """
     if not requested_model or requested_model == default.model_name:
         return default
-    if requested_model not in _ALLOWED_OPENAI_MODELS:
-        raise HTTPException(status_code=422, detail=f"Unsupported model '{requested_model}'")
-    if not isinstance(default, OpenAIVLMAnalyzer):
-        raise HTTPException(status_code=422, detail="Model override requires an OpenAI-configured backend")
+    is_openai = isinstance(default, OpenAIVLMAnalyzer)
+    is_claude = isinstance(default, ClaudeVLMAnalyzer)
+    _check_requested_model(requested_model, default_is_openai=is_openai, default_is_claude=is_claude)
     settings = get_settings()
-    return OpenAIVLMAnalyzer(api_key=settings.openai_api_key, model=requested_model)
+    if is_openai:
+        return OpenAIVLMAnalyzer(api_key=settings.openai_api_key, model=requested_model)
+    return ClaudeVLMAnalyzer(api_key=settings.anthropic_api_key, model=requested_model)
 
 
 def resolve_chat_service(default: ChatService | None, requested_model: str | None) -> ChatService | None:
@@ -131,12 +154,13 @@ def resolve_chat_service(default: ChatService | None, requested_model: str | Non
     case."""
     if default is None or not requested_model or requested_model == default.model_name:
         return default
-    if requested_model not in _ALLOWED_OPENAI_MODELS:
-        raise HTTPException(status_code=422, detail=f"Unsupported model '{requested_model}'")
-    if not isinstance(default, OpenAIChatService):
-        raise HTTPException(status_code=422, detail="Model override requires an OpenAI-configured backend")
+    is_openai = isinstance(default, OpenAIChatService)
+    is_claude = isinstance(default, ClaudeChatService)
+    _check_requested_model(requested_model, default_is_openai=is_openai, default_is_claude=is_claude)
     settings = get_settings()
-    return OpenAIChatService(api_key=settings.openai_api_key, model=requested_model)
+    if is_openai:
+        return OpenAIChatService(api_key=settings.openai_api_key, model=requested_model)
+    return ClaudeChatService(api_key=settings.anthropic_api_key, model=requested_model)
 
 
 async def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:

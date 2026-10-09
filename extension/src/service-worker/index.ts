@@ -7,6 +7,7 @@
 
 import { analyzeSlide } from "../shared/api-client";
 import type {
+  BackendWakingMessage,
   BackgroundMessage,
   CaptureRequestMessage,
   FigureSelectedMessage,
@@ -31,6 +32,33 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
     .join("");
 }
 
+// Captures are scaled (never cropped) so the long edge is at most this many
+// pixels, then re-encoded as JPEG. Claude downscales larger images to about
+// this size before reading them anyway, so detail isn't lost — but the
+// upload shrinks ~5-10x, which cuts upload time on campus Wi-Fi, CPU work on
+// a small hosted backend, and per-capture token cost. Bounding boxes come
+// back normalized (0-1, prompts/analysis.v4.md), so overlays are unaffected.
+const MAX_UPLOAD_LONG_EDGE_PX = 1568;
+const UPLOAD_JPEG_QUALITY = 0.9;
+
+async function shrinkForUpload(blob: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, MAX_UPLOAD_LONG_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+  const width = Math.round(bitmap.width * scale);
+  const height = Math.round(bitmap.height * scale);
+
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    return blob;
+  }
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  return canvas.convertToBlob({ type: "image/jpeg", quality: UPLOAD_JPEG_QUALITY });
+}
+
 async function handleCaptureRequest(message: CaptureRequestMessage, tabId: number): Promise<void> {
   const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
   const imageBlob = await (await fetch(dataUrl)).blob();
@@ -43,9 +71,13 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
 
   try {
     const result = await analyzeSlide({
-      image: imageBlob,
+      image: await shrinkForUpload(imageBlob),
       presentationId: message.presentationId,
       slideNumber: message.slideNumber,
+      onWaking: () => {
+        const waking: BackendWakingMessage = { type: "BACKEND_WAKING" };
+        chrome.runtime.sendMessage(waking).catch(() => undefined);
+      },
     });
 
     const outgoing: SlideAnalyzedMessage = { type: "SLIDE_ANALYZED", result };

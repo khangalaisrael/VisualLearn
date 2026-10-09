@@ -8,7 +8,9 @@ import type { ChatDoneEvent, ChatErrorEvent, ChatRequest, HealthResponse, SlideA
 // some environments have another local process already bound to
 // 127.0.0.1:8000, which silently wins over Docker's published port for
 // anything addressed as localhost:8000/127.0.0.1:8000.
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:8001";
+// A hosted build bakes in its public URL instead via VITE_BACKEND_URL
+// (docs/DEPLOY.md); either way the Settings tab can still override it.
+const DEFAULT_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8001";
 
 // Must match the backend's LOCAL_API_KEY (see .env.example at the repo
 // root and docs/adr/ADR-007-local-first-deployment.md). Set via the
@@ -16,10 +18,11 @@ const DEFAULT_BACKEND_URL = "http://127.0.0.1:8001";
 // writes to chrome.storage.local — this default only applies until then.
 const DEFAULT_LOCAL_API_KEY = "change-me-to-a-random-value";
 
-// Matches the backend's own default (backend/app/core/config.py) so a
-// fresh install behaves identically whether the model is picked in the
-// extension's Settings tab or left at the backend's .env default.
-const DEFAULT_MODEL = "gpt-4o";
+// "" means "Server default": no model is sent, so the backend uses whatever
+// its .env configures for its active provider (OpenAI or Anthropic). A
+// specific pick from the Settings tab only works against a backend of that
+// provider (backend/app/api/deps.py's resolve_* functions).
+const DEFAULT_MODEL = "";
 
 export interface BackendConfig {
   backendUrl: string;
@@ -42,13 +45,72 @@ export async function setConfig(config: BackendConfig): Promise<void> {
   await chrome.storage.local.set(config);
 }
 
+// A free Render web service sleeps after 15 minutes idle (docs/DEPLOY_RENDER.md)
+// and takes ~30-60s to boot on the next request; until then its proxy
+// answers with connection errors, 502/503/504s or an HTML holding page.
+// Requests to such a backend are retried until it's up, and `onWaking` fires
+// once so the UI can explain the wait. Scoped to *.onrender.com hosts so a
+// local backend that's simply not running still fails immediately.
+const WAKE_TIMEOUT_MS = 150_000;
+const WAKE_RETRY_INTERVAL_MS = 5_000;
+const WAKE_STATUSES = new Set([502, 503, 504]);
+
+function canSleep(url: string): boolean {
+  try {
+    return new URL(url).hostname.endsWith(".onrender.com");
+  } catch {
+    return false;
+  }
+}
+
+function isWakingResponse(response: Response): boolean {
+  // The backend's own errors are JSON (e.g. chat's 503 when no provider
+  // is configured) and must surface, not be retried.
+  const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
+  if (isJson) {
+    return false;
+  }
+  return WAKE_STATUSES.has(response.status) || (response.ok && (response.headers.get("content-type") ?? "").includes("text/html"));
+}
+
+async function fetchWakingBackend(url: string, init: RequestInit, onWaking?: () => void): Promise<Response> {
+  if (!canSleep(url)) {
+    return fetch(url, init);
+  }
+  const deadline = Date.now() + WAKE_TIMEOUT_MS;
+  let notified = false;
+  while (true) {
+    let response: Response | null = null;
+    let networkError: unknown = null;
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      networkError = error;
+    }
+    if (response && !isWakingResponse(response)) {
+      return response;
+    }
+    if (Date.now() >= deadline) {
+      if (response) {
+        return response;
+      }
+      throw networkError;
+    }
+    if (!notified) {
+      notified = true;
+      onWaking?.();
+    }
+    await new Promise((resolve) => setTimeout(resolve, WAKE_RETRY_INTERVAL_MS));
+  }
+}
+
 /**
  * GET /health — used by the Settings tab's "Test connection" button.
  * Exempt from the X-API-Key requirement (docs/API_CONTRACT.md §1), so a
  * bad connection, not a bad key, is the only reason this can fail.
  */
-export async function checkHealth(backendUrl: string): Promise<HealthResponse> {
-  const response = await fetch(`${backendUrl}/api/v1/health`);
+export async function checkHealth(backendUrl: string, onWaking?: () => void): Promise<HealthResponse> {
+  const response = await fetchWakingBackend(`${backendUrl}/api/v1/health`, {}, onWaking);
   if (!response.ok) {
     throw new ApiError(`Health check failed (${response.status})`, response.status);
   }
@@ -59,6 +121,7 @@ export interface AnalyzeSlideParams {
   image: Blob;
   presentationId: string | null;
   slideNumber: number;
+  onWaking?: () => void;
 }
 
 export class ApiError extends Error {
@@ -75,18 +138,20 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
   const { backendUrl, apiKey, vlmModel } = await getConfig();
 
   const formData = new FormData();
-  formData.append("image", params.image, "slide.png");
+  formData.append("image", params.image, params.image.type === "image/jpeg" ? "slide.jpg" : "slide.png");
   formData.append("slide_number", String(params.slideNumber));
-  formData.append("model", vlmModel);
+  if (vlmModel) {
+    formData.append("model", vlmModel);
+  }
   if (params.presentationId) {
     formData.append("presentation_id", params.presentationId);
   }
 
-  const response = await fetch(`${backendUrl}/api/v1/slides/analyze`, {
-    method: "POST",
-    headers: { "X-API-Key": apiKey },
-    body: formData,
-  });
+  const response = await fetchWakingBackend(
+    `${backendUrl}/api/v1/slides/analyze`,
+    { method: "POST", headers: { "X-API-Key": apiKey }, body: formData },
+    params.onWaking
+  );
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { message?: string } | null;
@@ -133,18 +198,22 @@ function parseSseEvent(raw: string): ChatStreamEvent | null {
  * use EventSource (GET-only) — this reads the fetch body stream directly
  * and splits it into events on blank-line boundaries.
  */
-export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
+export async function* streamChat(request: ChatRequest, onWaking?: () => void): AsyncGenerator<ChatStreamEvent> {
   const { backendUrl, apiKey, chatModel } = await getConfig();
 
-  const response = await fetch(`${backendUrl}/api/v1/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-    // request.model, when the caller already set one, wins over the
-    // Settings-tab default — no caller does this today, but this keeps
-    // streamChat consistent with analyzeSlide's "config unless overridden"
-    // behavior rather than silently clobbering a future explicit choice.
-    body: JSON.stringify({ model: chatModel, ...request }),
-  });
+  const response = await fetchWakingBackend(
+    `${backendUrl}/api/v1/chat`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      // request.model, when the caller already set one, wins over the
+      // Settings-tab default — no caller does this today, but this keeps
+      // streamChat consistent with analyzeSlide's "config unless overridden"
+      // behavior rather than silently clobbering a future explicit choice.
+      body: JSON.stringify({ model: chatModel || null, ...request }),
+    },
+    onWaking
+  );
 
   if (!response.ok || !response.body) {
     const body = (await response.json().catch(() => null)) as { message?: string } | null;

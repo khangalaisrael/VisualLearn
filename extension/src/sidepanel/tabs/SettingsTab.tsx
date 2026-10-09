@@ -12,15 +12,34 @@ import { Button } from "../components/Button";
 
 type ConnectionState =
   | { status: "idle" }
-  | { status: "checking" }
+  | { status: "checking"; waking?: boolean }
   | { status: "ok"; modelProvider: boolean }
   | { status: "error"; message: string };
+
+// Grouped by provider: a backend has one active provider (OpenAI if
+// OPENAI_API_KEY is set, else Anthropic), and only that provider's models
+// are accepted as an override — see backend/app/api/deps.py.
+function ModelOptions(): JSX.Element {
+  return (
+    <>
+      <option value="">Server default — whatever the backend's .env configures</option>
+      <optgroup label="Anthropic backend">
+        <option value="claude-haiku-5-5">Claude Haiku 5.5 — Lowest cost</option>
+        <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — More accurate, higher cost</option>
+      </optgroup>
+      <optgroup label="OpenAI backend">
+        <option value="gpt-4o">gpt-4o — Accurate, higher cost</option>
+        <option value="gpt-4o-mini">gpt-4o-mini — Cheaper chat; images still costly</option>
+      </optgroup>
+    </>
+  );
+}
 
 export function SettingsTab(): JSX.Element {
   const [backendUrl, setBackendUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [vlmModel, setVlmModel] = useState("gpt-4o");
-  const [chatModel, setChatModel] = useState("gpt-4o");
+  const [vlmModel, setVlmModel] = useState("");
+  const [chatModel, setChatModel] = useState("");
   const [saved, setSaved] = useState(false);
   const [connection, setConnection] = useState<ConnectionState>({ status: "idle" });
 
@@ -42,7 +61,7 @@ export function SettingsTab(): JSX.Element {
   const testConnection = async () => {
     setConnection({ status: "checking" });
     try {
-      const health = await checkHealth(backendUrl.trim());
+      const health = await checkHealth(backendUrl.trim(), () => setConnection({ status: "checking", waking: true }));
       setConnection({ status: "ok", modelProvider: health.model_provider });
     } catch (error) {
       setConnection({ status: "error", message: error instanceof Error ? error.message : String(error) });
@@ -85,19 +104,17 @@ export function SettingsTab(): JSX.Element {
       <label className="flex flex-col gap-1.5 text-sm">
         <span className="font-medium text-slate-700">Slide Analysis Model</span>
         <select value={vlmModel} onChange={(event) => setVlmModel(event.target.value)} className={inputClass}>
-          <option value="gpt-4o">gpt-4o — Accurate, higher cost</option>
-          <option value="gpt-4o-mini">gpt-4o-mini — Fast, lower cost</option>
+          <ModelOptions />
         </select>
         <span className="text-xs text-slate-500">
-          Used for "Capture Current Slide". Equations and diagrams read best with gpt-4o.
+          Used for "Capture Current Slide". Pick a model from your backend's provider, or keep Server default.
         </span>
       </label>
 
       <label className="flex flex-col gap-1.5 text-sm">
         <span className="font-medium text-slate-700">Chat Model</span>
         <select value={chatModel} onChange={(event) => setChatModel(event.target.value)} className={inputClass}>
-          <option value="gpt-4o">gpt-4o — Accurate, higher cost</option>
-          <option value="gpt-4o-mini">gpt-4o-mini — Fast, lower cost</option>
+          <ModelOptions />
         </select>
         <span className="text-xs text-slate-500">Used for questions asked in the Ask tab.</span>
       </label>
@@ -110,7 +127,11 @@ export function SettingsTab(): JSX.Element {
         {saved && <span className="text-sm text-emerald-600">Saved</span>}
       </div>
 
-      {connection.status === "checking" && <p className="text-sm text-slate-500">Checking…</p>}
+      {connection.status === "checking" && (
+        <p className="text-sm text-slate-500">
+          {connection.waking ? "Waking up the server — this takes about a minute after a quiet period…" : "Checking…"}
+        </p>
+      )}
 
       {connection.status === "ok" && (
         <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800 shadow-subtle">
@@ -126,8 +147,8 @@ export function SettingsTab(): JSX.Element {
           <p className="font-medium">Couldn't reach the backend.</p>
           <p>{connection.message}</p>
           <p className="mt-1 text-red-500">
-            Check that Docker Compose is running (<code className="font-mono">docker compose ps</code>) and the URL
-            above is correct.
+            Check that the URL above is correct and the backend is running (locally:{" "}
+            <code className="font-mono">docker compose ps</code>; hosted: the Space's status page).
           </p>
         </div>
       )}
