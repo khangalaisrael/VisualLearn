@@ -38,6 +38,10 @@ or `ANTHROPIC_API_KEY`) is configured. Values are stored in
 `chrome.storage.local` (`src/shared/api-client.ts` `getConfig`/`setConfig`)
 — no rebuild needed to change them.
 
+For a hosted backend, bake its URL in as the default at build time —
+`VITE_BACKEND_URL=https://your-host npm run build` — see
+[docs/DEPLOY.md](../docs/DEPLOY.md).
+
 ## Testing against local slide files
 
 Chrome extensions don't get `file://` access by default even with broad

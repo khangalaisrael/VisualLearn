@@ -8,7 +8,9 @@ import type { ChatDoneEvent, ChatErrorEvent, ChatRequest, HealthResponse, SlideA
 // some environments have another local process already bound to
 // 127.0.0.1:8000, which silently wins over Docker's published port for
 // anything addressed as localhost:8000/127.0.0.1:8000.
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:8001";
+// A hosted build bakes in its public URL instead via VITE_BACKEND_URL
+// (docs/DEPLOY.md); either way the Settings tab can still override it.
+const DEFAULT_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8001";
 
 // Must match the backend's LOCAL_API_KEY (see .env.example at the repo
 // root and docs/adr/ADR-007-local-first-deployment.md). Set via the
