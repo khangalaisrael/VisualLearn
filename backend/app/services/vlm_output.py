@@ -22,6 +22,7 @@ then does app/services/graph_topology.py's classical CV determine actual
 edge connectivity; neither VLM pass is ever asked to do that.
 """
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -218,5 +219,11 @@ async def to_slide_object(raw: dict, image_bytes: bytes, locate_graph_fn: Locate
 
 
 async def parse_analysis_payload(payload: dict, image_bytes: bytes, locate_graph_fn: LocateGraphFn) -> AnalysisResult:
-    objects = [await to_slide_object(raw, image_bytes, locate_graph_fn) for raw in payload["objects"]]
-    return AnalysisResult(objects=objects, summary=payload["summary"])
+    # Concurrent, not sequential: each object's second-pass graph-localization
+    # call (the only `await` of real cost in to_slide_object) only depends on
+    # its own crop, never on another object's result — on a slide with
+    # several graph-shaped objects, running these one at a time added their
+    # latencies together for no reason. asyncio.gather preserves input order,
+    # so each result still lines up with the object it came from.
+    objects = await asyncio.gather(*(to_slide_object(raw, image_bytes, locate_graph_fn) for raw in payload["objects"]))
+    return AnalysisResult(objects=list(objects), summary=payload["summary"])

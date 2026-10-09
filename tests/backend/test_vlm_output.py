@@ -4,6 +4,7 @@ two-pass localization flow: pass 1's own graph_nodes/graph_weight_labels
 are only a trigger signal (see the module docstring) — the positions
 actually used come from `locate_graph_fn`, a mocked second-pass call here."""
 
+import asyncio
 import io
 
 from PIL import Image, ImageDraw
@@ -139,6 +140,47 @@ async def test_parse_analysis_payload_tolerates_locate_graph_fn_error() -> None:
 
     result = await parse_analysis_payload(payload, image_bytes, locate_graph_fn)
     assert result.objects[0].graph_structure is None
+
+
+async def test_parse_analysis_payload_runs_graph_localization_concurrently() -> None:
+    """Regression test for the sequential-latency bug: multiple graph
+    objects on one slide used to pay for their second-pass calls one after
+    another. Three mocked calls, each sleeping, assert their *results*
+    stay correctly matched to the right object (order isn't accidentally
+    scrambled by running them concurrently) and that the total wall-clock
+    time is close to one call's delay, not the sum of all three."""
+    image_bytes, _width, _height = _make_line_image()
+
+    def _graph_object(label: str) -> dict:
+        return {
+            "type": "diagram",
+            "bounding_box": {"x": 0, "y": 0, "width": 1, "height": 1},
+            "extracted_text": None,
+            "latex": None,
+            "language": None,
+            "summary": label,
+            "confidence": 0.9,
+            "graph_nodes": [{"label": "placeholder", "x": 0.5, "y": 0.5, "radius": 0.1}],
+            "graph_weight_labels": None,
+        }
+
+    payload = {"summary": "s", "objects": [_graph_object("first"), _graph_object("second"), _graph_object("third")]}
+    call_count = 0
+
+    async def locate_graph_fn(_crop_bytes: bytes) -> dict:
+        nonlocal call_count
+        call_count += 1
+        this_call = call_count
+        await asyncio.sleep(0.2)
+        return {"graph_nodes": [{"label": f"node-{this_call}", "x": 0.5, "y": 0.5, "radius": 0.1}], "graph_weight_labels": []}
+
+    start = asyncio.get_event_loop().time()
+    result = await parse_analysis_payload(payload, image_bytes, locate_graph_fn)
+    elapsed = asyncio.get_event_loop().time() - start
+
+    assert elapsed < 0.5, f"expected concurrent calls (~0.2s), took {elapsed:.2f}s — looks sequential"
+    assert [obj.summary for obj in result.objects] == ["first", "second", "third"]
+    assert all(obj.graph_structure is not None for obj in result.objects)
 
 
 async def test_parse_analysis_payload_round_trips_code_object_language() -> None:

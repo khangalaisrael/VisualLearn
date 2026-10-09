@@ -53,6 +53,23 @@ export async function setConfig(config: BackendConfig): Promise<void> {
 // local backend that's simply not running still fails immediately.
 const WAKE_TIMEOUT_MS = 150_000;
 const WAKE_RETRY_INTERVAL_MS = 5_000;
+// Caps each individual attempt — without this, a single request that hangs
+// (gets a TCP connection but no HTTP response, which happens while Render's
+// proxy is still booting the instance) blocks inside `await fetch` forever:
+// the deadline/retry logic below never even runs, since it only looks at
+// Date.now() after a fetch settles. This is what turns a slow wake-up into
+// "stuck on Checking… forever" instead of a visible retry.
+//
+// NOT a single shared constant: a health check should resolve almost
+// instantly, but a slide analysis call legitimately takes 10-20+ seconds
+// on Render's free-tier CPU (a vision model call plus DB writes) — using
+// the short health-check timeout for it was a real bug (measured: ~11s of
+// genuine server-side work routinely exceeded a 12s attempt timeout,
+// aborting an in-flight request and restarting it from scratch, every
+// time, which is what turned one ~11s analysis into 30-60s of retries).
+const HEALTH_ATTEMPT_TIMEOUT_MS = 12_000;
+const ANALYZE_ATTEMPT_TIMEOUT_MS = 60_000;
+const CHAT_ATTEMPT_TIMEOUT_MS = 30_000;
 const WAKE_STATUSES = new Set([502, 503, 504]);
 
 function canSleep(url: string): boolean {
@@ -73,7 +90,12 @@ function isWakingResponse(response: Response): boolean {
   return WAKE_STATUSES.has(response.status) || (response.ok && (response.headers.get("content-type") ?? "").includes("text/html"));
 }
 
-async function fetchWakingBackend(url: string, init: RequestInit, onWaking?: () => void): Promise<Response> {
+async function fetchWakingBackend(
+  url: string,
+  init: RequestInit,
+  onWaking?: () => void,
+  attemptTimeoutMs: number = HEALTH_ATTEMPT_TIMEOUT_MS
+): Promise<Response> {
   if (!canSleep(url)) {
     return fetch(url, init);
   }
@@ -82,10 +104,14 @@ async function fetchWakingBackend(url: string, init: RequestInit, onWaking?: () 
   while (true) {
     let response: Response | null = null;
     let networkError: unknown = null;
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), attemptTimeoutMs);
     try {
-      response = await fetch(url, init);
+      response = await fetch(url, { ...init, signal: timeoutController.signal });
     } catch (error) {
       networkError = error;
+    } finally {
+      clearTimeout(timeoutId);
     }
     if (response && !isWakingResponse(response)) {
       return response;
@@ -110,7 +136,7 @@ async function fetchWakingBackend(url: string, init: RequestInit, onWaking?: () 
  * bad connection, not a bad key, is the only reason this can fail.
  */
 export async function checkHealth(backendUrl: string, onWaking?: () => void): Promise<HealthResponse> {
-  const response = await fetchWakingBackend(`${backendUrl}/api/v1/health`, {}, onWaking);
+  const response = await fetchWakingBackend(`${backendUrl}/api/v1/health`, {}, onWaking, HEALTH_ATTEMPT_TIMEOUT_MS);
   if (!response.ok) {
     throw new ApiError(`Health check failed (${response.status})`, response.status);
   }
@@ -150,7 +176,8 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
   const response = await fetchWakingBackend(
     `${backendUrl}/api/v1/slides/analyze`,
     { method: "POST", headers: { "X-API-Key": apiKey }, body: formData },
-    params.onWaking
+    params.onWaking,
+    ANALYZE_ATTEMPT_TIMEOUT_MS
   );
 
   if (!response.ok) {
@@ -212,7 +239,8 @@ export async function* streamChat(request: ChatRequest, onWaking?: () => void): 
       // behavior rather than silently clobbering a future explicit choice.
       body: JSON.stringify({ model: chatModel || null, ...request }),
     },
-    onWaking
+    onWaking,
+    CHAT_ATTEMPT_TIMEOUT_MS
   );
 
   if (!response.ok || !response.body) {
