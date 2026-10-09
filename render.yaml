@@ -1,0 +1,26 @@
+# Render Blueprint for the backend (docs/DEPLOY_RENDER.md). In the Render
+# dashboard: New → Blueprint → pick this repo. Render then builds
+# deploy/hosted/Dockerfile and redeploys on every push to main.
+services:
+  - type: web
+    name: visionlearn-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/hosted/Dockerfile
+    dockerContext: .
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      # Neon connection string, pasted as-is (pooling off — see the docs).
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Shared secret the extension sends; Render generates a random one.
+      # Copy it from the service's Environment tab into the extension.
+      - key: LOCAL_API_KEY
+        generateValue: true
+      # REDIS_URL (Upstash) is optional — add it in the dashboard if used.

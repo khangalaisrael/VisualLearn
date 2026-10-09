@@ -22,7 +22,7 @@ export interface SlideAnalysisFailedMessage {
   message: string;
 }
 
-/** The backend is a sleeping Hugging Face Space that's booting (see
+/** The backend is a sleeping hosted service (Render free tier) that's booting (see
  * api-client.ts's fetchWakingBackend) — the capture is still in flight. */
 export interface BackendWakingMessage {
   type: "BACKEND_WAKING";

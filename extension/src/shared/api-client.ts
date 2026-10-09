@@ -45,19 +45,19 @@ export async function setConfig(config: BackendConfig): Promise<void> {
   await chrome.storage.local.set(config);
 }
 
-// A free Hugging Face Space sleeps after ~48h idle (docs/DEPLOY_HF.md) and
-// takes ~30-90s to boot on the next request; until then its proxy answers
-// with connection errors, 502/503/504s or an HTML holding page. Requests to
-// such a backend are retried until it's up, and `onWaking` fires once so
-// the UI can explain the wait. Scoped to *.hf.space hosts so a local
-// backend that's simply not running still fails immediately.
+// A free Render web service sleeps after 15 minutes idle (docs/DEPLOY_RENDER.md)
+// and takes ~30-60s to boot on the next request; until then its proxy
+// answers with connection errors, 502/503/504s or an HTML holding page.
+// Requests to such a backend are retried until it's up, and `onWaking` fires
+// once so the UI can explain the wait. Scoped to *.onrender.com hosts so a
+// local backend that's simply not running still fails immediately.
 const WAKE_TIMEOUT_MS = 150_000;
 const WAKE_RETRY_INTERVAL_MS = 5_000;
 const WAKE_STATUSES = new Set([502, 503, 504]);
 
 function canSleep(url: string): boolean {
   try {
-    return new URL(url).hostname.endsWith(".hf.space");
+    return new URL(url).hostname.endsWith(".onrender.com");
   } catch {
     return false;
   }
@@ -138,7 +138,7 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
   const { backendUrl, apiKey, vlmModel } = await getConfig();
 
   const formData = new FormData();
-  formData.append("image", params.image, "slide.png");
+  formData.append("image", params.image, params.image.type === "image/jpeg" ? "slide.jpg" : "slide.png");
   formData.append("slide_number", String(params.slideNumber));
   if (vlmModel) {
     formData.append("model", vlmModel);

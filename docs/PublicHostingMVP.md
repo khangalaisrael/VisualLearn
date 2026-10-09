@@ -12,7 +12,7 @@ Ordering principle: get a real public URL serving the existing stack first (prov
 
 ## Phase 1 — Deploy the existing stack to an Oracle Cloud Always Free VM, unchanged
 
-**Update (2026-10-09):** Oracle's free A1 capacity in Johannesburg was unavailable and Pay As You Go needs a ~US$100 card hold, so the active path is now Hugging Face Spaces + Neon + Upstash — see [DEPLOY_HF.md](DEPLOY_HF.md). The Oracle files below remain valid for a VM later.
+**Update (2026-10-09):** Oracle's free A1 capacity in Johannesburg was unavailable and Pay As You Go needs a ~US$100 card hold, so the active path is now Render + Neon + Upstash — see [DEPLOY_RENDER.md](DEPLOY_RENDER.md) (Hugging Face Docker Spaces were considered but now require a paid plan). The Oracle files below remain valid for a VM later.
 
 **Status (2026-10-09): repo side done** — `docker-compose.prod.yml`, `deploy/Caddyfile`, `scripts/setup-oracle-vm.sh`, and the extension's `VITE_BACKEND_URL` build-time default are in place, and the extension has its icon set (a Phase 5 store requirement, pulled forward). Step-by-step runbook: [DEPLOY.md](DEPLOY.md). Remaining: the Oracle account/VM steps below (yours), then bring-up on the VM.
 

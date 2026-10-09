@@ -1,6 +1,6 @@
 # Deploying VisionLearn publicly
 
-> **Free, no-card option:** [DEPLOY_HF.md](DEPLOY_HF.md) (Hugging Face Spaces + Neon + Upstash) is the currently recommended path. This page covers a self-managed VM (Oracle Cloud), which needs a Pay As You Go card verification in practice.
+> **Free, no-card option:** [DEPLOY_RENDER.md](DEPLOY_RENDER.md) (Render + Neon + Upstash) is the currently recommended path. This page covers a self-managed VM (Oracle Cloud), which needs a Pay As You Go card verification in practice.
 
 Runbook for [PublicHostingMVP.md](PublicHostingMVP.md) **Phase 1**: the existing backend on an Oracle Cloud Always Free VM behind HTTPS, plus building the extension against that URL.
 

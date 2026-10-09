@@ -172,9 +172,9 @@ def detect_media_type(image_bytes: bytes) -> str:
         return "image/png"
     if image_bytes[:2] == b"\xff\xd8":
         return "image/jpeg"
-    # The extension always captures PNG (chrome.tabs.captureVisibleTab
-    # defaults to "png" — see extension/src/service-worker/index.ts); this
-    # fallback only matters for a future non-extension upload path.
+    # The extension uploads JPEG (downscaled in
+    # extension/src/service-worker/index.ts's shrinkForUpload) and older
+    # builds uploaded PNG; this fallback only matters for some other upload path.
     return "image/png"
 
 

@@ -145,7 +145,7 @@ function TypingIndicator(): JSX.Element {
   );
 }
 
-// Shown while a sleeping Hugging Face Space boots (api-client.ts's
+// Shown while a sleeping hosted backend (Render free tier) boots (api-client.ts's
 // fetchWakingBackend) — otherwise a ~1 minute wait looks like a hang.
 function WakingNotice(): JSX.Element {
   return (
