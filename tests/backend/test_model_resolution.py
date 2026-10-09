@@ -9,14 +9,13 @@ from collections.abc import Iterator
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.deps import resolve_chat_service, resolve_slide_analyzer
 from app.core.config import get_settings
 from app.services.claude_chat_service import ClaudeChatService
 from app.services.claude_vlm_analyzer import ClaudeVLMAnalyzer
 from app.services.openai_chat_service import OpenAIChatService
 from app.services.openai_vlm_analyzer import OpenAIVLMAnalyzer
+from fastapi import HTTPException
 
 
 @pytest.fixture(autouse=True)
