@@ -161,14 +161,3 @@ def resolve_chat_service(default: ChatService | None, requested_model: str | Non
     if is_openai:
         return OpenAIChatService(api_key=settings.openai_api_key, model=requested_model)
     return ClaudeChatService(api_key=settings.anthropic_api_key, model=requested_model)
-
-
-async def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
-    """Validates the shared local API key (docs/adr/ADR-007: no auth beyond
-    a local key). `GET /health` is deliberately exempt from this dependency
-    so container healthchecks and basic liveness probing don't need the
-    secret — see docker-compose.yml's healthcheck and app/api/v1/health.py.
-    """
-    settings = get_settings()
-    if not settings.local_api_key or x_api_key != settings.local_api_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key")

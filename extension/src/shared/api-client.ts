@@ -18,10 +18,11 @@ const DEFAULT_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.
 // writes to chrome.storage.local — this default only applies until then.
 const DEFAULT_LOCAL_API_KEY = "change-me-to-a-random-value";
 
-// Matches the backend's own default (backend/app/core/config.py) so a
-// fresh install behaves identically whether the model is picked in the
-// extension's Settings tab or left at the backend's .env default.
-const DEFAULT_MODEL = "gpt-4o";
+// "" means "Server default": no model is sent, so the backend uses whatever
+// its .env configures for its active provider (OpenAI or Anthropic). A
+// specific pick from the Settings tab only works against a backend of that
+// provider (backend/app/api/deps.py's resolve_* functions).
+const DEFAULT_MODEL = "";
 
 export interface BackendConfig {
   backendUrl: string;
@@ -79,7 +80,9 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
   const formData = new FormData();
   formData.append("image", params.image, "slide.png");
   formData.append("slide_number", String(params.slideNumber));
-  formData.append("model", vlmModel);
+  if (vlmModel) {
+    formData.append("model", vlmModel);
+  }
   if (params.presentationId) {
     formData.append("presentation_id", params.presentationId);
   }
@@ -145,7 +148,7 @@ export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStre
     // Settings-tab default — no caller does this today, but this keeps
     // streamChat consistent with analyzeSlide's "config unless overridden"
     // behavior rather than silently clobbering a future explicit choice.
-    body: JSON.stringify({ model: chatModel, ...request }),
+    body: JSON.stringify({ model: chatModel || null, ...request }),
   });
 
   if (!response.ok || !response.body) {
