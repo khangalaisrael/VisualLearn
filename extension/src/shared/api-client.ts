@@ -3,6 +3,9 @@
  */
 
 import type {
+  AdminOverview,
+  AdminUsersResponse,
+  AdminWaitlistResponse,
   AuthResponse,
   ChatDoneEvent,
   ChatErrorEvent,
@@ -555,6 +558,19 @@ export async function getPrivacyPolicyUrl(): Promise<string> {
 /** Current usage and limits for the quiet counter; never consumes quota. */
 export function getUsage(): Promise<UsageResponse> {
   return authedJson("/usage", {}, "Couldn't load usage");
+}
+
+/** Owner dashboard data; the server answers 403 to anyone who isn't an admin. */
+export function getAdminOverview(): Promise<AdminOverview> {
+  return authedJson("/admin/overview", {}, "Couldn't load the overview");
+}
+
+export function getAdminUsers(): Promise<AdminUsersResponse> {
+  return authedJson("/admin/users", {}, "Couldn't load users");
+}
+
+export function getAdminWaitlist(): Promise<AdminWaitlistResponse> {
+  return authedJson("/admin/waitlist", {}, "Couldn't load the waitlist");
 }
 
 export function joinProWaitlist(source: WaitlistSource): Promise<{ joined: boolean }> {

@@ -21,7 +21,7 @@ import {
   signOut,
 } from "../../shared/api-client";
 import { clearCaptures } from "../../shared/capture-store";
-import { refreshUsage } from "../../shared/usage-store";
+import { refreshUsage, useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 
 type ConnectionState = { status: "checking" } | { status: "ok" } | { status: "error" };
@@ -33,6 +33,7 @@ type SignInState =
   | { status: "error"; message: string };
 
 export function SettingsTab(): JSX.Element {
+  const usage = useUsage();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -159,6 +160,20 @@ export function SettingsTab(): JSX.Element {
           </div>
         )}
       </section>
+
+      {usage?.is_admin && (
+        <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-subtle">
+          <h2 className="text-sm font-semibold text-slate-800">Admin</h2>
+          <p className="text-xs text-slate-500">Spend, usage per user, outliers and Pro waitlist demand.</p>
+          <Button
+            variant="secondary"
+            onClick={() => void chrome.runtime.openOptionsPage()}
+            className="self-start text-xs"
+          >
+            Open admin dashboard
+          </Button>
+        </section>
+      )}
 
       {policyUrl && (
         <a

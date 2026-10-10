@@ -185,3 +185,59 @@ export interface LectureListResponse {
   retention_days: number;
   lectures: LectureSummary[];
 }
+
+export interface AdminDay {
+  date: string;
+  captures: number;
+  chats: number;
+  cost_usd: number;
+  limit_hits: number;
+}
+
+export interface AdminOverview {
+  generated_at: string;
+  timezone: string;
+  global_captures_today: number;
+  global_cap: number;
+  cost_today_usd: number;
+  cost_month_usd: number;
+  cost_30d_usd: number;
+  active_users_today: number;
+  total_users: number;
+  limit_hits_today: number;
+  waitlist_clicks: number;
+  waitlist_users: number;
+  days: AdminDay[];
+}
+
+export interface AdminUser {
+  user_id: string | null;
+  email: string | null;
+  captures_30d: number;
+  chats_30d: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_30d_usd: number;
+  limit_hits_30d: number;
+  last_active: string | null;
+  is_outlier: boolean;
+}
+
+export interface AdminUsersResponse {
+  median_cost_usd: number;
+  users: AdminUser[];
+}
+
+export interface AdminWaitlistEntry {
+  email: string | null;
+  clicks: number;
+  first_click: string;
+  last_click: string;
+  sources: string[];
+}
+
+export interface AdminWaitlistResponse {
+  unique_users: number;
+  total_clicks: number;
+  entries: AdminWaitlistEntry[];
+}

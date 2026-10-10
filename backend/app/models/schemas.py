@@ -79,6 +79,62 @@ class SlideAnalysisResponse(BaseModel):
     summary: str
 
 
+class AdminDay(BaseModel):
+    date: str  # local calendar day, YYYY-MM-DD
+    captures: int = 0
+    chats: int = 0
+    cost_usd: float = 0.0
+    limit_hits: int = 0
+
+
+class AdminOverview(BaseModel):
+    generated_at: datetime
+    timezone: str
+    global_captures_today: int
+    global_cap: int
+    cost_today_usd: float
+    cost_month_usd: float
+    cost_30d_usd: float
+    active_users_today: int
+    total_users: int
+    limit_hits_today: int
+    waitlist_clicks: int
+    waitlist_users: int
+    days: list[AdminDay]
+
+
+class AdminUser(BaseModel):
+    user_id: str | None  # None = signed out / deleted accounts, pooled
+    email: str | None
+    captures_30d: int = 0
+    chats_30d: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_30d_usd: float = 0.0
+    limit_hits_30d: int = 0
+    last_active: datetime | None = None
+    is_outlier: bool = False
+
+
+class AdminUsersResponse(BaseModel):
+    median_cost_usd: float
+    users: list[AdminUser]
+
+
+class AdminWaitlistEntry(BaseModel):
+    email: str | None
+    clicks: int
+    first_click: datetime
+    last_click: datetime
+    sources: list[str]
+
+
+class AdminWaitlistResponse(BaseModel):
+    unique_users: int
+    total_clicks: int
+    entries: list[AdminWaitlistEntry]
+
+
 class CaptureConversation(BaseModel):
     id: str
     title: str
