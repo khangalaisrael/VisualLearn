@@ -12,8 +12,10 @@ import { useEffect, useState } from "react";
 
 import {
   checkHealth,
+  deleteAccount,
   getAuthState,
   getConfig,
+  getPrivacyPolicyUrl,
   signInWithGoogle,
   signInWithGooglePicker,
   signOut,
@@ -29,10 +31,15 @@ type SignInState =
   | { status: "error"; message: string };
 
 export function SettingsTab(): JSX.Element {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [policyUrl, setPolicyUrl] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionState>({ status: "checking" });
   const [signIn, setSignIn] = useState<SignInState>({ status: "signed-out" });
 
   useEffect(() => {
+    getPrivacyPolicyUrl().then(setPolicyUrl);
     getConfig().then(({ backendUrl }) => {
       checkHealth(backendUrl)
         .then(() => setConnection({ status: "ok" }))
@@ -58,6 +65,20 @@ export function SettingsTab(): JSX.Element {
   const handleSignOut = async () => {
     await signOut();
     setSignIn({ status: "signed-out" });
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount();
+      setConfirmingDelete(false);
+      setSignIn({ status: "signed-out" });
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSwitchAccount = async () => {
@@ -91,6 +112,35 @@ export function SettingsTab(): JSX.Element {
                 Sign out
               </Button>
             </div>
+            {confirmingDelete ? (
+              <div className="flex flex-col gap-2 rounded-md bg-red-50 p-3">
+                <p className="text-xs text-red-800">
+                  This permanently deletes your account, all your chats and your captured slides. It can't be undone.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={() => void handleDeleteAccount()}
+                    className="rounded-sm bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors duration-[120ms] hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleting ? "Deleting…" : "Yes, delete everything"}
+                  </button>
+                  <Button variant="secondary" onClick={() => setConfirmingDelete(false)} className="text-xs">
+                    Cancel
+                  </Button>
+                </div>
+                {deleteError && <p className="text-xs text-red-700">{deleteError}</p>}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                className="self-start text-xs font-medium text-slate-400 transition-colors duration-[120ms] hover:text-red-600"
+              >
+                Delete my account and data
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -102,6 +152,17 @@ export function SettingsTab(): JSX.Element {
           </div>
         )}
       </section>
+
+      {policyUrl && (
+        <a
+          href={policyUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="px-1 text-xs font-medium text-indigo-600 underline-offset-2 hover:underline"
+        >
+          Privacy policy
+        </a>
+      )}
 
       <div className="flex items-center gap-2 px-1 text-xs text-slate-400">
         <span

@@ -8,14 +8,17 @@ of it. Nothing elsewhere in the API requires the bearer token yet; scoping
 existing endpoints by the signed-in user is Phase 3, not this one.
 """
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import verify_api_key
+from app.api.deps import get_current_user_id, verify_api_key
 from app.db.session import get_db
 from app.models.schemas import AuthResponse, GoogleAuthRequest, LogoutRequest
 from app.repositories.sessions import SessionRepository
 from app.repositories.users import UserRepository
+from app.services.account import delete_account
 from app.services.google_oauth import GoogleTokenVerificationError, verify_google_access_token
 
 router = APIRouter(tags=["auth"], dependencies=[Depends(verify_api_key)])
@@ -39,3 +42,15 @@ async def sign_in_with_google(request: GoogleAuthRequest, db: AsyncSession = Dep
 async def logout(request: LogoutRequest, db: AsyncSession = Depends(get_db)) -> None:
     await SessionRepository(db).delete_by_token(request.session_token)
     await db.commit()
+
+
+@router.delete("/auth/account", status_code=204)
+async def delete_my_account(
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
+) -> None:
+    """Deletes the signed-in user and all of their chats, captures and
+    sessions. Irreversible; the extension asks for confirmation first."""
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Sign in to delete your account.")
+    await delete_account(db, current_user_id)

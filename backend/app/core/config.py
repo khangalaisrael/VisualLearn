@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # after their last message — see services/retention.py.
     chat_retention_days: int = 30
 
+    # Shown on the public privacy policy page (api/privacy.py). Set
+    # PRIVACY_CONTACT_EMAIL on the host; without it the page points to the
+    # store listing's support contact instead.
+    privacy_contact_email: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

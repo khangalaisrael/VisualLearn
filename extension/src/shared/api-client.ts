@@ -485,3 +485,14 @@ export function getConversation(id: string): Promise<ConversationDetail> {
 export function deleteConversation(id: string): Promise<void> {
   return authedJson(`/conversations/${id}`, { method: "DELETE" }, "Couldn't delete that chat");
 }
+
+/** Deletes the signed-in account and all its data on the server, then signs out locally. */
+export async function deleteAccount(): Promise<void> {
+  await authedJson<void>("/auth/account", { method: "DELETE" }, "Couldn't delete your account");
+  await signOut();
+}
+
+export async function getPrivacyPolicyUrl(): Promise<string> {
+  const { backendUrl } = await getConfig();
+  return `${backendUrl}/privacy`;
+}

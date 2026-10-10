@@ -146,6 +146,10 @@ All three need `Authorization: Bearer <session token>`; without one they return 
 
 `POST /chat` only continues a `conversation_id` that belongs to the same presentation and, if it has an owner, to the caller; otherwise `404`.
 
+`DELETE /auth/account` (signed in) permanently deletes the user and all their chats, captures and sessions; `204`, or `401` without a session.
+
+`GET /privacy` (public, HTML) is the privacy policy the Chrome Web Store listing links to.
+
 `POST /maintenance/cleanup` (API key only) deletes everything past retention and returns the row counts.
 
 ## 4. `GET /presentations/{id}`
