@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
-from app.api.deps import get_chat_service, resolve_chat_service, verify_api_key
+from app.api.deps import ensure_presentation_access, get_chat_service, get_current_user_id, resolve_chat_service, verify_api_key
 from app.core.prompt_loader import load_prompt
 from app.db.session import get_db
 from app.models.orm import ObjectRecord
@@ -391,6 +391,7 @@ async def chat(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
     chat_service: ChatService | None = Depends(get_chat_service),
+    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
 ) -> StreamingResponse:
     if chat_service is None:
         raise HTTPException(status_code=503, detail="Chat is not configured (no provider API key set)")
@@ -405,6 +406,7 @@ async def chat(
     presentation = await PresentationRepository(db).get(presentation_uuid)
     if presentation is None:
         raise HTTPException(status_code=404, detail="Unknown presentation_id")
+    ensure_presentation_access(presentation, current_user_id)
 
     if request.query_mode == "figure":
         context_text, referenced_object_ids = await _build_figure_context(db, request)

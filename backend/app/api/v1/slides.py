@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_slide_analyzer, resolve_slide_analyzer, verify_api_key
+from app.api.deps import ensure_presentation_access, get_current_user_id, get_slide_analyzer, resolve_slide_analyzer, verify_api_key
 from app.core.cache import get_redis
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -51,6 +51,7 @@ async def analyze_slide(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
     analyzer: SlideAnalyzer = Depends(get_slide_analyzer),
+    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
 ) -> SlideAnalysisResponse:
     """Analyze a captured slide image.
 
@@ -96,8 +97,11 @@ async def analyze_slide(
         presentation = await presentations.get(presentation_uuid)
         if presentation is None:
             raise HTTPException(status_code=404, detail="Unknown presentation_id")
+        ensure_presentation_access(presentation, current_user_id)
     else:
-        presentation = await presentations.create(title="Untitled presentation", source_type="live_capture")
+        presentation = await presentations.create(
+            title="Untitled presentation", source_type="live_capture", user_id=current_user_id
+        )
 
     start = time.perf_counter()
     cached_result = await cache.get(image_hash, analyzer.model_name)

@@ -5,10 +5,15 @@ Kept out of individual routers so the routers stay thin (docs/ARCHITECTURE.md
 """
 
 import logging
+import uuid
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.db.session import get_db
+from app.models.orm import Presentation
+from app.repositories.sessions import SessionRepository
 from app.services.chat_service import ChatService
 from app.services.claude_chat_service import ClaudeChatService
 from app.services.claude_vlm_analyzer import ClaudeVLMAnalyzer
@@ -172,3 +177,47 @@ async def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
     settings = get_settings()
     if not settings.local_api_key or x_api_key != settings.local_api_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key")
+
+
+async def get_current_user_id(
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> uuid.UUID | None:
+    """Resolves the signed-in user, if any, from `Authorization: Bearer
+    <session token>` (docs/PublicHostingMVP.md Phase 2/3). Additive to
+    `verify_api_key`, not a replacement — every route below still also
+    requires `X-API-Key`.
+
+    No header at all -> `None` ("anonymous"): the unchanged, still fully
+    supported local-first flow where nobody has signed in. A header that
+    *is* present but names an invalid/expired/malformed token is rejected
+    outright with 401 rather than silently treated as anonymous — a
+    student who believes they're signed in should never have a capture
+    silently attributed to nobody instead of failing loudly.
+    """
+    if authorization is None:
+        return None
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed Authorization header")
+
+    token = authorization.removeprefix("Bearer ").strip()
+    session = await SessionRepository(db).get_valid_by_token(token)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session token")
+    return session.user_id
+
+
+def ensure_presentation_access(presentation: Presentation, current_user_id: uuid.UUID | None) -> None:
+    """Phase 3 (docs/PublicHostingMVP.md): one user's presentations are
+    invisible to every other user. Raises 404 — not 403 — so a
+    wrong-owner request is indistinguishable from a genuinely unknown id,
+    rather than confirming the presentation exists at all.
+
+    A presentation with `user_id is None` (created anonymously, before
+    Phase 2 sign-in existed or by a still-not-signed-in request) stays
+    open to anyone, preserving the local-first flow exactly as it worked
+    before this phase — isolation only applies once a presentation is
+    actually owned by someone.
+    """
+    if presentation.user_id is not None and presentation.user_id != current_user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown presentation_id")

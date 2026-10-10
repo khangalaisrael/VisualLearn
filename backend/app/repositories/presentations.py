@@ -14,8 +14,12 @@ class PresentationRepository:
     async def get(self, presentation_id: uuid.UUID) -> Presentation | None:
         return await self._db.get(Presentation, presentation_id)
 
-    async def create(self, *, title: str, source_type: str) -> Presentation:
-        presentation = Presentation(title=title, source_type=source_type)
+    async def create(self, *, title: str, source_type: str, user_id: uuid.UUID | None = None) -> Presentation:
+        # `user_id=None` (the default) is the unchanged local-first/
+        # anonymous flow (docs/PublicHostingMVP.md Phase 3) — a presentation
+        # only gets attributed to an account when the request that created
+        # it carried a valid session token.
+        presentation = Presentation(title=title, source_type=source_type, user_id=user_id)
         self._db.add(presentation)
         await self._db.flush()
         return presentation

@@ -231,6 +231,17 @@ export async function checkHealth(backendUrl: string, onWaking?: () => void): Pr
   return (await response.json()) as HealthResponse;
 }
 
+// Attached to capture/chat requests so a signed-in user's presentations
+// are actually attributed to their account (docs/PublicHostingMVP.md
+// Phase 3) instead of staying anonymous despite having signed in. Empty
+// object when signed out — every endpoint still works without it (Phase
+// 2/3 are additive, not required), it just means the resulting data has
+// no owner, same as the whole app worked before sign-in existed.
+async function authHeader(): Promise<Record<string, string>> {
+  const { sessionToken } = await getAuthState();
+  return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
+}
+
 export interface AnalyzeSlideParams {
   image: Blob;
   presentationId: string | null;
@@ -263,7 +274,7 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
 
   const response = await fetchWakingBackend(
     `${backendUrl}/api/v1/slides/analyze`,
-    { method: "POST", headers: { "X-API-Key": apiKey }, body: formData },
+    { method: "POST", headers: { "X-API-Key": apiKey, ...(await authHeader()) }, body: formData },
     params.onWaking,
     ANALYZE_ATTEMPT_TIMEOUT_MS
   );
@@ -320,7 +331,7 @@ export async function* streamChat(request: ChatRequest, onWaking?: () => void): 
     `${backendUrl}/api/v1/chat`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey, ...(await authHeader()) },
       // request.model, when the caller already set one, wins over the
       // Settings-tab default — no caller does this today, but this keeps
       // streamChat consistent with analyzeSlide's "config unless overridden"
