@@ -243,6 +243,11 @@ export function AdminApp(): JSX.Element {
                     <tr key={user.user_id ?? "pooled"} className="border-t border-slate-100">
                       <td className="py-2 pr-4 text-slate-700">
                         {user.email ?? "Signed out / deleted accounts"}
+                        {user.is_admin && (
+                          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                            admin
+                          </span>
+                        )}
                         {user.is_outlier && (
                           <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
                             outlier
@@ -263,8 +268,8 @@ export function AdminApp(): JSX.Element {
               </table>
             </div>
             <p className="mt-3 text-xs text-slate-400">
-              An outlier spent more than twice the median spender (and at least a cent). Costs are estimates from a
-              price table.
+              An outlier spent more than twice the median spender and at least 5 cents. Admin accounts are left out of
+              that comparison. Costs are estimates from a price table.
             </p>
           </section>
 

@@ -123,6 +123,8 @@ def test_outlier_needs_three_spenders_and_a_real_gap() -> None:
     assert outlier_ids({"a": 0.5, "b": 0.01}) == set()  # too few to call anyone typical
     assert outlier_ids({"a": 0.30, "b": 0.012, "c": 0.01, "d": 0.0}) == {"a"}
     assert outlier_ids({"a": 0.003, "b": 0.001, "c": 0.001}) == set()  # a fraction of a cent isn't a problem
+    assert outlier_ids({"a": 0.04, "b": 0.001, "c": 0.001}) == set()  # under 5 cents isn't worth flagging
+    assert outlier_ids({"a": 0.06, "b": 0.001, "c": 0.001}) == {"a"}
     assert outlier_ids({"a": 0.02, "b": 0.019, "c": 0.021}) == set()  # everyone similar
 
 
@@ -185,3 +187,25 @@ async def test_waitlist_groups_clicks_by_person(client: AsyncClient, db_session:
     assert alex_entry["clicks"] == 2
     assert alex_entry["sources"] == ["daily", "monthly"]
     assert alex_entry["first_click"] < alex_entry["last_click"]
+
+
+async def test_admin_accounts_are_never_flagged_and_do_not_skew_the_median(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    admin, admin_id = await _sign_in(db_session, ADMIN_EMAIL)
+    _, a = await _sign_in(db_session, "a@example.com")
+    _, b = await _sign_in(db_session, "b@example.com")
+    _, c = await _sign_in(db_session, "c@example.com")
+    db_session.add_all(
+        [_event(admin_id, cost=2.0)]  # the owner testing heavily
+        + [_event(a, cost=0.010), _event(b, cost=0.012), _event(c, cost=0.011)]
+    )
+    await db_session.commit()
+
+    body = (await client.get("/api/v1/admin/users", headers=admin)).json()
+    by_email = {u["email"]: u for u in body["users"]}
+    assert by_email[ADMIN_EMAIL]["is_admin"] is True
+    assert by_email[ADMIN_EMAIL]["is_outlier"] is False
+    assert by_email["a@example.com"]["is_admin"] is False
+    assert all(not u["is_outlier"] for u in body["users"])  # nobody else is unusual
+    assert body["median_cost_usd"] == pytest.approx(0.011)  # the owner's $2 isn't in it

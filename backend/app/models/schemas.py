@@ -114,6 +114,7 @@ class AdminUser(BaseModel):
     limit_hits_30d: int = 0
     last_active: datetime | None = None
     is_outlier: bool = False
+    is_admin: bool = False
 
 
 class AdminUsersResponse(BaseModel):

@@ -25,7 +25,7 @@ async def overview(db: AsyncSession = Depends(get_db)) -> AdminOverview:
 
 @router.get("/users", response_model=AdminUsersResponse)
 async def users(db: AsyncSession = Depends(get_db)) -> AdminUsersResponse:
-    return await admin_stats.build_users(db, clock.now())
+    return await admin_stats.build_users(db, get_settings(), clock.now())
 
 
 @router.get("/waitlist", response_model=AdminWaitlistResponse)

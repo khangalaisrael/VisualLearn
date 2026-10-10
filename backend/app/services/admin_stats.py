@@ -32,7 +32,8 @@ from app.services.rate_limiter import day_window, month_window
 SERIES_DAYS = 14
 WINDOW_DAYS = 30
 # Below this, an "outlier" is just noise: a few cents of spend isn't a problem.
-OUTLIER_MIN_COST_USD = 0.01
+# (One capture costs about a tenth of a cent, so 5 cents is dozens of captures.)
+OUTLIER_MIN_COST_USD = 0.05
 OUTLIER_MEDIAN_MULTIPLE = 2.0
 
 
@@ -42,7 +43,7 @@ def _utc(moment: datetime) -> datetime:
 
 def outlier_ids(costs: dict[object, float]) -> set[object]:
     """Who spent far more than the typical user: more than twice the median
-    of everyone who spent anything, and at least a cent. Needs three people
+    of everyone who spent anything, and at least 5 cents. Needs three people
     with spend, otherwise there is no "typical" to compare with."""
     spending = [cost for cost in costs.values() if cost > 0]
     if len(spending) < 3:
@@ -110,13 +111,19 @@ async def build_overview(db: AsyncSession, settings: Settings, now: datetime) ->
     )
 
 
-async def build_users(db: AsyncSession, now: datetime) -> AdminUsersResponse:
+async def build_users(db: AsyncSession, settings: Settings, now: datetime) -> AdminUsersResponse:
     since = now - timedelta(days=WINDOW_DAYS)
     events = await _events_since(db, since)
     users = {user.id: user for user in (await db.execute(select(User))).scalars().all()}
 
+    admins = settings.admin_email_set
     rows: dict[uuid.UUID | None, AdminUser] = {
-        user_id: AdminUser(user_id=str(user_id), email=user.email) for user_id, user in users.items()
+        user_id: AdminUser(
+            user_id=str(user_id),
+            email=user.email,
+            is_admin=user.email is not None and user.email.lower() in admins,
+        )
+        for user_id, user in users.items()
     }
     for event in events:
         row = rows.get(event.user_id)
@@ -136,13 +143,15 @@ async def build_users(db: AsyncSession, now: datetime) -> AdminUsersResponse:
             if row.last_active is None or created > row.last_active:
                 row.last_active = created
 
-    flagged = outlier_ids({key: row.cost_30d_usd for key, row in rows.items()})
+    # The owner's own testing is not "a user spending too much": admins are
+    # left out of both the typical-spend median and the flag.
+    flagged = outlier_ids({key: row.cost_30d_usd for key, row in rows.items() if not row.is_admin})
     for key, row in rows.items():
         row.cost_30d_usd = round(row.cost_30d_usd, 4)
         row.is_outlier = key in flagged
 
     ordered = sorted(rows.values(), key=lambda row: (row.cost_30d_usd, row.captures_30d), reverse=True)
-    spending = [row.cost_30d_usd for row in ordered if row.cost_30d_usd > 0]
+    spending = [row.cost_30d_usd for row in ordered if row.cost_30d_usd > 0 and not row.is_admin]
     return AdminUsersResponse(
         median_cost_usd=round(statistics.median(spending), 4) if spending else 0.0,
         users=ordered,

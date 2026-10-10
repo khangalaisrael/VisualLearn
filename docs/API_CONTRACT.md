@@ -169,7 +169,7 @@ Thumbnails are not part of this API: the extension keeps them in IndexedDB on th
 All need the API key plus a session whose verified Google email is in `ADMIN_EMAILS`; everyone else gets `403`. Read-only. Costs are estimates from a per-model price table.
 
 - `GET /admin/overview` → today's captures vs the global cap, estimated spend (today / this month / 30 days), active users today, total users, limit hits today, waitlist clicks and distinct people, and a 14-day series `days: [{ date, captures, chats, cost_usd, limit_hits }]` (local days in `RATE_LIMIT_TIMEZONE`).
-- `GET /admin/users` → `{ median_cost_usd, users: [{ user_id, email, captures_30d, chats_30d, input_tokens, output_tokens, cost_30d_usd, limit_hits_30d, last_active, is_outlier }] }`, highest spend first. Signed-out and deleted-account usage is pooled in one row with `user_id: null`. An outlier spent more than twice the median of everyone with spend, and at least $0.01 (needs three spenders).
+- `GET /admin/users` → `{ median_cost_usd, users: [{ user_id, email, captures_30d, chats_30d, input_tokens, output_tokens, cost_30d_usd, limit_hits_30d, last_active, is_outlier }] }`, highest spend first. Signed-out and deleted-account usage is pooled in one row with `user_id: null`. An outlier spent more than twice the median of everyone with spend, and at least $0.05 (needs three spenders). Admin accounts (`is_admin: true`) are excluded from the median and never flagged.
 - `GET /admin/waitlist` → `{ unique_users, total_clicks, entries: [{ email, clicks, first_click, last_click, sources }] }`, latest first.
 
 The extension shows this on a full-tab options page (`src/admin/`), reachable from Settings only when `GET /usage` says `is_admin`.

@@ -221,6 +221,7 @@ export interface AdminUser {
   limit_hits_30d: number;
   last_active: string | null;
   is_outlier: boolean;
+  is_admin: boolean;
 }
 
 export interface AdminUsersResponse {
