@@ -211,7 +211,7 @@ export async function signOut(): Promise<void> {
 // and takes ~30-60s to boot on the next request; until then its proxy
 // answers with connection errors, 502/503/504s or an HTML holding page.
 // Requests to such a backend are retried until it's up, and `onWaking` fires
-// once so the UI can explain the wait. Scoped to *.onrender.com hosts so a
+// once so the UI can explain the wait. Scoped to *.onrender.com and visionlearn.fyi hosts so a
 // local backend that's simply not running still fails immediately.
 const WAKE_TIMEOUT_MS = 150_000;
 const WAKE_RETRY_INTERVAL_MS = 5_000;
@@ -234,9 +234,13 @@ const ANALYZE_ATTEMPT_TIMEOUT_MS = 60_000;
 const CHAT_ATTEMPT_TIMEOUT_MS = 30_000;
 const WAKE_STATUSES = new Set([502, 503, 504]);
 
+// The Render service is also served from this custom domain (same free tier).
+const SLEEPING_CUSTOM_DOMAIN = "visionlearn.fyi";
+
 function canSleep(url: string): boolean {
   try {
-    return new URL(url).hostname.endsWith(".onrender.com");
+    const host = new URL(url).hostname;
+    return host.endsWith(".onrender.com") || host === SLEEPING_CUSTOM_DOMAIN || host.endsWith(`.${SLEEPING_CUSTOM_DOMAIN}`);
   } catch {
     return false;
   }

@@ -81,3 +81,7 @@ Load `extension/dist` in `chrome://extensions` (Developer mode → **Load unpack
 
 - Render free, Neon free, Upstash free, cron-job.org: **$0**, no card. Free-tier terms change; check each dashboard occasionally.
 - Anthropic: about $0.001 per slide capture on Claude Haiku 5.5 (an estimate; downscaled captures use fewer image tokens; the console shows real per-request cost).
+
+## Custom domain
+
+The service is also reachable at `https://visionlearn.fyi` (Render → Settings → Custom Domains; Cloudflare DNS: CNAME `@` and `www` → `visionlearn-api.onrender.com`, **DNS only**, not proxied). Use it for the extension build (`VITE_BACKEND_URL=https://visionlearn.fyi`), the cron-job.org URLs and the privacy policy link (`https://visionlearn.fyi/privacy`). The `onrender.com` address keeps working, so older extension builds don't break.
