@@ -129,6 +129,9 @@ export interface UsageResponse {
   captures_month: UsageWindow;
   chat_today: UsageWindow;
   global_blocked: boolean;
+  invite_only: boolean;
+  allowed: boolean;
+  invite_contact: string | null;
 }
 
 export type WaitlistSource = "daily" | "monthly" | "settings";

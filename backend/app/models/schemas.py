@@ -285,6 +285,10 @@ class UsageResponse(BaseModel):
     chat_today: UsageWindow
     # The global daily capacity cap is reached (not this user's own limit).
     global_blocked: bool
+    # Invite-only mode: `allowed` is False for anyone not on the list (signed out included).
+    invite_only: bool = False
+    allowed: bool = True
+    invite_contact: str | None = None
 
 
 class WaitlistRequest(BaseModel):

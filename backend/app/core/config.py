@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     # JSON for a list-typed field).
     admin_emails: str = ""
 
+    # Comma-separated Google emails allowed to use VisionLearn. Empty (the default)
+    # means open to everyone. When set, the app is invite-only: only these accounts
+    # (and the admins) can sign in, capture or chat, signed-out use included.
+    allowed_emails: str = ""
+
     # Rough USD per million tokens (input, output), only used to ESTIMATE
     # spend in usage_events. Check the provider's pricing page; unknown
     # models are costed at 0 rather than guessed.
@@ -135,6 +140,14 @@ class Settings(BaseSettings):
     @property
     def admin_email_set(self) -> frozenset[str]:
         return frozenset(e.strip().lower() for e in self.admin_emails.split(",") if e.strip())
+
+    @property
+    def allowed_email_set(self) -> frozenset[str]:
+        return frozenset(e.strip().lower() for e in self.allowed_emails.split(",") if e.strip())
+
+    @property
+    def invite_only(self) -> bool:
+        return bool(self.allowed_email_set)
 
 
 @lru_cache

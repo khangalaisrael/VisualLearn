@@ -13,7 +13,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user_id, verify_api_key
+from app.api.deps import get_current_user_id, invite_only_error, is_email_allowed, verify_api_key
 from app.db.session import get_db
 from app.models.schemas import AuthResponse, GoogleAuthRequest, LogoutRequest
 from app.repositories.sessions import SessionRepository
@@ -30,6 +30,10 @@ async def sign_in_with_google(request: GoogleAuthRequest, db: AsyncSession = Dep
         google_user = await verify_google_access_token(request.access_token)
     except GoogleTokenVerificationError as exc:
         raise HTTPException(status_code=401, detail="Could not verify Google sign-in.") from exc
+
+    # Invite-only mode: an account that isn't on the list never gets a user or a session.
+    if not is_email_allowed(google_user.email):
+        raise invite_only_error()
 
     user = await UserRepository(db).get_or_create_by_google_sub(google_user.sub, email=google_user.email)
     session = await SessionRepository(db).create(user.id)

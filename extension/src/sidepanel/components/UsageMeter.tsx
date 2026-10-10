@@ -20,6 +20,7 @@ function tone(used: number, limit: number): { stroke: string; text: string } {
 export function UsageMeter(): JSX.Element | null {
   const usage = useUsage();
   if (!usage) return null;
+  if (usage.invite_only && !usage.allowed) return null; // nothing to count until they're let in
 
   if (usage.unlimited) {
     return <span className="px-1 text-xs font-medium text-slate-400">Unlimited</span>;

@@ -10,7 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, is_admin, rate_limit_key, verify_api_key
+from app.api.deps import get_current_user, is_admin, is_email_allowed, rate_limit_key, verify_api_key
 from app.core import clock
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -58,6 +58,9 @@ async def get_usage(
         captures_month=await _window(repo, key, "analyze", monthly),
         chat_today=await _window(repo, key, "chat", chat_daily),
         global_blocked=global_blocked,
+        invite_only=settings.invite_only,
+        allowed=is_email_allowed(user.email if user else None),
+        invite_contact=settings.privacy_contact_email,
     )
 
 

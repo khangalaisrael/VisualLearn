@@ -89,7 +89,7 @@ _FOOT = """
 
 _HOME = """
 <section class="hero">
-  <span class="pill">A small student project</span>
+  <span class="pill">__PILL__</span>
   <h1>Understand any lecture slide.</h1>
   <p class="lead">VisionLearn reads the slide on your screen — equations, diagrams, graphs and code — explains it, and lets you ask follow-up questions about exactly what you're looking at.</p>
   <div class="cta">
@@ -134,7 +134,7 @@ _INSTALL = """
 <section class="hero">
   <span class="pill">Chrome, Edge or Brave on a computer</span>
   <h1>Add VisionLearn to Chrome</h1>
-  <p class="lead">It takes about two minutes. The extension isn't in the Chrome Web Store yet, so you add it by hand once.</p>
+  <p class="lead">It takes about two minutes. The extension isn't in the Chrome Web Store yet, so you add it by hand once.__INVITE_NOTE__</p>
   __DOWNLOAD__
 </section>
 
@@ -183,8 +183,17 @@ def _page(title: str, body: str) -> str:
 
 
 def render_landing() -> str:
-    download = _clean_download_url(get_settings().extension_download_url)
-    if download:
+    settings = get_settings()
+    download = _clean_download_url(settings.extension_download_url)
+    if settings.invite_only:
+        cta = "How to join"
+        box = (
+            "<p><strong>VisionLearn is invite-only while it's in beta.</strong></p>"
+            '<p>Email <a href="mailto:__EMAIL__">__EMAIL__</a> with the Google (Gmail) address you will sign in with, '
+            "and we'll add you. Then follow the <a href=\"/install\">install guide</a>.</p>"
+            '<p class="note">Your account only needs to be on the list once.</p>'
+        )
+    elif download:
         cta = "Add it to Chrome"
         box = (
             "<p><strong>Free to try, no payment needed.</strong></p>"
@@ -200,7 +209,11 @@ def render_landing() -> str:
             '<a href="mailto:__EMAIL__">__EMAIL__</a> and we\'ll send you the extension.</p>'
             '<p class="note">Sign in with Google is optional, and only needed to keep your history across devices.</p>'
         )
-    return _page("VisionLearn AI — understand any lecture slide", _HOME.replace("__CTA__", cta).replace("__GET_BOX__", box))
+    pill = "Invite-only beta" if settings.invite_only else "A small student project"
+    return _page(
+        "VisionLearn AI — understand any lecture slide",
+        _HOME.replace("__CTA__", cta).replace("__GET_BOX__", box).replace("__PILL__", pill),
+    )
 
 
 def render_install() -> str:
@@ -215,7 +228,12 @@ def render_install() -> str:
             '<div class="box"><p><strong>The download isn\'t public yet.</strong></p>'
             '<p>Email <a href="mailto:__EMAIL__">__EMAIL__</a> and we\'ll send you the file.</p></div>'
         )
-    return _page("Add VisionLearn to Chrome", _INSTALL.replace("__DOWNLOAD__", button))
+    note = (
+        " VisionLearn is invite-only right now: sign in with the Google account you were invited with."
+        if get_settings().invite_only
+        else ""
+    )
+    return _page("Add VisionLearn to Chrome", _INSTALL.replace("__DOWNLOAD__", button).replace("__INVITE_NOTE__", note))
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)

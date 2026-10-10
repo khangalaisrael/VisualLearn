@@ -41,6 +41,7 @@ import type {
   SlideAnalyzedMessage,
 } from "../../service-worker/messages";
 import { Button } from "../components/Button";
+import { InviteOnlyCard, isBlockedByInvite } from "../components/InviteOnlyCard";
 import { LimitCard } from "../components/LimitCard";
 import { MathText } from "../components/MathText";
 import type { ConversationDetail, ExplanationMode } from "@shared/types";
@@ -225,7 +226,8 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   // The chat error is a usage limit (HTTP 429), shown as a calm note, not a red error.
   const [chatLimited, setChatLimited] = useState(false);
   const usage = useUsage();
-  const captureLimit = activeCaptureLimit(usage);
+  const blockedByInvite = isBlockedByInvite(usage);
+  const captureLimit = blockedByInvite ? null : activeCaptureLimit(usage);
   // What the panel showed before a capture started, so a refused capture (a
   // usage limit) puts that back instead of leaving a spinner or an error.
   const lastShownRef = useRef<LoadState | null>(null);
@@ -294,6 +296,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
           void refreshUsage();
           setState((prev) => (prev.status === "loading" ? (lastShownRef.current ?? { status: "idle" }) : prev));
         } else {
+          void refreshUsage(); // e.g. the server turned invite-only: show the explanation card
           setState({ status: "error", message: message.message });
         }
       } else if (message.type === "BACKEND_WAKING") {
@@ -367,7 +370,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   }, [isStreaming]);
 
   const captureNow = useCallback(() => {
-    if (captureLimit) return;
+    if (captureLimit || blockedByInvite) return;
     setState({ status: "loading" });
     const message: CaptureRequestMessage = {
       type: "CAPTURE_REQUEST",
@@ -377,7 +380,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
     chrome.runtime.sendMessage(message).catch((error) => {
       setState({ status: "error", message: String(error) });
     });
-  }, [captureLimit]);
+  }, [captureLimit, blockedByInvite]);
 
   const askQuestion = useCallback(
     async (question: string) => {
@@ -490,7 +493,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
         <button
           type="button"
           onClick={captureNow}
-          disabled={state.status === "loading" || captureLimit !== null}
+          disabled={state.status === "loading" || captureLimit !== null || blockedByInvite}
           title={captureLimit ? "You've reached your capture limit" : undefined}
           className="flex flex-none items-center gap-2 rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-subtle transition-colors duration-[120ms] hover:bg-indigo-700 active:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -500,9 +503,11 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
       </div>
 
       <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+        {blockedByInvite && <InviteOnlyCard />}
+
         {captureLimit && <LimitCard limit={captureLimit} />}
 
-        {state.status === "idle" && !captureLimit && <EmptyState />}
+        {state.status === "idle" && !captureLimit && !blockedByInvite && <EmptyState />}
 
         {state.status === "loading" && state.waking && <WakingNotice />}
 

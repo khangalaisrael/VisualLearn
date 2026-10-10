@@ -237,6 +237,38 @@ async def require_admin(user: User | None = Depends(get_current_user)) -> User:
     return user  # type: ignore[return-value]
 
 
+def is_email_allowed(email: str | None) -> bool:
+    """Open mode: everyone. Invite-only mode: only invited emails and admins."""
+    settings = get_settings()
+    if not settings.invite_only:
+        return True
+    if email is None:
+        return False
+    lowered = email.lower()
+    return lowered in settings.allowed_email_set or lowered in settings.admin_email_set
+
+
+def invite_only_message() -> str:
+    contact = get_settings().privacy_contact_email
+    ask = f" Ask {contact} for an invite." if contact else " Ask for an invite."
+    return "VisionLearn is invite-only right now. Sign in with the Google account you were invited with." + ask
+
+
+def invite_only_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=invite_only_message(),
+        headers={"X-Access": "invite-only"},
+    )
+
+
+def ensure_access(user: User | None) -> None:
+    """Signed-out visitors are turned away too in invite-only mode: otherwise
+    skipping sign-in would skip the invite list."""
+    if not is_email_allowed(user.email if user is not None else None):
+        raise invite_only_error()
+
+
 def ensure_presentation_access(presentation: Presentation, current_user_id: uuid.UUID | None) -> None:
     """Phase 3 (docs/PublicHostingMVP.md): one user's presentations are
     invisible to every other user. Raises 404 — not 403 — so a
@@ -282,6 +314,7 @@ async def enforce_capture_rate_limit(
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ) -> None:
+    ensure_access(user)
     if is_admin(user):
         return
     settings = get_settings()
@@ -304,6 +337,7 @@ async def enforce_chat_rate_limit(
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ) -> None:
+    ensure_access(user)
     if is_admin(user):
         return
     settings = get_settings()

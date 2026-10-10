@@ -23,6 +23,9 @@ services:
       # Copy it from the service's Environment tab into the extension.
       - key: LOCAL_API_KEY
         generateValue: true
+      # Invite-only mode: comma-separated Google emails allowed in (empty = open to everyone).
+      - key: ALLOWED_EMAILS
+        sync: false
       # Link to the extension zip offered on /install (a GitHub Release asset).
       - key: EXTENSION_DOWNLOAD_URL
         sync: false
