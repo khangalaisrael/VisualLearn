@@ -43,9 +43,11 @@ from app.repositories.messages import MessageRepository
 from app.repositories.objects import ObjectRepository
 from app.repositories.presentations import PresentationRepository
 from app.repositories.slides import SlideRepository
+from app.repositories.usage_events import UsageEventRepository
 from app.services.algorithm_tracer import find_algorithm_name, find_array, find_target, format_result
 from app.services.algorithm_tracer import trace as trace_algorithm
 from app.services.chat_service import ChatEffort, ChatService
+from app.services.usage import estimate_cost_usd
 from app.services.graph_algorithm_tracer import find_graph_algorithm, find_start_node
 from app.services.graph_algorithm_tracer import trace as trace_graph_algorithm
 from app.services.recurrence_solver import RecurrenceAnalysis, analyze_recurrence
@@ -349,6 +351,7 @@ async def _stream_response(
     message: str,
     effort: ChatEffort,
     referenced_object_ids: list[str],
+    user_id: uuid.UUID | None,
 ) -> AsyncIterator[str]:
     start = time.perf_counter()
     full_text = ""
@@ -380,6 +383,17 @@ async def _stream_response(
                     content=full_text,
                     query_mode=query_mode,
                     referenced_object_ids=referenced_object_ids,
+                )
+                await UsageEventRepository(db).record(
+                    user_id=user_id,
+                    action="chat",
+                    model=chat_service.model_name,
+                    input_tokens=chunk.usage.input_tokens,
+                    output_tokens=chunk.usage.output_tokens,
+                    est_cost_usd=estimate_cost_usd(
+                        chat_service.model_name, chunk.usage.input_tokens, chunk.usage.output_tokens
+                    ),
+                    conversation_id=conversation_id,
                 )
                 await db.commit()
 
@@ -458,6 +472,7 @@ async def chat(
             message=request.message,
             effort=effort,
             referenced_object_ids=referenced_object_ids,
+            user_id=current_user_id,
         ),
         media_type="text/event-stream",
     )

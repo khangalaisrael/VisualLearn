@@ -4,7 +4,7 @@
  * between content script and side panel").
  */
 
-import type { SlideAnalysisResponse } from "@shared/types";
+import type { SlideAnalysisResponse, LimitKind } from "@shared/types";
 
 export interface CaptureRequestMessage {
   type: "CAPTURE_REQUEST";
@@ -20,6 +20,11 @@ export interface SlideAnalyzedMessage {
 export interface SlideAnalysisFailedMessage {
   type: "SLIDE_ANALYSIS_FAILED";
   message: string;
+  // Set when the backend refused the capture over a usage limit (HTTP 429):
+  // which limit, and how long until it lifts, so the panel can show the
+  // right card with a live countdown instead of a generic error.
+  limitKind?: LimitKind;
+  retryAfterSeconds?: number;
 }
 
 /** The backend is a sleeping hosted service (Render free tier) that's booting (see

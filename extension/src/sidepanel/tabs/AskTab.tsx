@@ -30,7 +30,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { streamChat } from "../../shared/api-client";
+import { ApiError, streamChat } from "../../shared/api-client";
+import { activeCaptureLimit, refreshUsage, useUsage } from "../../shared/usage-store";
 import type {
   BackendWakingMessage,
   CaptureRequestMessage,
@@ -39,6 +40,7 @@ import type {
   SlideAnalyzedMessage,
 } from "../../service-worker/messages";
 import { Button } from "../components/Button";
+import { LimitCard } from "../components/LimitCard";
 import { MathText } from "../components/MathText";
 import type { ConversationDetail, ExplanationMode } from "@shared/types";
 import { ObjectCard } from "../components/ObjectCard";
@@ -218,6 +220,13 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   const [chatInput, setChatInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  // The chat error is a usage limit (HTTP 429), shown as a calm note, not a red error.
+  const [chatLimited, setChatLimited] = useState(false);
+  const usage = useUsage();
+  const captureLimit = activeCaptureLimit(usage);
+  // What the panel showed before a capture started, so a refused capture (a
+  // usage limit) puts that back instead of leaving a spinner or an error.
+  const lastShownRef = useRef<LoadState | null>(null);
   const [chatWaking, setChatWaking] = useState(false);
   const conversationIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -234,7 +243,12 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   const loadedSlideIdRef = useRef<string | null>(null);
   useEffect(() => {
     loadedSlideIdRef.current = state.status === "loaded" ? state.result.slide_id : null;
+    if (state.status === "loaded" || state.status === "idle") lastShownRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    void refreshUsage();
+  }, []);
 
   const applyFigureSelection = useCallback((slide: SlideAnalyzedMessage["result"], objectId: string) => {
     // If this panel already has the same slide loaded (the common case —
@@ -262,8 +276,16 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
         setMessages([]);
         setFigureSelection(null);
         conversationIdRef.current = null;
+        void refreshUsage();
       } else if (message.type === "SLIDE_ANALYSIS_FAILED") {
-        setState({ status: "error", message: message.message });
+        if (message.limitKind) {
+          // A usage limit, not a failure: refresh the numbers (which makes
+          // the limit card appear) and restore whatever was on screen.
+          void refreshUsage();
+          setState((prev) => (prev.status === "loading" ? (lastShownRef.current ?? { status: "idle" }) : prev));
+        } else {
+          setState({ status: "error", message: message.message });
+        }
       } else if (message.type === "BACKEND_WAKING") {
         setState((prev) => (prev.status === "loading" ? { status: "loading", waking: true } : prev));
       } else if (message.type === "FIGURE_SELECTED") {
@@ -306,6 +328,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   }, [restore]);
 
   const captureNow = useCallback(() => {
+    if (captureLimit) return;
     setState({ status: "loading" });
     const message: CaptureRequestMessage = {
       type: "CAPTURE_REQUEST",
@@ -315,7 +338,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
     chrome.runtime.sendMessage(message).catch((error) => {
       setState({ status: "error", message: String(error) });
     });
-  }, []);
+  }, [captureLimit]);
 
   const askQuestion = useCallback(
     async (question: string) => {
@@ -325,6 +348,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
       const { presentation_id, slide_id } = state.result;
       lastQuestionRef.current = question;
       setChatError(null);
+      setChatLimited(false);
       setIsStreaming(true);
 
       const userMessage: ChatMessage = {
@@ -362,12 +386,14 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
             );
           } else if (event.type === "done") {
             conversationIdRef.current = event.data.conversation_id;
+            void refreshUsage();
           } else if (event.type === "error") {
             setChatError(event.data.message);
           }
         }
       } catch (error) {
         if (!abort.signal.aborted) {
+          setChatLimited(error instanceof ApiError && error.status === 429);
           setChatError(error instanceof Error ? error.message : String(error));
         }
       } finally {
@@ -409,7 +435,8 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
         <button
           type="button"
           onClick={captureNow}
-          disabled={state.status === "loading"}
+          disabled={state.status === "loading" || captureLimit !== null}
+          title={captureLimit ? "You've reached your capture limit" : undefined}
           className="flex flex-none items-center gap-2 rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-subtle transition-colors duration-[120ms] hover:bg-indigo-700 active:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <CaptureIcon />
@@ -418,7 +445,9 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
       </div>
 
       <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-        {state.status === "idle" && <EmptyState />}
+        {captureLimit && <LimitCard limit={captureLimit} />}
+
+        {state.status === "idle" && !captureLimit && <EmptyState />}
 
         {state.status === "loading" && state.waking && <WakingNotice />}
 
@@ -575,7 +604,13 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
 
           {chatWaking && <WakingNotice />}
 
-          {chatError && (
+          {chatError && chatLimited && (
+            <div className="rounded-lg border border-violet-100 bg-violet-50/50 p-3 text-sm text-slate-600">
+              {chatError}
+            </div>
+          )}
+
+          {chatError && !chatLimited && (
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-subtle">
               <p className="font-medium">Something went wrong.</p>
               <p>{chatError}</p>

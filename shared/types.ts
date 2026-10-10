@@ -112,6 +112,27 @@ export interface LogoutRequest {
   session_token: string;
 }
 
+export type LimitKind = "daily" | "monthly" | "global";
+
+export interface UsageWindow {
+  used: number;
+  limit: number;
+  // ISO timestamp (UTC) of the next reset.
+  resets_at: string;
+}
+
+export interface UsageResponse {
+  signed_in: boolean;
+  is_admin: boolean;
+  unlimited: boolean;
+  captures_today: UsageWindow;
+  captures_month: UsageWindow;
+  chat_today: UsageWindow;
+  global_blocked: boolean;
+}
+
+export type WaitlistSource = "daily" | "monthly" | "settings";
+
 export interface ConversationSummary {
   id: string;
   title: string;

@@ -1,24 +1,23 @@
 """Repository for the `rate_limit_events` table (docs/PublicHostingMVP.md
 Phase 4). See app/models/orm.py's RateLimitEvent docstring for why this is
-Postgres-backed rather than Redis."""
+Postgres-backed rather than Redis. Windows are calendar-based (since local
+midnight / since the 1st), computed by services/rate_limiter.py; this layer
+only counts rows since an instant."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import clock
 from app.models.orm import RateLimitEvent
-
-DAY = timedelta(hours=24)
-MONTH = timedelta(days=30)
 
 
 class RateLimitEventRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def count_recent(self, key: str, action: str, window: timedelta = DAY) -> int:
-        since = datetime.now(timezone.utc) - window
+    async def count_since(self, key: str, action: str, since: datetime) -> int:
         result = await self._db.execute(
             select(func.count())
             .select_from(RateLimitEvent)
@@ -26,28 +25,17 @@ class RateLimitEventRepository:
         )
         return result.scalar_one()
 
-    async def record(self, key: str, action: str) -> None:
-        self._db.add(RateLimitEvent(key=key, action=action))
-        await self._db.flush()
-
-    async def seconds_until_next_slot(self, key: str, action: str, window: timedelta = DAY) -> int:
-        """How long until the oldest event in the current `window` ages out,
-        freeing up a slot — what a "try again in X" message tells the
-        caller. Used only once the limit has already been hit, so a result
-        is always found (the count that triggered the 429 is itself at
-        least one row in this window)."""
-        since = datetime.now(timezone.utc) - window
+    async def count_all_since(self, action: str, since: datetime) -> int:
+        """Every key combined — the global daily cap."""
         result = await self._db.execute(
-            select(func.min(RateLimitEvent.created_at)).where(
-                RateLimitEvent.key == key, RateLimitEvent.action == action, RateLimitEvent.created_at >= since
-            )
+            select(func.count())
+            .select_from(RateLimitEvent)
+            .where(RateLimitEvent.action == action, RateLimitEvent.created_at >= since)
         )
-        oldest = result.scalar_one()
-        if oldest is None:
-            return 0
-        if oldest.tzinfo is None:
-            # Same SQLite-vs-Postgres timezone round-trip gotcha as
-            # sessions.py's get_valid_by_token — see that docstring.
-            oldest = oldest.replace(tzinfo=timezone.utc)
-        resets_at = oldest + window
-        return max(0, int((resets_at - datetime.now(timezone.utc)).total_seconds()))
+        return result.scalar_one()
+
+    async def record(self, key: str, action: str) -> None:
+        # created_at comes from the app clock, not the database default, so
+        # it agrees with the window boundaries (and with a test's fake clock).
+        self._db.add(RateLimitEvent(key=key, action=action, created_at=clock.now()))
+        await self._db.flush()

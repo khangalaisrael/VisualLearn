@@ -20,6 +20,7 @@ import {
   signInWithGooglePicker,
   signOut,
 } from "../../shared/api-client";
+import { refreshUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 
 type ConnectionState = { status: "checking" } | { status: "ok" } | { status: "error" };
@@ -57,6 +58,7 @@ export function SettingsTab(): JSX.Element {
     try {
       const auth = await signInWithGoogle();
       setSignIn({ status: "signed-in", email: auth.email });
+      void refreshUsage();
     } catch (error) {
       setSignIn({ status: "error", message: error instanceof Error ? error.message : String(error) });
     }
@@ -65,6 +67,7 @@ export function SettingsTab(): JSX.Element {
   const handleSignOut = async () => {
     await signOut();
     setSignIn({ status: "signed-out" });
+    void refreshUsage();
   };
 
   const handleDeleteAccount = async () => {
@@ -86,6 +89,7 @@ export function SettingsTab(): JSX.Element {
     try {
       const auth = await signInWithGooglePicker();
       setSignIn({ status: "signed-in", email: auth.email });
+      void refreshUsage();
     } catch (error) {
       setSignIn({ status: "error", message: error instanceof Error ? error.message : String(error) });
     }

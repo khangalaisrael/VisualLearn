@@ -12,15 +12,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.orm import Presentation
-from app.repositories.rate_limit_events import DAY, MONTH, RateLimitEventRepository
+from app.models.orm import Presentation, User
+from app.core import clock
+from app.repositories.rate_limit_events import RateLimitEventRepository
 from app.repositories.sessions import SessionRepository
+from app.repositories.usage_events import UsageEventRepository
 from app.services.chat_service import ChatService
 from app.services.claude_chat_service import ClaudeChatService
 from app.services.claude_vlm_analyzer import ClaudeVLMAnalyzer
 from app.services.openai_chat_service import OpenAIChatService
 from app.services.openai_vlm_analyzer import OpenAIVLMAnalyzer
-from app.services.rate_limiter import Limit, enforce_rate_limits
+from app.services.rate_limiter import (
+    RateLimitExceeded,
+    capture_limits,
+    chat_limits,
+    enforce_global_capture_cap,
+    enforce_rate_limits,
+)
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -181,10 +189,10 @@ async def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key")
 
 
-async def get_current_user_id(
+async def get_current_user(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
-) -> uuid.UUID | None:
+) -> User | None:
     """Resolves the signed-in user, if any, from `Authorization: Bearer
     <session token>` (docs/PublicHostingMVP.md Phase 2/3). Additive to
     `verify_api_key`, not a replacement — every route below still also
@@ -204,9 +212,28 @@ async def get_current_user_id(
 
     token = authorization.removeprefix("Bearer ").strip()
     session = await SessionRepository(db).get_valid_by_token(token)
-    if session is None:
+    user = await db.get(User, session.user_id) if session is not None else None
+    if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session token")
-    return session.user_id
+    return user
+
+
+async def get_current_user_id(user: User | None = Depends(get_current_user)) -> uuid.UUID | None:
+    return user.id if user is not None else None
+
+
+def is_admin(user: User | None) -> bool:
+    """Admins (ADMIN_EMAILS) have no rate limits and may open the admin
+    page. The email came from Google's userinfo, and sign-in drops it when
+    Google reports it unverified (services/google_oauth.py), so an
+    unverified address can never match."""
+    return user is not None and user.email is not None and user.email.lower() in get_settings().admin_email_set
+
+
+async def require_admin(user: User | None = Depends(get_current_user)) -> User:
+    if not is_admin(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admins only")
+    return user  # type: ignore[return-value]
 
 
 def ensure_presentation_access(presentation: Presentation, current_user_id: uuid.UUID | None) -> None:
@@ -225,7 +252,7 @@ def ensure_presentation_access(presentation: Presentation, current_user_id: uuid
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown presentation_id")
 
 
-def _rate_limit_key(request: Request, current_user_id: uuid.UUID | None) -> str:
+def rate_limit_key(request: Request, current_user_id: uuid.UUID | None) -> str:
     """`"user:<id>"` for a signed-in request, `"ip:<address>"` otherwise —
     see app/models/orm.py's RateLimitEvent docstring for why anonymous
     requests need a key at all (Phase 4's whole point includes a bot
@@ -241,38 +268,50 @@ def _rate_limit_key(request: Request, current_user_id: uuid.UUID | None) -> str:
     return f"ip:{client_host}"
 
 
+async def _record_limit_hit(db: AsyncSession, user: User | None, exc: RateLimitExceeded) -> None:
+    """The request's transaction is rolled back when the 429 propagates, so
+    the hit is committed on its own first — it is the demand signal the
+    admin page shows."""
+    await UsageEventRepository(db).record(user_id=user.id if user else None, action=f"limit_hit_{exc.kind}")
+    await db.commit()
+
+
 async def enforce_capture_rate_limit(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
+    user: User | None = Depends(get_current_user),
 ) -> None:
-    key = _rate_limit_key(request, current_user_id)
+    if is_admin(user):
+        return
     settings = get_settings()
-    await enforce_rate_limits(
-        RateLimitEventRepository(db),
-        key=key,
-        action="analyze",
-        limits=[
-            Limit(DAY, settings.rate_limit_captures_per_day, "today's limit for slide captures"),
-            Limit(
-                MONTH,
-                settings.rate_limit_captures_per_month,
-                f"this month's allowance of {settings.rate_limit_captures_per_month} slide captures",
-            ),
-        ],
-    )
+    repo = RateLimitEventRepository(db)
+    try:
+        await enforce_rate_limits(
+            repo,
+            key=rate_limit_key(request, user.id if user else None),
+            action="analyze",
+            limits=capture_limits(settings, clock.now()),
+        )
+        await enforce_global_capture_cap(repo, settings)
+    except RateLimitExceeded as exc:
+        await _record_limit_hit(db, user, exc)
+        raise
 
 
 async def enforce_chat_rate_limit(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
+    user: User | None = Depends(get_current_user),
 ) -> None:
-    key = _rate_limit_key(request, current_user_id)
-    settings = get_settings()
-    await enforce_rate_limits(
-        RateLimitEventRepository(db),
-        key=key,
-        action="chat",
-        limits=[Limit(DAY, settings.rate_limit_chat_messages_per_day, "today's limit for chat messages")],
-    )
+    if is_admin(user):
+        return
+    try:
+        await enforce_rate_limits(
+            RateLimitEventRepository(db),
+            key=rate_limit_key(request, user.id if user else None),
+            action="chat",
+            limits=chat_limits(get_settings(), clock.now()),
+        )
+    except RateLimitExceeded as exc:
+        await _record_limit_hit(db, user, exc)
+        raise

@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { AskTab, type RestoredChat } from "./tabs/AskTab";
 import { RecentTab } from "./tabs/RecentTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { UsageMeter } from "./components/UsageMeter";
 import { WelcomeScreen } from "./WelcomeScreen";
 
 type View = "ask" | "recent" | "settings";
@@ -97,7 +98,7 @@ export function App(): JSX.Element {
     <div className="flex h-screen w-full flex-col bg-white">
       <div className="flex flex-none items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
         {view === "ask" ? (
-          <span />
+          <UsageMeter />
         ) : (
           <button
             type="button"

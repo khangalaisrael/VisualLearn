@@ -181,3 +181,30 @@ class ConversationDetail(BaseModel):
     # The slide the chat is about; null if that slide no longer exists.
     slide: SlideAnalysisResponse | None
     messages: list[ConversationMessage]
+
+
+class UsageWindow(BaseModel):
+    used: int
+    limit: int
+    # When this window next resets (UTC). The extension turns it into
+    # "resets in 6h 12m" and "resets on the 1st".
+    resets_at: datetime
+
+
+class UsageResponse(BaseModel):
+    signed_in: bool
+    is_admin: bool
+    unlimited: bool
+    captures_today: UsageWindow
+    captures_month: UsageWindow
+    chat_today: UsageWindow
+    # The global daily capacity cap is reached (not this user's own limit).
+    global_blocked: bool
+
+
+class WaitlistRequest(BaseModel):
+    source: Literal["daily", "monthly", "settings"]
+
+
+class WaitlistResponse(BaseModel):
+    joined: bool

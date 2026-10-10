@@ -24,7 +24,7 @@ this distinction, which is why this only surfaced against real PostgreSQL.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -84,6 +84,45 @@ class RateLimitEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     key: Mapped[str] = mapped_column(String(128), nullable=False)
     action: Mapped[str] = mapped_column(String(32), nullable=False)  # "analyze" | "chat"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UsageEvent(Base):
+    """One billable (or blocked) action: a capture, a chat message, or a
+    limit hit. Backs the admin view (spend per user, outliers, demand).
+
+    Deliberately NOT cleaned up by the 30-day content retention, and
+    `slide_id` / `conversation_id` are plain columns, not foreign keys, so
+    deleting a chat or slide never touches spend history. Deleting an
+    account anonymises its rows (`user_id` -> NULL) instead of removing
+    them. `est_cost_usd` is an estimate from a price table, not a bill."""
+
+    __tablename__ = "usage_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    # "analyze" | "chat" | "limit_hit_daily" | "limit_hit_monthly" | "limit_hit_global"
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, default=False)
+    est_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    slide_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProWaitlistClick(Base):
+    """One click on "Join the Pro waitlist". Signed-in users only, so the
+    interested person can be emailed. Clicks, not people: repeat clicks are
+    kept (distinct users are counted at read time)."""
+
+    __tablename__ = "pro_waitlist_clicks"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)  # "daily" | "monthly" | "settings"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -23,6 +23,9 @@ dependencies = [
     # via anthropic/openai's own SDK dependencies, which isn't something to
     # rely on for a module that imports it directly.
     "httpx>=0.27,<1.0",
+    # IANA timezone data for the rate-limit windows (zoneinfo); Windows and
+    # slim container images ship none of their own.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

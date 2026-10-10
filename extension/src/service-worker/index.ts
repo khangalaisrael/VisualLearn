@@ -5,7 +5,7 @@
  * content script and the side panel (docs/ARCHITECTURE.md §3).
  */
 
-import { analyzeSlide } from "../shared/api-client";
+import { ApiError, analyzeSlide } from "../shared/api-client";
 import type {
   BackendWakingMessage,
   BackgroundMessage,
@@ -15,15 +15,17 @@ import type {
   SlideAnalysisFailedMessage,
   SlideAnalyzedMessage,
 } from "./messages";
+import type { SlideAnalysisResponse } from "@shared/types";
 
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error("[VisionLearn] failed to set side panel behavior", error));
 
-// Per-tab de-dupe: clicking "Capture Current Slide" twice in a row on an
-// unchanged slide shouldn't round-trip an identical upload. This is not
-// the analysis cache, which lands server-side in Milestone 2.
-const lastHashByTab = new Map<number, string>();
+// Per-tab de-dupe: pressing Capture twice on an unchanged slide shouldn't
+// round-trip an identical upload. Holds the last successful result per tab,
+// keyed by screenshot hash, so the repeat press re-shows it. (This is not
+// the server-side analysis cache.)
+const lastResultByTab = new Map<number, { hash: string; result: SlideAnalysisResponse }>();
 
 async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", buffer);
@@ -64,10 +66,13 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
   const imageBlob = await (await fetch(dataUrl)).blob();
   const imageHash = await sha256Hex(await imageBlob.arrayBuffer());
 
-  if (lastHashByTab.get(tabId) === imageHash) {
+  const previous = lastResultByTab.get(tabId);
+  if (previous?.hash === imageHash) {
+    // Unchanged screen: answer from memory (no upload, no quota used). It
+    // used to return silently, leaving the panel on "Analyzing…" forever.
+    deliverResult(previous.result, tabId);
     return;
   }
-  lastHashByTab.set(tabId, imageHash);
 
   try {
     const result = await analyzeSlide({
@@ -80,29 +85,36 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
       },
     });
 
-    const outgoing: SlideAnalyzedMessage = { type: "SLIDE_ANALYZED", result };
-    // chrome.runtime.sendMessage only reaches extension pages (the side
-    // panel); it does NOT reach a content script in a tab — that needs
-    // chrome.tabs.sendMessage(tabId, ...) instead (found live-testing the
-    // overlay renderer: the content script's listener never fired without
-    // this). Both are sent so the side panel's object list and the
-    // content script's overlay (content-script/overlay.ts) stay in sync.
-    chrome.runtime.sendMessage(outgoing).catch(() => {
-      // No side panel listening (e.g. not open yet) — that's fine, the
-      // side panel re-requests a capture when the user opens it.
-    });
-    chrome.tabs.sendMessage(tabId, outgoing).catch(() => {
-      // No content script listening on this tab (e.g. a chrome:// page) —
-      // fine, there's simply no overlay to draw there.
-    });
+    // Remembered only on success, so a failed capture (a usage limit, a
+    // network error) can be retried on the same slide.
+    lastResultByTab.set(tabId, { hash: imageHash, result });
+    deliverResult(result, tabId);
   } catch (error) {
     console.error("[VisionLearn] slide analysis failed", error);
     const outgoing: SlideAnalysisFailedMessage = {
       type: "SLIDE_ANALYSIS_FAILED",
       message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof ApiError ? { limitKind: error.limitKind, retryAfterSeconds: error.retryAfterSeconds } : {}),
     };
     chrome.runtime.sendMessage(outgoing).catch(() => undefined);
   }
+}
+
+function deliverResult(result: SlideAnalysisResponse, tabId: number): void {
+  const outgoing: SlideAnalyzedMessage = { type: "SLIDE_ANALYZED", result };
+  // chrome.runtime.sendMessage only reaches extension pages (the side
+  // panel); it does NOT reach a content script in a tab — that needs
+  // chrome.tabs.sendMessage(tabId, ...) instead (found live-testing the
+  // overlay renderer: the content script's listener never fired without
+  // this). Both are sent so the side panel's object list and the
+  // content script's overlay (content-script/overlay.ts) stay in sync.
+  chrome.runtime.sendMessage(outgoing).catch(() => {
+    // No side panel listening (e.g. not open yet) — that's fine.
+  });
+  chrome.tabs.sendMessage(tabId, outgoing).catch(() => {
+    // No content script listening on this tab (e.g. a chrome:// page) —
+    // fine, there's simply no overlay to draw there.
+  });
 }
 
 async function resolveActiveTabId(): Promise<number | undefined> {

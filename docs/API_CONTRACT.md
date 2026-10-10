@@ -148,6 +148,12 @@ All three need `Authorization: Bearer <session token>`; without one they return 
 
 `DELETE /auth/account` (signed in) permanently deletes the user and all their chats, captures and sessions; `204`, or `401` without a session.
 
+## 3b. Usage limits and the Pro waitlist
+
+- `GET /usage` (read-only, never counts against a limit) → `{ signed_in, is_admin, unlimited, captures_today, captures_month, chat_today: { used, limit, resets_at }, global_blocked }`. Windows are calendar days/months in `RATE_LIMIT_TIMEZONE` (default `Africa/Johannesburg`).
+- `POST /waitlist` `{ source: "daily" | "monthly" | "settings" }` (signed in; `401` otherwise) → `{ joined: true }`.
+- Every limit `429` carries `Retry-After` (seconds) and `X-Limit-Kind: daily | monthly | global`. Admins (`ADMIN_EMAILS`) are never limited.
+
 `GET /privacy` (public, HTML) is the privacy policy the Chrome Web Store listing links to.
 
 `POST /maintenance/cleanup` (API key only) deletes everything past retention and returns the row counts.

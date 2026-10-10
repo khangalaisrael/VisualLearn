@@ -21,6 +21,7 @@ import anthropic
 
 from app.core.prompt_loader import load_prompt
 from app.services.slide_analyzer import AnalysisResult
+from app.services.usage import record_response_usage
 from app.services.vlm_output import GRAPH_LOCALIZATION_SCHEMA, OUTPUT_SCHEMA, detect_media_type, parse_analysis_payload
 
 _DEFAULT_MODEL = "claude-haiku-5-5"
@@ -77,6 +78,7 @@ class ClaudeVLMAnalyzer:
             ],
         )
 
+        record_response_usage(response, "input_tokens", "output_tokens")
         text_block = next(block for block in response.content if block.type == "text")
         payload = json.loads(text_block.text)
         return await parse_analysis_payload(payload, image_bytes, self._locate_graph_nodes)
@@ -110,5 +112,6 @@ class ClaudeVLMAnalyzer:
                 }
             ],
         )
+        record_response_usage(response, "input_tokens", "output_tokens")
         text_block = next(block for block in response.content if block.type == "text")
         return json.loads(text_block.text)

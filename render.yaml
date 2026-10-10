@@ -23,4 +23,12 @@ services:
       # Copy it from the service's Environment tab into the extension.
       - key: LOCAL_API_KEY
         generateValue: true
+      # Comma-separated Google emails with unlimited use (the owner).
+      - key: ADMIN_EMAILS
+        sync: false
+      # Safety cap on captures across everyone per day (protects the AI balance).
+      - key: GLOBAL_CAPTURES_PER_DAY
+        value: "250"
+      - key: RATE_LIMIT_TIMEZONE
+        value: Africa/Johannesburg
       # REDIS_URL (Upstash) is optional — add it in the dashboard if used.

@@ -7,7 +7,7 @@ retention window (services/retention.py).
 
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import (
@@ -16,9 +16,11 @@ from app.models.orm import (
     Message,
     ObjectRecord,
     Presentation,
+    ProWaitlistClick,
     RateLimitEvent,
     Session,
     Slide,
+    UsageEvent,
     User,
 )
 
@@ -37,5 +39,8 @@ async def delete_account(db: AsyncSession, user_id: uuid.UUID) -> None:
 
     await db.execute(delete(RateLimitEvent).where(RateLimitEvent.key == f"user:{user_id}"))
     await db.execute(delete(Session).where(Session.user_id == user_id))
+    # Spend history stays, anonymised; the waitlist click log is personal and goes.
+    await db.execute(update(UsageEvent).where(UsageEvent.user_id == user_id).values(user_id=None))
+    await db.execute(delete(ProWaitlistClick).where(ProWaitlistClick.user_id == user_id))
     await db.execute(delete(User).where(User.id == user_id))
     await db.commit()

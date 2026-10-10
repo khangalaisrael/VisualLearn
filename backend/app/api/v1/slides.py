@@ -41,8 +41,10 @@ from app.models.schemas import SlideAnalysisResponse
 from app.repositories.objects import ObjectRepository
 from app.repositories.presentations import PresentationRepository
 from app.repositories.slides import SlideRepository
+from app.repositories.usage_events import UsageEventRepository
 from app.services.cache_service import CacheService
 from app.services.slide_analyzer import SlideAnalyzer
+from app.services.usage import estimate_cost_usd, start_accumulator
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,7 @@ async def analyze_slide(
             title="Untitled presentation", source_type="live_capture", user_id=current_user_id
         )
 
+    usage = start_accumulator()
     start = time.perf_counter()
     cached_result = await cache.get(image_hash, analyzer.model_name)
     if cached_result is not None:
@@ -148,6 +151,16 @@ async def analyze_slide(
         created = await objects_repo.create_many(slide.id, result.objects)
         response_objects = [objects_repo.to_slide_object(record) for record in created]
 
+    await UsageEventRepository(db).record(
+        user_id=current_user_id,
+        action="analyze",
+        model=analyzer.model_name,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_hit=cache_hit,
+        est_cost_usd=estimate_cost_usd(analyzer.model_name, usage.input_tokens, usage.output_tokens),
+        slide_id=slide.id,
+    )
     await db.commit()
 
     # Structured per docs/ARCHITECTURE.md §6: processing time, model used,

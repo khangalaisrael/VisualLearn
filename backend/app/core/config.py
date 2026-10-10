@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     # Rolling 30-day allowance on top of the daily cap, so a month's spend is
     # bounded: users x this x cost per capture.
     rate_limit_captures_per_month: int = 400
+    # "Resets at midnight" and "resets on the 1st" are evaluated in this
+    # timezone for everyone (one fixed zone, not per-user).
+    rate_limit_timezone: str = "Africa/Johannesburg"
+    # Total captures per day across ALL non-admin users: a spike or a wave of
+    # new sign-ups can't drain the AI balance. 250 is about $0.75/day at the
+    # rough per-capture estimate.
+    global_captures_per_day: int = 250
     rate_limit_chat_messages_per_day: int = 100
 
     # Chats (and the slide content behind them) are deleted this many days
@@ -94,6 +101,25 @@ class Settings(BaseSettings):
     # PRIVACY_CONTACT_EMAIL on the host; without it the page points to the
     # store listing's support contact instead.
     privacy_contact_email: str | None = None
+
+    # Comma-separated Google emails with no rate limits and access to the
+    # admin page. Parsed by `admin_email_set` (pydantic-settings would expect
+    # JSON for a list-typed field).
+    admin_emails: str = ""
+
+    # Rough USD per million tokens (input, output), only used to ESTIMATE
+    # spend in usage_events. Check the provider's pricing page; unknown
+    # models are costed at 0 rather than guessed.
+    model_prices_usd_per_mtok: dict[str, tuple[float, float]] = {
+        "claude-haiku-5-5": (0.10, 0.50),
+        "claude-sonnet-5-5": (2.0, 10.0),
+        "gpt-4o": (2.5, 10.0),
+        "gpt-4o-mini": (0.15, 0.60),
+    }
+
+    @property
+    def admin_email_set(self) -> frozenset[str]:
+        return frozenset(e.strip().lower() for e in self.admin_emails.split(",") if e.strip())
 
 
 @lru_cache

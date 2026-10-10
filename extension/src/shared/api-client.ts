@@ -10,7 +10,10 @@ import type {
   ConversationDetail,
   ConversationListResponse,
   HealthResponse,
+  LimitKind,
   SlideAnalysisResponse,
+  UsageResponse,
+  WaitlistSource,
 } from "@shared/types";
 
 // Port 8001, not 8000 — see docker-compose.yml's `backend.ports` comment:
@@ -323,11 +326,31 @@ export interface AnalyzeSlideParams {
 export class ApiError extends Error {
   constructor(
     message: string,
-    public readonly status: number
+    public readonly status: number,
+    // Only for HTTP 429: which limit (X-Limit-Kind) and seconds until it
+    // lifts (Retry-After), read from the response headers.
+    public readonly limitKind?: LimitKind,
+    public readonly retryAfterSeconds?: number
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+function errorFromResponse(
+  response: Response,
+  body: { message?: string; detail?: string } | null,
+  fallback: string
+): ApiError {
+  const kind = response.headers.get("X-Limit-Kind");
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  const limited = response.status === 429;
+  return new ApiError(
+    body?.message ?? body?.detail ?? `${fallback} (${response.status})`,
+    response.status,
+    limited && (kind === "daily" || kind === "monthly" || kind === "global") ? kind : undefined,
+    limited && Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined
+  );
 }
 
 export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAnalysisResponse> {
@@ -356,7 +379,7 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
     // error's actual text (e.g. a 429 rate-limit message meant to be read
     // by the student) never reached past the generic fallback.
     const body = (await response.json().catch(() => null)) as { message?: string; detail?: string } | null;
-    throw new ApiError(body?.message ?? body?.detail ?? `Analysis request failed (${response.status})`, response.status);
+    throw errorFromResponse(response, body, "Analysis request failed");
   }
 
   return (await response.json()) as SlideAnalysisResponse;
@@ -423,7 +446,7 @@ export async function* streamChat(
 
   if (!response.ok || !response.body) {
     const body = (await response.json().catch(() => null)) as { message?: string; detail?: string } | null;
-    throw new ApiError(body?.message ?? body?.detail ?? `Chat request failed (${response.status})`, response.status);
+    throw errorFromResponse(response, body, "Chat request failed");
   }
 
   const reader = response.body.getReader();
@@ -495,4 +518,17 @@ export async function deleteAccount(): Promise<void> {
 export async function getPrivacyPolicyUrl(): Promise<string> {
   const { backendUrl } = await getConfig();
   return `${backendUrl}/privacy`;
+}
+
+/** Current usage and limits for the quiet counter; never consumes quota. */
+export function getUsage(): Promise<UsageResponse> {
+  return authedJson("/usage", {}, "Couldn't load usage");
+}
+
+export function joinProWaitlist(source: WaitlistSource): Promise<{ joined: boolean }> {
+  return authedJson(
+    "/waitlist",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source }) },
+    "Couldn't join the waitlist"
+  );
 }

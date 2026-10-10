@@ -17,6 +17,7 @@ import openai
 
 from app.core.prompt_loader import load_prompt
 from app.services.slide_analyzer import AnalysisResult
+from app.services.usage import record_response_usage
 from app.services.vlm_output import GRAPH_LOCALIZATION_SCHEMA, OUTPUT_SCHEMA, detect_media_type, parse_analysis_payload
 
 _DEFAULT_MODEL = "gpt-4o"
@@ -74,6 +75,7 @@ class OpenAIVLMAnalyzer:
         if message.refusal:
             raise RuntimeError(f"OpenAI declined to analyze slide: {message.refusal}")
 
+        record_response_usage(response, "prompt_tokens", "completion_tokens")
         payload = json.loads(message.content)
         return await parse_analysis_payload(payload, image_bytes, self._locate_graph_nodes)
 
@@ -112,4 +114,5 @@ class OpenAIVLMAnalyzer:
         message = response.choices[0].message
         if message.refusal:
             raise RuntimeError(f"OpenAI declined to localize graph nodes: {message.refusal}")
+        record_response_usage(response, "prompt_tokens", "completion_tokens")
         return json.loads(message.content)

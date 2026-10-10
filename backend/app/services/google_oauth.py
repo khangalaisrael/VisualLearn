@@ -35,6 +35,13 @@ class GoogleTokenVerificationError(Exception):
         self.detail = detail
 
 
+def parse_userinfo(payload: dict, sub: str) -> GoogleUserInfo:
+    """An email Google reports as unverified is dropped: the address is what
+    the admin list matches on, so only a verified one may ever count."""
+    email = payload.get("email") if payload.get("email_verified") is not False else None
+    return GoogleUserInfo(sub=sub, email=email)
+
+
 async def verify_google_access_token(access_token: str) -> GoogleUserInfo:
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
@@ -50,4 +57,4 @@ async def verify_google_access_token(access_token: str) -> GoogleUserInfo:
     if not sub:
         raise GoogleTokenVerificationError("Google's userinfo response had no 'sub' claim")
 
-    return GoogleUserInfo(sub=sub, email=payload.get("email"))
+    return parse_userinfo(payload, sub)
