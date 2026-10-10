@@ -26,6 +26,7 @@ from app.services.rate_limiter import (
     RateLimitExceeded,
     capture_limits,
     chat_limits,
+    enforce_global_chat_cap,
     enforce_global_capture_cap,
     enforce_rate_limits,
 )
@@ -290,7 +291,7 @@ async def enforce_capture_rate_limit(
             repo,
             key=rate_limit_key(request, user.id if user else None),
             action="analyze",
-            limits=capture_limits(settings, clock.now()),
+            limits=capture_limits(settings, clock.now(), signed_in=user is not None),
         )
         await enforce_global_capture_cap(repo, settings)
     except RateLimitExceeded as exc:
@@ -305,13 +306,16 @@ async def enforce_chat_rate_limit(
 ) -> None:
     if is_admin(user):
         return
+    settings = get_settings()
+    repo = RateLimitEventRepository(db)
     try:
         await enforce_rate_limits(
-            RateLimitEventRepository(db),
+            repo,
             key=rate_limit_key(request, user.id if user else None),
             action="chat",
-            limits=chat_limits(get_settings(), clock.now()),
+            limits=chat_limits(settings, clock.now(), signed_in=user is not None),
         )
+        await enforce_global_chat_cap(repo, settings)
     except RateLimitExceeded as exc:
         await _record_limit_hit(db, user, exc)
         raise

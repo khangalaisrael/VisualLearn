@@ -34,6 +34,7 @@ async def test_home_page_quotes_the_real_limits_and_retention(client: AsyncClien
     assert f"{settings.rate_limit_captures_per_day} captures a day" in html
     assert f"{settings.rate_limit_captures_per_month} a month" in html
     assert f"kept {settings.chat_retention_days} days" in html
+    assert f"Without signing in you get {settings.rate_limit_anonymous_captures_per_day} a day" in html
     assert "__" not in html  # no unfilled placeholder left behind
 
 

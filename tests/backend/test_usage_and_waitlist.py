@@ -32,12 +32,19 @@ def fixed_environment(monkeypatch):
         settings.rate_limit_captures_per_day,
         settings.rate_limit_captures_per_month,
         settings.rate_limit_chat_messages_per_day,
+        settings.rate_limit_anonymous_captures_per_day,
+        settings.rate_limit_anonymous_captures_per_month,
+        settings.rate_limit_anonymous_chat_messages_per_day,
         settings.global_captures_per_day,
         settings.admin_emails,
     )
     settings.rate_limit_captures_per_day = 20
     settings.rate_limit_captures_per_month = 400
     settings.rate_limit_chat_messages_per_day = 100
+    # Equal to the signed-in values: these tests are about /usage, not the smaller signed-out allowance.
+    settings.rate_limit_anonymous_captures_per_day = 20
+    settings.rate_limit_anonymous_captures_per_month = 400
+    settings.rate_limit_anonymous_chat_messages_per_day = 100
     settings.global_captures_per_day = 250
     settings.admin_emails = ""
     yield settings
@@ -45,6 +52,9 @@ def fixed_environment(monkeypatch):
         settings.rate_limit_captures_per_day,
         settings.rate_limit_captures_per_month,
         settings.rate_limit_chat_messages_per_day,
+        settings.rate_limit_anonymous_captures_per_day,
+        settings.rate_limit_anonymous_captures_per_month,
+        settings.rate_limit_anonymous_chat_messages_per_day,
         settings.global_captures_per_day,
         settings.admin_emails,
     ) = original

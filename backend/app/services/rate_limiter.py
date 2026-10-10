@@ -73,26 +73,34 @@ class Limit:
     reached: str
 
 
-def capture_limits(settings: Settings, at: datetime) -> list[Limit]:
+def capture_limits(settings: Settings, at: datetime, *, signed_in: bool = True) -> list[Limit]:
+    """Signed-out requests (counted per IP address) get the smaller allowance."""
     day_start, day_end = day_window(at, settings.rate_limit_timezone)
     month_start, month_end = month_window(at, settings.rate_limit_timezone)
+    per_day = settings.rate_limit_captures_per_day if signed_in else settings.rate_limit_anonymous_captures_per_day
+    per_month = (
+        settings.rate_limit_captures_per_month if signed_in else settings.rate_limit_anonymous_captures_per_month
+    )
     return [
-        Limit("daily", day_start, day_end, settings.rate_limit_captures_per_day, "today's limit for slide captures"),
+        Limit("daily", day_start, day_end, per_day, "today's limit for slide captures"),
         Limit(
             "monthly",
             month_start,
             month_end,
-            settings.rate_limit_captures_per_month,
-            f"this month's allowance of {settings.rate_limit_captures_per_month} slide captures",
+            per_month,
+            f"this month's allowance of {per_month} slide captures",
         ),
     ]
 
 
-def chat_limits(settings: Settings, at: datetime) -> list[Limit]:
+def chat_limits(settings: Settings, at: datetime, *, signed_in: bool = True) -> list[Limit]:
     day_start, day_end = day_window(at, settings.rate_limit_timezone)
-    return [
-        Limit("daily", day_start, day_end, settings.rate_limit_chat_messages_per_day, "today's limit for chat messages")
-    ]
+    per_day = (
+        settings.rate_limit_chat_messages_per_day
+        if signed_in
+        else settings.rate_limit_anonymous_chat_messages_per_day
+    )
+    return [Limit("daily", day_start, day_end, per_day, "today's limit for chat messages")]
 
 
 def seconds_until(moment: datetime, at: datetime) -> int:
@@ -133,6 +141,17 @@ async def enforce_global_capture_cap(repo: RateLimitEventRepository, settings: S
     at = clock.now()
     day_start, day_end = day_window(at, settings.rate_limit_timezone)
     if await repo.count_all_since("analyze", day_start) >= settings.global_captures_per_day:
+        raise RateLimitExceeded(
+            kind="global",
+            retry_after_seconds=seconds_until(day_end, at),
+            detail=GLOBAL_CAPACITY_MESSAGE,
+        )
+
+
+async def enforce_global_chat_cap(repo: RateLimitEventRepository, settings: Settings) -> None:
+    at = clock.now()
+    day_start, day_end = day_window(at, settings.rate_limit_timezone)
+    if await repo.count_all_since("chat", day_start) >= settings.global_chat_messages_per_day:
         raise RateLimitExceeded(
             kind="global",
             retry_after_seconds=seconds_until(day_end, at),

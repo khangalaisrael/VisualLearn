@@ -69,8 +69,33 @@ function WaitlistPrompt({ source }: { source: "daily" | "monthly" }): JSX.Elemen
   );
 }
 
+/** Signed-out use gets a smaller allowance (counted per connection, not per person). */
+function SignInForMore(): JSX.Element {
+  const [working, setWorking] = useState(false);
+  const signIn = async () => {
+    setWorking(true);
+    try {
+      await signInWithGoogle();
+      await refreshUsage();
+    } catch {
+      // The card stays; the person can try again.
+    } finally {
+      setWorking(false);
+    }
+  };
+  return (
+    <div className="flex flex-col items-start gap-2 border-t border-violet-100 pt-3">
+      <p className="text-sm text-slate-600">Signed-in accounts get a bigger daily allowance.</p>
+      <Button disabled={working} onClick={() => void signIn()} className="text-xs">
+        {working ? "Signing in…" : "Sign in with Google"}
+      </Button>
+    </div>
+  );
+}
+
 export function LimitCard({ limit }: { limit: ActiveLimit }): JSX.Element {
   const countdown = useCountdown(limit.resetsAt);
+  const usage = useUsage();
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-violet-100 bg-violet-50/50 p-4 shadow-subtle">
@@ -99,6 +124,7 @@ export function LimitCard({ limit }: { limit: ActiveLimit }): JSX.Element {
           </p>
         </>
       )}
+      {limit.kind !== "global" && !usage?.signed_in && <SignInForMore />}
       {limit.kind !== "global" && <WaitlistPrompt source={limit.kind} />}
     </section>
   );

@@ -50,14 +50,24 @@ def low_limits():
         "rate_limit_captures_per_day",
         "rate_limit_captures_per_month",
         "rate_limit_chat_messages_per_day",
+        "rate_limit_anonymous_captures_per_day",
+        "rate_limit_anonymous_captures_per_month",
+        "rate_limit_anonymous_chat_messages_per_day",
         "global_captures_per_day",
+        "global_chat_messages_per_day",
         "admin_emails",
     )
     original = {name: getattr(settings, name) for name in names}
     settings.rate_limit_captures_per_day = 2
     settings.rate_limit_captures_per_month = 400
     settings.rate_limit_chat_messages_per_day = 2
+    # The signed-out allowance equals the signed-in one here, so the tests below
+    # exercise one limit at a time; the dedicated tests at the bottom set it apart.
+    settings.rate_limit_anonymous_captures_per_day = 2
+    settings.rate_limit_anonymous_captures_per_month = 400
+    settings.rate_limit_anonymous_chat_messages_per_day = 2
     settings.global_captures_per_day = 1000
+    settings.global_chat_messages_per_day = 1000
     settings.admin_emails = ""
     yield settings
     for name, value in original.items():
@@ -166,6 +176,7 @@ async def test_monthly_allowance_blocks_even_when_the_day_has_room(
 ) -> None:
     low_limits.rate_limit_captures_per_day = 10
     low_limits.rate_limit_captures_per_month = 3
+    low_limits.rate_limit_anonymous_captures_per_month = 3  # these tests run signed out
     assert (await _capture(client)).status_code == 200
     key = await _anonymous_key(db_session)
     await _seed_events(
@@ -186,6 +197,7 @@ async def test_month_boundary_is_local_midnight_on_the_first(
 ) -> None:
     low_limits.rate_limit_captures_per_day = 10
     low_limits.rate_limit_captures_per_month = 2
+    low_limits.rate_limit_anonymous_captures_per_month = 2  # these tests run signed out
     assert (await _capture(client)).status_code == 200  # creates this client's key
     key = await _anonymous_key(db_session)
     await db_session.execute(RateLimitEvent.__table__.delete())
@@ -276,3 +288,121 @@ def test_unverified_google_email_is_dropped_so_it_can_never_match_the_admin_list
     assert parse_userinfo({"email": "a@b.com", "email_verified": False}, "sub").email is None
     assert parse_userinfo({"email": "a@b.com", "email_verified": True}, "sub").email == "a@b.com"
     assert parse_userinfo({"email": "a@b.com"}, "sub").email == "a@b.com"
+
+
+# --- signed-out allowance and the global chat cap -------------------------------------------
+
+
+def _chat_payload(captured: dict) -> dict:
+    return {
+        "conversation_id": None,
+        "presentation_id": captured["presentation_id"],
+        "query_mode": "slide",
+        "slide_id": captured["slide_id"],
+        "object_id": None,
+        "message": "Explain this slide.",
+    }
+
+
+async def test_signed_out_captures_get_a_smaller_daily_allowance(
+    client: AsyncClient, db_session: AsyncSession, low_limits
+) -> None:
+    low_limits.rate_limit_captures_per_day = 3
+    low_limits.rate_limit_anonymous_captures_per_day = 1
+    assert (await _capture(client)).status_code == 200
+    blocked = await _capture(client)
+    assert blocked.status_code == 429
+    assert blocked.headers["X-Limit-Kind"] == "daily"
+
+    # a signed-in account on the same connection still has its full allowance
+    headers, _ = await _sign_in(db_session, "student@example.com")
+    for _ in range(3):
+        assert (await _capture(client, headers)).status_code == 200
+    assert (await _capture(client, headers)).status_code == 429
+
+
+async def test_signed_out_monthly_allowance_is_smaller_too(
+    client: AsyncClient, db_session: AsyncSession, low_limits
+) -> None:
+    low_limits.rate_limit_captures_per_month = 400
+    low_limits.rate_limit_anonymous_captures_per_month = 3
+    low_limits.rate_limit_anonymous_captures_per_day = 50
+    await _capture(client)
+    key = await _anonymous_key(db_session)
+    earlier_this_month = T0 - timedelta(days=3)
+    await _seed_events(db_session, key, "analyze", earlier_this_month, earlier_this_month)
+
+    blocked = await _capture(client)
+    assert blocked.status_code == 429
+    assert limit_kind(blocked) == "monthly"
+    assert "3 slide captures" in blocked.json()["detail"]
+
+
+def limit_kind(response) -> str:
+    return response.headers["X-Limit-Kind"]
+
+
+async def test_usage_reports_the_signed_out_allowance_to_signed_out_visitors(
+    client: AsyncClient, db_session: AsyncSession, low_limits
+) -> None:
+    low_limits.rate_limit_captures_per_day = 20
+    low_limits.rate_limit_anonymous_captures_per_day = 5
+    low_limits.rate_limit_anonymous_captures_per_month = 100
+    low_limits.rate_limit_captures_per_month = 400
+
+    signed_out = (await client.get("/api/v1/usage", headers=API_KEY)).json()
+    assert signed_out["captures_today"]["limit"] == 5
+    assert signed_out["captures_month"]["limit"] == 100
+
+    headers, _ = await _sign_in(db_session, "student@example.com")
+    signed_in = (await client.get("/api/v1/usage", headers=headers)).json()
+    assert signed_in["captures_today"]["limit"] == 20
+    assert signed_in["captures_month"]["limit"] == 400
+
+
+async def test_signed_out_chat_gets_a_smaller_allowance(client: AsyncClient, db_session: AsyncSession, low_limits) -> None:
+    low_limits.rate_limit_chat_messages_per_day = 5
+    low_limits.rate_limit_anonymous_chat_messages_per_day = 1
+    captured = (await _capture(client)).json()
+    assert (await client.post("/api/v1/chat", json=_chat_payload(captured), headers=API_KEY)).status_code == 200
+    assert (await client.post("/api/v1/chat", json=_chat_payload(captured), headers=API_KEY)).status_code == 429
+
+
+async def test_global_chat_cap_blocks_everyone_with_the_capacity_message(
+    client: AsyncClient, db_session: AsyncSession, low_limits
+) -> None:
+    captured = (await _capture(client)).json()
+    low_limits.global_chat_messages_per_day = 3
+    await _seed_events(db_session, "ip:10.0.0.1", "chat", T0, T0, T0)  # other people's chats today
+
+    blocked = await client.post("/api/v1/chat", json=_chat_payload(captured), headers=API_KEY)
+    assert blocked.status_code == 429
+    assert blocked.headers["X-Limit-Kind"] == "global"
+    assert blocked.json()["detail"] == GLOBAL_CAPACITY_MESSAGE
+    assert int(blocked.headers["Retry-After"]) == 12 * 3600
+
+
+async def test_yesterdays_chats_do_not_count_towards_the_global_chat_cap(
+    client: AsyncClient, db_session: AsyncSession, low_limits
+) -> None:
+    captured = (await _capture(client)).json()
+    low_limits.global_chat_messages_per_day = 3
+    yesterday = T0 - timedelta(days=1)
+    await _seed_events(db_session, "ip:10.0.0.1", "chat", yesterday, yesterday, yesterday)
+    assert (await client.post("/api/v1/chat", json=_chat_payload(captured), headers=API_KEY)).status_code == 200
+
+
+async def test_admin_chat_ignores_and_is_not_counted_in_the_global_chat_cap(
+    client: AsyncClient, db_session: AsyncSession, low_limits
+) -> None:
+    low_limits.admin_emails = "boss@example.com"
+    headers, user_id = await _sign_in(db_session, "boss@example.com")
+    captured = (await _capture(client, headers)).json()
+    low_limits.global_chat_messages_per_day = 1
+    await _seed_events(db_session, "ip:10.0.0.1", "chat", T0, T0)  # cap already exceeded for everyone else
+
+    assert (await client.post("/api/v1/chat", json=_chat_payload(captured), headers=headers)).status_code == 200
+    counted = await db_session.execute(
+        select(func.count()).select_from(RateLimitEvent).where(RateLimitEvent.key == f"user:{user_id}", RateLimitEvent.action == "chat")
+    )
+    assert counted.scalar_one() == 0

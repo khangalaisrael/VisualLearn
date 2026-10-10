@@ -84,12 +84,22 @@ class Settings(BaseSettings):
     # Rolling 30-day allowance on top of the daily cap, so a month's spend is
     # bounded: users x this x cost per capture.
     rate_limit_captures_per_month: int = 400
+    # Signed-out use is counted per internet connection (IP address), which is easy to
+    # change and shared on a campus network, so it gets a smaller allowance than an
+    # account does. It nudges people to sign in; signed-in users are unaffected.
+    rate_limit_anonymous_captures_per_day: int = 5
+    rate_limit_anonymous_captures_per_month: int = 100
+    rate_limit_anonymous_chat_messages_per_day: int = 20
     # "Resets at midnight" and "resets on the 1st" are evaluated in this
     # timezone for everyone (one fixed zone, not per-user).
     rate_limit_timezone: str = "Africa/Johannesburg"
     # Total captures per day across ALL non-admin users: a spike or a wave of
     # new sign-ups can't drain the AI balance. 250 is about $0.75/day at the
     # rough per-capture estimate.
+    # Safety cap on chat messages across everyone per day (signed-in and signed-out,
+    # admins excluded). Chat is cheap, but this closes the gap where someone rotating
+    # networks could otherwise chat without a combined limit.
+    global_chat_messages_per_day: int = 1000
     global_captures_per_day: int = 250
     rate_limit_chat_messages_per_day: int = 100
 

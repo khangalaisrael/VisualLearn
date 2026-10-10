@@ -118,7 +118,7 @@ _HOME = """
 <section>
   <h2>Built to be fair and private</h2>
   <div class="grid">
-    <div class="card"><h3>Free, with a daily limit</h3><p>__DAILY__ captures a day and __MONTHLY__ a month, so it stays free for everyone.</p></div>
+    <div class="card"><h3>Free, with a daily limit</h3><p>__DAILY__ captures a day and __MONTHLY__ a month when you sign in with Google, so it stays free for everyone. Without signing in you get __ANON_DAILY__ a day.</p></div>
     <div class="card"><h3>Only when you press Capture</h3><p>No browsing history, no background reading, no ads or trackers.</p></div>
     <div class="card"><h3>Your data, your control</h3><p>History is kept __DAYS__ days. Thumbnails never leave your device. Delete anything, or your whole account, at any time.</p></div>
   </div>
@@ -171,6 +171,7 @@ def _fill(template: str) -> str:
     email = escape(settings.privacy_contact_email or DEFAULT_CONTACT)
     return (
         template.replace("__DAILY__", str(settings.rate_limit_captures_per_day))
+        .replace("__ANON_DAILY__", str(settings.rate_limit_anonymous_captures_per_day))
         .replace("__MONTHLY__", str(settings.rate_limit_captures_per_month))
         .replace("__DAYS__", str(settings.chat_retention_days))
         .replace("__EMAIL__", email)

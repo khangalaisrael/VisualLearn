@@ -41,8 +41,9 @@ async def get_usage(
     at = clock.now()
     repo = RateLimitEventRepository(db)
     key = rate_limit_key(request, user.id if user else None)
-    daily, monthly = capture_limits(settings, at)
-    (chat_daily,) = chat_limits(settings, at)
+    signed_in = user is not None
+    daily, monthly = capture_limits(settings, at, signed_in=signed_in)
+    (chat_daily,) = chat_limits(settings, at, signed_in=signed_in)
     admin = is_admin(user)
 
     day_start, _ = day_window(at, settings.rate_limit_timezone)
