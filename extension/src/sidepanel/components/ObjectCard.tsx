@@ -87,6 +87,21 @@ function TableView({ rows }: { rows: string[][] }): JSX.Element {
   );
 }
 
+// Extracted prose often carries inline LaTeX (e.g. "$T(n) = \Theta(n \log n)$"). Only text that
+// clearly contains math goes through the renderer, so a slide that merely says
+// "costs $5 and $10" isn't mistaken for a formula.
+const LATEX_HINT = /\$\$|\\\(|\\\[|\\[a-zA-Z]{2,}|\$[^$\n]*[\^_{}\\][^$\n]*\$/;
+
+function RichText({ text, className }: { text: string; className: string }): JSX.Element {
+  return LATEX_HINT.test(text) ? (
+    <div className={className}>
+      <MathText text={text} />
+    </div>
+  ) : (
+    <p className={className}>{text}</p>
+  );
+}
+
 export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
   const tableRows = object.type === "table" && object.extracted_text ? parseTable(object.extracted_text) : null;
 
@@ -124,10 +139,10 @@ export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
       ) : (
         object.type !== "equation" &&
         object.type !== "code" &&
-        object.extracted_text && <p className="text-slate-700">{object.extracted_text}</p>
+        object.extracted_text && <RichText text={object.extracted_text} className="text-slate-700" />
       )}
 
-      {object.summary && <p className="text-slate-500">{object.summary}</p>}
+      {object.summary && <RichText text={object.summary} className="text-slate-500" />}
     </li>
   );
 }
