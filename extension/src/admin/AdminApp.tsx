@@ -35,6 +35,10 @@ function usd(amount: number): string {
   return amount > 0 && amount < 0.01 ? `$${amount.toFixed(4)}` : `$${amount.toFixed(2)}`;
 }
 
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 function when(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -204,13 +208,13 @@ export function AdminApp(): JSX.Element {
             <Stat
               label="Active today"
               value={String(state.data.overview.active_users_today)}
-              hint={`${state.data.overview.total_users} signed-up users`}
+              hint={`${plural(state.data.overview.total_users, "signed-up user", "signed-up users")}`}
             />
             <Stat label="Limit hits today" value={String(state.data.overview.limit_hits_today)} hint="Demand signal" />
             <Stat
               label="Pro waitlist"
-              value={`${state.data.overview.waitlist_users} people`}
-              hint={`${state.data.overview.waitlist_clicks} clicks`}
+              value={plural(state.data.overview.waitlist_users, "person", "people")}
+              hint={plural(state.data.overview.waitlist_clicks, "click", "clicks")}
             />
           </section>
 
@@ -267,7 +271,8 @@ export function AdminApp(): JSX.Element {
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-subtle">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-800">
-                Pro waitlist · {state.data.waitlist.unique_users} people, {state.data.waitlist.total_clicks} clicks
+                Pro waitlist · {plural(state.data.waitlist.unique_users, "person", "people")},{" "}
+                {plural(state.data.waitlist.total_clicks, "click", "clicks")}
               </h2>
               <div className="flex items-center gap-2">
                 <Button
