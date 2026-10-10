@@ -37,5 +37,11 @@
   "side_panel": {
     "default_path": "src/sidepanel/index.html"
   },
-  "options_page": "src/admin/index.html"
+  "options_page": "src/admin/index.html",
+  "commands": {
+    "capture-slide": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Capture the current slide"
+    }
+  }
 }

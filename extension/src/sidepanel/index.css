@@ -2,7 +2,8 @@
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
 @import "katex/dist/katex.min.css";
-@import "highlight.js/styles/github.css";
+@import "highlight.js/styles/github.css" (prefers-color-scheme: light);
+@import "highlight.js/styles/github-dark.css" (prefers-color-scheme: dark);
 
 @tailwind base;
 @tailwind components;
@@ -51,5 +52,75 @@
   }
   .typing-dot {
     animation: typing-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+:root {
+  color-scheme: light dark;
+  --slate-50: 248 250 252;
+  --slate-100: 241 245 249;
+  --slate-200: 226 232 240;
+  --slate-300: 203 213 225;
+  --slate-400: 148 163 184;
+  --slate-500: 100 116 139;
+  --slate-600: 71 85 105;
+  --slate-700: 51 65 85;
+  --slate-800: 30 41 59;
+  --slate-900: 15 23 42;
+  --indigo-50: 238 242 255;
+  --indigo-100: 224 231 255;
+  --indigo-200: 199 210 254;
+  --red-50: 254 242 242;
+  --red-100: 254 226 226;
+  --red-200: 254 202 202;
+  --amber-50: 255 251 235;
+  --amber-100: 254 243 199;
+  --amber-200: 253 230 138;
+  --violet-50: 245 243 255;
+  --violet-100: 237 233 254;
+  --violet-200: 221 214 254;
+}
+
+/* Dark follows the operating system. Light values above are Tailwind's own
+   defaults, so light mode is unchanged. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --slate-50: 30 41 59;
+    --slate-100: 30 41 59;
+    --slate-200: 51 65 85;
+    --slate-300: 71 85 105;
+    --slate-400: 148 163 184;
+    --slate-500: 160 174 192;
+    --slate-600: 203 213 225;
+    --slate-700: 226 232 240;
+    --slate-800: 241 245 249;
+    --slate-900: 248 250 252;
+    --indigo-50: 30 27 75;
+    --indigo-100: 49 46 129;
+    --indigo-200: 67 56 202;
+    --red-50: 69 10 10;
+    --red-100: 127 29 29;
+    --red-200: 153 27 27;
+    --amber-50: 69 26 3;
+    --amber-100: 120 53 15;
+    --amber-200: 146 64 14;
+    --violet-50: 46 16 101;
+    --violet-100: 76 29 149;
+    --violet-200: 91 33 182;
+  }
+
+  /* "white" is also the text colour on filled buttons, so it can't be a
+     variable: the surfaces are overridden here instead. */
+  .bg-white { background-color: rgb(15 23 42); }
+  .bg-white\/70 { background-color: rgb(15 23 42 / 0.7); }
+  .to-white { --tw-gradient-to: rgb(15 23 42) var(--tw-gradient-to-position); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -35,6 +35,7 @@ import { activeCaptureLimit, refreshUsage, useUsage } from "../../shared/usage-s
 import type {
   BackendWakingMessage,
   CaptureRequestMessage,
+  CaptureStartedMessage,
   FigureSelectedMessage,
   SlideAnalysisFailedMessage,
   SlideAnalyzedMessage,
@@ -165,7 +166,7 @@ function TypingIndicator(): JSX.Element {
 // fetchWakingBackend) — otherwise a ~1 minute wait looks like a hang.
 function WakingNotice(): JSX.Element {
   return (
-    <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 shadow-subtle">
+    <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:text-amber-200 shadow-subtle">
       Waking up the server — this takes about a minute after a quiet period. Hang tight…
     </p>
   );
@@ -177,7 +178,7 @@ function Avatar({ role }: { role: ChatMessage["role"] }): JSX.Element {
       You
     </span>
   ) : (
-    <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-medium text-indigo-600">
+    <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
       VL
     </span>
   );
@@ -195,7 +196,7 @@ function EmptyState(): JSX.Element {
       <ol className="flex w-full max-w-[280px] flex-col gap-2 text-left">
         {steps.map((step, index) => (
           <li key={step} className="flex items-center gap-3 rounded-md bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
-            <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+            <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
               {index + 1}
             </span>
             {step}
@@ -270,9 +271,17 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
 
   useEffect(() => {
     const listener = (
-      message: SlideAnalyzedMessage | SlideAnalysisFailedMessage | BackendWakingMessage | FigureSelectedMessage
+      message:
+        | CaptureStartedMessage
+        | SlideAnalyzedMessage
+        | SlideAnalysisFailedMessage
+        | BackendWakingMessage
+        | FigureSelectedMessage
     ) => {
-      if (message.type === "SLIDE_ANALYZED") {
+      if (message.type === "CAPTURE_STARTED") {
+        // Started elsewhere (the keyboard shortcut): show the same progress.
+        setState((prev) => (prev.status === "loading" ? prev : { status: "loading" }));
+      } else if (message.type === "SLIDE_ANALYZED") {
         setState({ status: "loaded", result: message.result });
         setMessages([]);
         setFigureSelection(null);
@@ -327,6 +336,35 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
     setChatError(null);
     conversationIdRef.current = restore.conversationId;
   }, [restore]);
+
+  // Signing out, or switching to another account, clears the slide and chat
+  // on screen: they belong to the previous account.
+  useEffect(() => {
+    const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== "local" || !changes.userEmail) return;
+      const { oldValue, newValue } = changes.userEmail;
+      if (!oldValue || oldValue === newValue) return;
+      abortRef.current?.abort();
+      setState({ status: "idle" });
+      setMessages([]);
+      setFigureSelection(null);
+      setChatError(null);
+      conversationIdRef.current = null;
+      lastShownRef.current = null;
+    };
+    chrome.storage.onChanged.addListener(onChange);
+    return () => chrome.storage.onChanged.removeListener(onChange);
+  }, []);
+
+  // Escape stops an answer that is still being written.
+  useEffect(() => {
+    if (!isStreaming) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") abortRef.current?.abort();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isStreaming]);
 
   const captureNow = useCallback(() => {
     if (captureLimit) return;
@@ -421,11 +459,27 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   }, [askQuestion]);
 
   useEffect(() => {
-    latestUserMessageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    latestUserMessageRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
   }, [latestUserMessageId]);
+
+  const statusText = captureLimit
+    ? "Capture limit reached."
+    : state.status === "loading"
+      ? "Analyzing the slide…"
+      : state.status === "error"
+        ? "Something went wrong analyzing the slide."
+        : state.status === "loaded"
+          ? isStreaming
+            ? "VisionLearn is answering…"
+            : "Slide ready. Ask a question below."
+          : "";
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      <p className="sr-only" role="status" aria-live="polite">
+        {statusText}
+      </p>
       <div className="flex flex-none items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
         <div>
           <h2 className="text-base font-semibold text-slate-800">This slide</h2>
@@ -460,7 +514,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
       )}
 
       {state.status === "error" && (
-        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-subtle">
+        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:text-red-300 shadow-subtle">
           <p className="font-medium">Something went wrong.</p>
           <p>{state.message}</p>
         </div>
@@ -492,14 +546,14 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
                   type="checkbox"
                   checked={algorithmMode}
                   onChange={(event) => setAlgorithmMode(event.target.checked)}
-                  className="h-3.5 w-3.5 rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-400"
+                  className="h-3.5 w-3.5 rounded-sm border-slate-300 text-indigo-600 dark:text-indigo-300 focus:ring-indigo-400"
                 />
                 Algorithm mode
               </label>
             )}
           </div>
           {figureSelection && (
-            <div className="-mt-1 flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+            <div className="-mt-1 flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300">
               <span>
                 Focused on:{" "}
                 {state.result.objects.find((o) => o.id === figureSelection.objectId)?.type ?? "selected figure"}
@@ -507,7 +561,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
               <button
                 type="button"
                 onClick={() => setFigureSelection(null)}
-                className="ml-auto text-indigo-500 hover:text-indigo-700"
+                className="ml-auto text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-200"
                 aria-label="Clear figure selection, go back to asking about the whole slide"
               >
                 ✕
@@ -543,7 +597,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
                 type="button"
                 disabled={isStreaming}
                 onClick={() => void askQuestion(question)}
-                className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {question}
               </button>
@@ -591,7 +645,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
                         type="button"
                         disabled={isStreaming}
                         onClick={() => void askQuestion(followUpQuestion)}
-                        className="mt-0.5 flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-left text-xs font-medium text-indigo-700 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="mt-0.5 flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-left text-xs font-medium text-indigo-700 dark:text-indigo-300 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <span aria-hidden="true">↳</span>
                         {followUpQuestion}
@@ -612,13 +666,13 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
           )}
 
           {chatError && !chatLimited && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-subtle">
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:text-red-300 shadow-subtle">
               <p className="font-medium">Something went wrong.</p>
               <p>{chatError}</p>
               <button
                 type="button"
                 onClick={retryLastQuestion}
-                className="mt-2 text-sm font-medium text-red-700 underline decoration-red-300 underline-offset-2 hover:text-red-800"
+                className="mt-2 text-sm font-medium text-red-700 dark:text-red-300 underline decoration-red-300 underline-offset-2 hover:text-red-800 dark:hover:text-red-200"
               >
                 Retry
               </button>
@@ -637,6 +691,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
               placeholder="Ask a question about this slide…"
+              aria-label="Ask a question about this slide"
               disabled={isStreaming}
               className="flex-1 rounded-sm border border-slate-300 px-3 py-2 text-sm transition-colors duration-[120ms] focus:border-indigo-400 disabled:opacity-50"
             />

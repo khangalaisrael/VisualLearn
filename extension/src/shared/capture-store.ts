@@ -22,6 +22,9 @@ export interface CaptureRecord {
   thumbnail: Blob | null;
   summary: string;
   capturedAt: number;
+  /** Lower-cased email of the account that was signed in, "" when signed out.
+   * Missing on records from before this field existed (treated as signed out). */
+  owner?: string;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -77,9 +80,11 @@ export function clearCaptures(): Promise<unknown> {
 
 /** The presentation this lecture's earlier captures went into, so a signed-out
  * capture of the same page joins the same group. */
-export async function latestPresentationFor(lectureKey: string): Promise<string | null> {
+export async function latestPresentationFor(lectureKey: string, owner: string): Promise<string | null> {
   if (!lectureKey) return null;
-  const matches = await run<CaptureRecord[]>("readonly", (store) => store.index("lectureKey").getAll(lectureKey));
+  const all = await run<CaptureRecord[]>("readonly", (store) => store.index("lectureKey").getAll(lectureKey));
+  // Another account's presentation is never reused, even on a shared browser.
+  const matches = all.filter((record) => (record.owner ?? "") === owner);
   matches.sort((a, b) => b.capturedAt - a.capturedAt);
   return matches[0]?.presentation_id ?? null;
 }

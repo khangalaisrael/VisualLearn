@@ -13,10 +13,10 @@ import { MathText } from "./MathText";
 const TYPE_STYLES: Record<ObjectType, string> = {
   title: "bg-slate-100 text-slate-700",
   paragraph: "bg-slate-100 text-slate-700",
-  equation: "bg-indigo-100 text-indigo-700",
+  equation: "bg-indigo-100 text-indigo-700 dark:text-indigo-300",
   diagram: "bg-purple-100 text-purple-700",
   graph: "bg-purple-100 text-purple-700",
-  table: "bg-amber-100 text-amber-700",
+  table: "bg-amber-100 text-amber-700 dark:text-amber-300",
   image: "bg-teal-100 text-teal-700",
   code: "bg-cyan-100 text-cyan-700",
 };
@@ -65,7 +65,7 @@ function TableView({ rows }: { rows: string[][] }): JSX.Element {
         <thead>
           <tr>
             {header.map((cell, index) => (
-              <th key={index} className="border-b border-amber-200 px-3 py-1.5 text-left font-medium text-amber-900">
+              <th key={index} className="border-b border-amber-200 px-3 py-1.5 text-left font-medium text-amber-900 dark:text-amber-100">
                 <MathText text={cell} />
               </th>
             ))}
@@ -117,7 +117,7 @@ export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
         tableRows ? (
           <TableView rows={tableRows} />
         ) : (
-          <pre className="overflow-x-auto whitespace-pre-wrap rounded-sm bg-amber-50/70 px-3 py-2 font-mono text-xs text-amber-900">
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-sm bg-amber-50/70 px-3 py-2 font-mono text-xs text-amber-900 dark:text-amber-100">
             {object.extracted_text}
           </pre>
         )

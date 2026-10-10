@@ -53,7 +53,7 @@ export function WelcomeScreen({ onDone }: { onDone: () => void }): JSX.Element {
         </button>
       </div>
 
-      {signIn.status === "error" && <p className="max-w-[280px] text-xs text-red-600">{signIn.message}</p>}
+      {signIn.status === "error" && <p className="max-w-[280px] text-xs text-red-600 dark:text-red-400">{signIn.message}</p>}
 
       <p className="max-w-[280px] text-xs text-slate-400">
         Signing in is optional — everything works without it, and you can sign in later from Settings.

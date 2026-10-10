@@ -60,6 +60,31 @@ function exportWaitlist(waitlist: AdminWaitlistResponse): void {
   URL.revokeObjectURL(url);
 }
 
+const DRAFT_SUBJECT = "Quick question about VisionLearn Pro (2 min)";
+const DRAFT_BODY = `Hi! You joined the VisionLearn Pro waitlist, thank you. I'm a student building this on a small budget, so I want to price it fairly.
+
+1. How many captures a day would you actually use?
+2. What would you comfortably pay per month: R__ / $__?
+3. What would you most want Pro to include (more captures, longer history, something else)?
+
+Just reply to this email. Your answers decide what I build next.
+
+Thanks,
+Israel`;
+
+/** Opens a Gmail compose window with everyone on the list in BCC (nobody sees anyone else). */
+function draftWaitlistEmail(waitlist: AdminWaitlistResponse): void {
+  const emails = waitlist.entries.map((e) => e.email).filter((e): e is string => Boolean(e));
+  const params = new URLSearchParams({
+    view: "cm",
+    fs: "1",
+    bcc: emails.slice(0, 60).join(","),
+    su: DRAFT_SUBJECT,
+    body: DRAFT_BODY,
+  });
+  window.open(`https://mail.google.com/mail/?${params.toString()}`, "_blank", "noopener");
+}
+
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }): JSX.Element {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-subtle">
@@ -154,7 +179,7 @@ export function AdminApp(): JSX.Element {
       )}
 
       {state.status === "error" && (
-        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
           <p>{state.message}</p>
           <button type="button" onClick={() => void load()} className="mt-2 font-medium underline underline-offset-2">
             Try again
@@ -215,7 +240,7 @@ export function AdminApp(): JSX.Element {
                       <td className="py-2 pr-4 text-slate-700">
                         {user.email ?? "Signed out / deleted accounts"}
                         {user.is_outlier && (
-                          <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
                             outlier
                           </span>
                         )}
@@ -255,6 +280,9 @@ export function AdminApp(): JSX.Element {
                   }
                 >
                   Copy emails
+                </Button>
+                <Button variant="secondary" className="text-xs" onClick={() => draftWaitlistEmail(state.data.waitlist)}>
+                  Draft email
                 </Button>
                 <Button variant="secondary" className="text-xs" onClick={() => exportWaitlist(state.data.waitlist)}>
                   Export CSV

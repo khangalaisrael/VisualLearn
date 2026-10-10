@@ -52,7 +52,7 @@ function WaitlistPrompt({ source }: { source: "daily" | "monthly" }): JSX.Elemen
   };
 
   if (state === "joined") {
-    return <p className="text-sm text-violet-700">You're on the list — we'll email you when Pro is ready.</p>;
+    return <p className="text-sm text-violet-700 dark:text-violet-300">You're on the list — we'll email you when Pro is ready.</p>;
   }
   return (
     <div className="flex flex-col items-start gap-2 border-t border-violet-100 pt-3">

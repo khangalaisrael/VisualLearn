@@ -107,7 +107,7 @@ export function SettingsTab(): JSX.Element {
         {signIn.status === "signed-in" ? (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
                 {(signIn.email ?? "?").charAt(0).toUpperCase()}
               </span>
               <span className="text-sm text-slate-700">{signIn.email ?? "Signed in"}</span>
@@ -122,7 +122,7 @@ export function SettingsTab(): JSX.Element {
             </div>
             {confirmingDelete ? (
               <div className="flex flex-col gap-2 rounded-md bg-red-50 p-3">
-                <p className="text-xs text-red-800">
+                <p className="text-xs text-red-800 dark:text-red-200">
                   This permanently deletes your account, all your chats and your captured slides. It can't be undone.
                 </p>
                 <div className="flex items-center gap-2">
@@ -138,13 +138,13 @@ export function SettingsTab(): JSX.Element {
                     Cancel
                   </Button>
                 </div>
-                {deleteError && <p className="text-xs text-red-700">{deleteError}</p>}
+                {deleteError && <p className="text-xs text-red-700 dark:text-red-300">{deleteError}</p>}
               </div>
             ) : (
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
-                className="self-start text-xs font-medium text-slate-400 transition-colors duration-[120ms] hover:text-red-600"
+                className="self-start text-xs font-medium text-slate-400 transition-colors duration-[120ms] hover:text-red-600 dark:hover:text-red-400"
               >
                 Delete my account and data
               </button>
@@ -155,7 +155,7 @@ export function SettingsTab(): JSX.Element {
             <Button onClick={() => void handleSignIn()} disabled={signIn.status === "signing-in"}>
               {signIn.status === "signing-in" ? "Signing in…" : "Sign in with Google"}
             </Button>
-            {signIn.status === "error" && <p className="text-xs text-red-600">{signIn.message}</p>}
+            {signIn.status === "error" && <p className="text-xs text-red-600 dark:text-red-400">{signIn.message}</p>}
             <p className="text-xs text-slate-400">Optional — everything works without signing in.</p>
           </div>
         )}
@@ -180,7 +180,7 @@ export function SettingsTab(): JSX.Element {
           href={policyUrl}
           target="_blank"
           rel="noreferrer"
-          className="px-1 text-xs font-medium text-indigo-600 underline-offset-2 hover:underline"
+          className="px-1 text-xs font-medium text-indigo-600 dark:text-indigo-300 underline-offset-2 hover:underline"
         >
           Privacy policy
         </a>

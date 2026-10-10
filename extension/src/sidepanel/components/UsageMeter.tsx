@@ -12,8 +12,8 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 function tone(used: number, limit: number): { stroke: string; text: string } {
   const share = limit > 0 ? used / limit : 1;
-  if (share >= 1) return { stroke: "stroke-violet-300", text: "text-violet-500" };
-  if (share >= 0.75) return { stroke: "stroke-amber-400", text: "text-amber-600" };
+  if (share >= 1) return { stroke: "stroke-violet-300", text: "text-violet-500 dark:text-violet-300" };
+  if (share >= 0.75) return { stroke: "stroke-amber-400", text: "text-amber-600 dark:text-amber-400" };
   return { stroke: "stroke-indigo-400", text: "text-slate-500" };
 }
 
@@ -34,6 +34,7 @@ export function UsageMeter(): JSX.Element | null {
     <div
       className="flex items-center gap-1.5 px-1"
       title={`${shown} of ${limit} captures used today`}
+      role="img"
       aria-label={`${shown} of ${limit} captures used today`}
     >
       <svg viewBox="0 0 20 20" className="h-[18px] w-[18px] -rotate-90" aria-hidden="true">

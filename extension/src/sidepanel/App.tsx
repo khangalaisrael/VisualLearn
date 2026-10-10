@@ -58,7 +58,7 @@ function NavButton({
       title={label}
       aria-pressed={active}
       className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-[120ms] ${
-        active ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+        active ? "bg-indigo-50 text-indigo-600 dark:text-indigo-300" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
       }`}
     >
       {children}

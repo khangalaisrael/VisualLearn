@@ -128,7 +128,8 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
           })),
         }));
       } else {
-        groups = groupLocal(local);
+        // Signed out: only captures made while signed out, never a previous account's.
+        groups = groupLocal(local.filter((record) => (record.owner ?? "") === ""));
       }
       setState({ status: "loaded", groups, retentionDays, signedIn: Boolean(sessionToken) });
       setExpanded(new Set(groups[0] ? [groups[0].id] : []));
@@ -225,7 +226,7 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
       {state.status === "loading" && <p className="text-sm text-slate-400">Loading…</p>}
 
       {state.status === "error" && (
-        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
           <p>{state.message}</p>
           <button type="button" onClick={() => void load()} className="mt-2 font-medium underline underline-offset-2">
             Try again
@@ -233,7 +234,7 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
         </div>
       )}
 
-      {actionError && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
+      {actionError && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">{actionError}</p>}
 
       {state.status === "loaded" && !state.signedIn && (
         <div className="flex flex-col items-start gap-3 rounded-lg border border-slate-200 p-4 shadow-subtle">
@@ -276,7 +277,7 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
                   disabled={busy}
                   onClick={() => void removeLecture(group, state.signedIn)}
                   aria-label={`Delete lecture: ${group.title}`}
-                  className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-400 transition-colors duration-[120ms] hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                  className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-400 transition-colors duration-[120ms] hover:bg-red-50 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
                 >
                   ✕
                 </button>
@@ -303,7 +304,7 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
                           <span className="flex items-center gap-2 text-xs text-slate-400">
                             {relativeTime(capture.capturedAt)}
                             {capture.followUps > 0 && (
-                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-600">
+                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:text-indigo-300">
                                 {capture.followUps} {capture.followUps === 1 ? "follow-up" : "follow-ups"}
                               </span>
                             )}
@@ -315,7 +316,7 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
                         disabled={busy}
                         onClick={() => void removeCapture(capture, state.signedIn)}
                         aria-label="Delete this capture"
-                        className="mt-1 flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-300 transition-colors duration-[120ms] hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        className="mt-1 flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-300 transition-colors duration-[120ms] hover:bg-red-50 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
                       >
                         ✕
                       </button>

@@ -27,6 +27,12 @@ export interface SlideAnalysisFailedMessage {
   retryAfterSeconds?: number;
 }
 
+/** A capture has begun (from the Capture button or the keyboard shortcut), so
+ * the panel can show "Analyzing…" even when it didn't start the capture. */
+export interface CaptureStartedMessage {
+  type: "CAPTURE_STARTED";
+}
+
 /** The backend is a sleeping hosted service (Render free tier) that's booting (see
  * api-client.ts's fetchWakingBackend) — the capture is still in flight. */
 export interface BackendWakingMessage {
@@ -59,6 +65,7 @@ export interface FigureSelectedMessage {
 
 export type BackgroundMessage = CaptureRequestMessage | OpenFigureChatMessage;
 export type SidePanelMessage =
+  | CaptureStartedMessage
   | SlideAnalyzedMessage
   | SlideAnalysisFailedMessage
   | BackendWakingMessage

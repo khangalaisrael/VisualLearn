@@ -5,12 +5,13 @@
  * content script and the side panel (docs/ARCHITECTURE.md §3).
  */
 
-import { ApiError, analyzeSlide } from "../shared/api-client";
+import { ApiError, analyzeSlide, getAuthState } from "../shared/api-client";
 import { LOCAL_RETENTION_DAYS, latestPresentationFor, purgeOlderThan, saveCapture } from "../shared/capture-store";
 import type {
   BackendWakingMessage,
   BackgroundMessage,
   CaptureRequestMessage,
+  CaptureStartedMessage,
   FigureSelectedMessage,
   OpenFigureChatMessage,
   SlideAnalysisFailedMessage,
@@ -109,8 +110,20 @@ async function analyzeWithLecture(
   }
 }
 
+// A different account (or signing out) must never be handed the previous
+// account's cached result for an unchanged screen.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && (changes.sessionToken || changes.userEmail)) {
+    lastResultByTab.clear();
+  }
+});
+
 async function handleCaptureRequest(message: CaptureRequestMessage, tabId: number): Promise<void> {
+  const started: CaptureStartedMessage = { type: "CAPTURE_STARTED" };
+  chrome.runtime.sendMessage(started).catch(() => undefined);
+
   const lecture = await readLecture(tabId);
+  const owner = ((await getAuthState()).email ?? "").toLowerCase();
   const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
   const imageBlob = await (await fetch(dataUrl)).blob();
   const imageHash = await sha256Hex(await imageBlob.arrayBuffer());
@@ -136,7 +149,7 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
 
     // A signed-out capture of a page seen before joins that lecture's group;
     // signed-in captures are grouped by the server as well.
-    const presentationId = message.presentationId ?? (await latestPresentationFor(lecture.lectureKey).catch(() => null));
+    const presentationId = message.presentationId ?? (await latestPresentationFor(lecture.lectureKey, owner).catch(() => null));
     const result = await analyzeWithLecture(upload, message, lecture, presentationId);
 
     // Remembered only on success, so a failed capture (a usage limit, a
@@ -154,6 +167,7 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
       thumbnail,
       summary: result.summary.slice(0, 400),
       capturedAt: Date.now(),
+      owner,
     }).catch((error) => console.warn("[VisionLearn] couldn't save the capture locally", error));
     void purgeOlderThan(LOCAL_RETENTION_DAYS).catch(() => undefined);
   } catch (error) {
@@ -218,6 +232,17 @@ async function handleOpenFigureChat(message: OpenFigureChatMessage, tab: chrome.
   chrome.runtime.sendMessage(outgoing).catch(() => undefined);
   await chrome.storage.local.set({ [PENDING_FIGURE_SELECTION_KEY]: outgoing });
 }
+
+// Keyboard capture (Alt+Shift+S by default; users can change it at
+// chrome://extensions/shortcuts). The side panel can only be opened from a
+// user gesture, and the shortcut is one, so it is opened before anything else.
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== "capture-slide" || tab?.id === undefined) return;
+  if (tab.windowId !== undefined) {
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
+  }
+  void handleCaptureRequest({ type: "CAPTURE_REQUEST", presentationId: null, slideNumber: 1 }, tab.id);
+});
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage, sender) => {
   if (message.type === "OPEN_FIGURE_CHAT") {
