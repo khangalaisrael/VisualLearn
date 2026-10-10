@@ -21,7 +21,10 @@ class Settings(BaseSettings):
     # started directly on the host). docker-compose.yml overrides both via
     # container-network hostnames (`db`, `redis`).
     database_url: str = "postgresql+asyncpg://visionlearn:visionlearn@localhost:5432/visionlearn"
-    redis_url: str = "redis://localhost:6379/0"
+    # Optional. Unset (the hosted default) means the analysis cache runs on
+    # Postgres alone and nothing tries to reach Redis; docker-compose.yml
+    # sets it for local runs.
+    redis_url: str | None = None
 
     # No default: a slide-analysis request without a configured key should be
     # loud (see services/health.py), not silently treated as "working".
@@ -79,6 +82,10 @@ class Settings(BaseSettings):
     # abuse, not rationing normal use. Revisit once real usage is visible.
     rate_limit_captures_per_day: int = 50
     rate_limit_chat_messages_per_day: int = 100
+
+    # Chats (and the slide content behind them) are deleted this many days
+    # after their last message — see services/retention.py.
+    chat_retention_days: int = 30
 
 
 @lru_cache

@@ -56,7 +56,7 @@ async def analyze_slide(
     slide_number: int = Form(...),
     model: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
-    redis: Redis = Depends(get_redis),
+    redis: Redis | None = Depends(get_redis),
     analyzer: SlideAnalyzer = Depends(get_slide_analyzer),
     current_user_id: uuid.UUID | None = Depends(get_current_user_id),
 ) -> SlideAnalysisResponse:

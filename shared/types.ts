@@ -111,3 +111,28 @@ export interface AuthResponse {
 export interface LogoutRequest {
   session_token: string;
 }
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  last_activity_at: string;
+}
+
+export interface ConversationListResponse {
+  retention_days: number;
+  conversations: ConversationSummary[];
+}
+
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string;
+  slide: SlideAnalysisResponse | null;
+  messages: ConversationMessage[];
+}

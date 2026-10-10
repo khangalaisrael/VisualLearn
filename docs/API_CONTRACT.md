@@ -136,6 +136,18 @@ data: { "error": str, "message": str }
 
 **Errors (pre-stream, `4xx` before any SSE bytes are sent):** `400` invalid mode/context combination (e.g. `figure` mode without `object_id`); `404` unknown `presentation_id`/`slide_id`/`object_id`.
 
+## 3a. Conversations (chat history)
+
+All three need `Authorization: Bearer <session token>`; without one they return `401`. Another user's chat, or one past retention, is `404`.
+
+- `GET /conversations` → `{ retention_days: int, conversations: [{ id, title, last_activity_at }] }`, newest first, only chats with at least one saved message.
+- `GET /conversations/{id}` → `{ id, title, slide: SlideAnalysisResponse | null, messages: [{ id, role, content, created_at }] }`.
+- `DELETE /conversations/{id}` → `204`.
+
+`POST /chat` only continues a `conversation_id` that belongs to the same presentation and, if it has an owner, to the caller; otherwise `404`.
+
+`POST /maintenance/cleanup` (API key only) deletes everything past retention and returns the row counts.
+
 ## 4. `GET /presentations/{id}`
 
 Fetch a presentation's indexing state and slide list — used by the sidebar's History/Presentation views.

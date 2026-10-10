@@ -181,7 +181,13 @@ class Conversation(Base):
     presentation_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("presentations.id"), nullable=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The slide this chat is about, so a reopened chat can restore the
+    # slide's extracted objects alongside its messages.
+    slide_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("slides.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Bumped on every chat turn; retention (services/retention.py) counts
+    # from here, so an active chat never expires mid-use.
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
 

@@ -1,9 +1,6 @@
-"""Redis client factory.
-
-Sprint 1 only uses Redis for the health check (docs/API_CONTRACT.md §7). The
-analysis cache (docs/ARCHITECTURE.md §5) is a Milestone 2 feature — this
-module is where that CacheService will source its connection from.
-"""
+"""Redis client factory. Redis is optional: with no REDIS_URL configured
+`get_redis` yields None and the analysis cache runs on Postgres alone
+(services/cache_service.py)."""
 
 from redis.asyncio import Redis
 
@@ -11,8 +8,8 @@ from app.core.config import get_settings
 
 _settings = get_settings()
 
-redis_client: Redis = Redis.from_url(_settings.redis_url, decode_responses=True)
+redis_client: Redis | None = Redis.from_url(_settings.redis_url, decode_responses=True) if _settings.redis_url else None
 
 
-async def get_redis() -> Redis:
+async def get_redis() -> Redis | None:
     return redis_client

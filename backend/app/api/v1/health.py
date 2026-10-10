@@ -16,7 +16,7 @@ _health_service = HealthService()
 @router.get("/health", response_model=HealthResponse)
 async def get_health(
     db: AsyncSession = Depends(get_db),
-    redis: Redis = Depends(get_redis),
+    redis: Redis | None = Depends(get_redis),
 ) -> HealthResponse:
     result = await _health_service.check(db, redis)
     return HealthResponse(

@@ -23,10 +23,13 @@ class HealthStatus:
 class HealthService:
     """Checks connectivity of the stack's dependencies."""
 
-    async def check(self, db: AsyncSession, redis: Redis) -> HealthStatus:
+    async def check(self, db: AsyncSession, redis: Redis | None) -> HealthStatus:
+        db_ok = await self._check_db(db)
         return HealthStatus(
-            db=await self._check_db(db),
-            cache=await self._check_cache(redis),
+            db=db_ok,
+            # No Redis configured: the cache is Postgres-backed, so it is up
+            # exactly when the database is.
+            cache=await self._check_cache(redis) if redis is not None else db_ok,
             model_provider=self._check_model_provider(),
         )
 

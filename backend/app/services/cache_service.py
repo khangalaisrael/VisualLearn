@@ -44,7 +44,7 @@ _REDIS_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days. cache_entries has no TTL enforc
 
 
 class CacheService:
-    def __init__(self, redis: Redis, db: AsyncSession) -> None:
+    def __init__(self, redis: Redis | None, db: AsyncSession) -> None:
         self._redis = redis
         self._cache_entries = CacheEntryRepository(db)
 
@@ -75,6 +75,8 @@ class CacheService:
         )
 
     async def _safe_redis_get(self, key: str) -> str | None:
+        if self._redis is None:
+            return None
         try:
             return await self._redis.get(key)
         except Exception:
@@ -82,6 +84,8 @@ class CacheService:
             return None
 
     async def _safe_redis_set(self, key: str, value: str) -> None:
+        if self._redis is None:
+            return
         try:
             await self._redis.set(key, value, ex=_REDIS_TTL_SECONDS)
         except Exception:

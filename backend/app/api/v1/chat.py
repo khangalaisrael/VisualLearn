@@ -20,6 +20,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -311,15 +312,30 @@ def _build_graph_trace_block(message: str, objects: list[ObjectRecord]) -> str:
     )
 
 
-async def _resolve_conversation(db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID) -> uuid.UUID:
+async def _resolve_conversation(
+    db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID, current_user_id: uuid.UUID | None
+) -> uuid.UUID:
     conversations = ConversationRepository(db)
     if request.conversation_id:
         conversation_uuid = _parse_uuid(request.conversation_id, "conversation_id")
         conversation = await conversations.get(conversation_uuid)
-        if conversation is None:
+        # A chat from another presentation or another account is reported
+        # as unknown: its messages become model context, so continuing it
+        # would leak them.
+        if (
+            conversation is None
+            or conversation.presentation_id != presentation_id
+            or (conversation.user_id is not None and conversation.user_id != current_user_id)
+        ):
             raise HTTPException(status_code=404, detail="Unknown conversation_id")
+        conversation.last_activity_at = datetime.now(UTC)
         return conversation.id
-    conversation = await conversations.create(presentation_id=presentation_id)
+    conversation = await conversations.create(
+        presentation_id=presentation_id,
+        user_id=current_user_id,
+        title=request.message.strip()[:80] or None,
+        slide_id=_parse_uuid(request.slide_id, "slide_id") if request.slide_id else None,
+    )
     return conversation.id
 
 
@@ -422,7 +438,7 @@ async def chat(
     else:
         context_text, referenced_object_ids = await _build_slide_context(db, request)
 
-    conversation_id = await _resolve_conversation(db, request, presentation_uuid)
+    conversation_id = await _resolve_conversation(db, request, presentation_uuid, current_user_id)
     await db.commit()
 
     base_prompt = load_prompt(_PROMPT_BY_MODE[request.query_mode])

@@ -40,7 +40,7 @@ import type {
 } from "../../service-worker/messages";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
-import type { ExplanationMode } from "@shared/types";
+import type { ConversationDetail, ExplanationMode } from "@shared/types";
 import { ObjectCard } from "../components/ObjectCard";
 import { ObjectCardSkeleton } from "../components/ObjectCardSkeleton";
 
@@ -135,6 +135,20 @@ function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function CaptureIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
+      <path
+        d="M5.5 3.5 6.3 2h3.4l.8 1.5H13A1.5 1.5 0 0 1 14.5 5v6A1.5 1.5 0 0 1 13 12.5H3A1.5 1.5 0 0 1 1.5 11V5A1.5 1.5 0 0 1 3 3.5h2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="7.5" r="2.25" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
 function TypingIndicator(): JSX.Element {
   return (
     <span className="inline-flex items-center gap-1" aria-label="VisionLearn is typing">
@@ -167,7 +181,38 @@ function Avatar({ role }: { role: ChatMessage["role"] }): JSX.Element {
   );
 }
 
-export function AskTab(): JSX.Element {
+function EmptyState(): JSX.Element {
+  const steps = ["Open a lecture slide in this tab", "Press Capture", "Ask anything about what's on it"];
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-5 px-4 py-8 text-center">
+      <img src="/icons/icon-128.png" alt="" className="h-14 w-14 rounded-md shadow-subtle" />
+      <div className="flex flex-col gap-1">
+        <p className="text-base font-semibold text-slate-800">Understand any slide</p>
+        <p className="text-sm text-slate-500">Equations, diagrams and code, explained from what's on screen.</p>
+      </div>
+      <ol className="flex w-full max-w-[280px] flex-col gap-2 text-left">
+        {steps.map((step, index) => (
+          <li key={step} className="flex items-center gap-3 rounded-md bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+            <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+              {index + 1}
+            </span>
+            {step}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/** A chat reopened from Recent: its slide, messages and id, so the next
+ * question continues the same conversation. */
+export interface RestoredChat {
+  conversationId: string;
+  slide: NonNullable<ConversationDetail["slide"]>;
+  messages: ConversationDetail["messages"];
+}
+
+export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "idle" });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -175,6 +220,7 @@ export function AskTab(): JSX.Element {
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatWaking, setChatWaking] = useState(false);
   const conversationIdRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
   const latestUserMessageRef = useRef<HTMLLIElement | null>(null);
   const [latestUserMessageId, setLatestUserMessageId] = useState<string | null>(null);
@@ -242,6 +288,23 @@ export function AskTab(): JSX.Element {
     });
   }, [applyFigureSelection]);
 
+  useEffect(() => {
+    if (!restore) return;
+    abortRef.current?.abort();
+    setState({ status: "loaded", result: restore.slide });
+    setMessages(
+      restore.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: new Date(m.created_at).getTime(),
+      }))
+    );
+    setFigureSelection(null);
+    setChatError(null);
+    conversationIdRef.current = restore.conversationId;
+  }, [restore]);
+
   const captureNow = useCallback(() => {
     setState({ status: "loading" });
     const message: CaptureRequestMessage = {
@@ -278,6 +341,8 @@ export function AskTab(): JSX.Element {
       ]);
       setLatestUserMessageId(userMessage.id);
 
+      const abort = new AbortController();
+      abortRef.current = abort;
       try {
         const request = {
           conversation_id: conversationIdRef.current,
@@ -288,7 +353,8 @@ export function AskTab(): JSX.Element {
           message: question,
           ...(!figureSelection && algorithmMode ? { explanation_mode: explanationMode } : {}),
         } as const;
-        for await (const event of streamChat(request, () => setChatWaking(true))) {
+        for await (const event of streamChat(request, () => setChatWaking(true), abort.signal)) {
+          if (abort.signal.aborted) break;
           setChatWaking(false);
           if (event.type === "delta") {
             setMessages((prev) =>
@@ -301,8 +367,12 @@ export function AskTab(): JSX.Element {
           }
         }
       } catch (error) {
-        setChatError(error instanceof Error ? error.message : String(error));
+        if (!abort.signal.aborted) {
+          setChatError(error instanceof Error ? error.message : String(error));
+        }
       } finally {
+        // A reply stopped before any text arrived leaves nothing worth showing.
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId || m.content));
         setIsStreaming(false);
         setChatWaking(false);
       }
@@ -328,18 +398,29 @@ export function AskTab(): JSX.Element {
   }, [latestUserMessageId]);
 
   return (
-    <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-      <p className="text-sm text-slate-500">
-        Capture the current slide to see what VisionLearn extracted from it.
-      </p>
-
-      <div className="sticky top-0 z-10 -mx-4 border-b border-indigo-100 bg-white px-4 py-2 shadow-subtle">
-        <Button onClick={captureNow} disabled={state.status === "loading"}>
-          {state.status === "loading" ? "Analyzing…" : "Capture Current Slide"}
-        </Button>
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-none items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
+        <div>
+          <h2 className="text-base font-semibold text-slate-800">This slide</h2>
+          <p className="text-sm text-slate-400">
+            {state.status === "loaded" ? "Captured — ask a question below" : "Capture to see what's on screen"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={captureNow}
+          disabled={state.status === "loading"}
+          className="flex flex-none items-center gap-2 rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-subtle transition-colors duration-[120ms] hover:bg-indigo-700 active:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <CaptureIcon />
+          {state.status === "loading" ? "Analyzing…" : "Capture"}
+        </button>
       </div>
 
-      {state.status === "loading" && state.waking && <WakingNotice />}
+      <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+        {state.status === "idle" && <EmptyState />}
+
+        {state.status === "loading" && state.waking && <WakingNotice />}
 
       {state.status === "loading" && (
         <ul className="flex flex-col gap-3">
@@ -523,12 +604,19 @@ export function AskTab(): JSX.Element {
               disabled={isStreaming}
               className="flex-1 rounded-sm border border-slate-300 px-3 py-2 text-sm transition-colors duration-[120ms] focus:border-indigo-400 disabled:opacity-50"
             />
-            <Button type="submit" disabled={isStreaming || !chatInput.trim()}>
-              Send
-            </Button>
+            {isStreaming ? (
+              <Button variant="secondary" onClick={() => abortRef.current?.abort()}>
+                Stop
+              </Button>
+            ) : (
+              <Button type="submit" disabled={!chatInput.trim()}>
+                Send
+              </Button>
+            )}
           </form>
         </div>
       )}
+      </div>
     </div>
   );
 }

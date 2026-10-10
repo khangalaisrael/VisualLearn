@@ -10,6 +10,7 @@ input — see docs/API_CONTRACT.md §2 for why the backend derives it from the
 uploaded bytes instead of trusting a client-supplied value.
 """
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -153,3 +154,30 @@ class AuthResponse(BaseModel):
 
 class LogoutRequest(BaseModel):
     session_token: str
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    last_activity_at: datetime
+
+
+class ConversationListResponse(BaseModel):
+    # How long chats are kept, so the UI states the real number.
+    retention_days: int
+    conversations: list[ConversationSummary]
+
+
+class ConversationMessage(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+
+
+class ConversationDetail(BaseModel):
+    id: str
+    title: str
+    # The slide the chat is about; null if that slide no longer exists.
+    slide: SlideAnalysisResponse | None
+    messages: list[ConversationMessage]

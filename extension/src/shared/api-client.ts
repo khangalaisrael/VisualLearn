@@ -7,6 +7,8 @@ import type {
   ChatDoneEvent,
   ChatErrorEvent,
   ChatRequest,
+  ConversationDetail,
+  ConversationListResponse,
   HealthResponse,
   SlideAnalysisResponse,
 } from "@shared/types";
@@ -15,15 +17,23 @@ import type {
 // some environments have another local process already bound to
 // 127.0.0.1:8000, which silently wins over Docker's published port for
 // anything addressed as localhost:8000/127.0.0.1:8000.
-// A hosted build bakes in its public URL instead via VITE_BACKEND_URL
-// (docs/DEPLOY.md); either way the Settings tab can still override it.
+// A hosted build bakes in its public URL via VITE_BACKEND_URL (docs/DEPLOY.md).
+// Settings no longer exposes a field to override this — a real end user
+// shouldn't be able to point the extension at an arbitrary backend — but
+// the override still works via chrome.storage.local directly (devtools
+// console) for local development against a non-default backend.
 const DEFAULT_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8001";
 
-// Must match the backend's LOCAL_API_KEY (see .env.example at the repo
-// root and docs/adr/ADR-007-local-first-deployment.md). Set via the
-// Settings tab (extension/src/sidepanel/tabs/SettingsTab.tsx), which
-// writes to chrome.storage.local — this default only applies until then.
-const DEFAULT_LOCAL_API_KEY = "change-me-to-a-random-value";
+// Must match the backend's LOCAL_API_KEY. Baked in at build time via
+// VITE_LOCAL_API_KEY for a real distributed build (vite-env.d.ts) so a
+// real user never sees or has to paste this — it's the shared secret for
+// the hosted backend everyone's build points at, not a per-user credential
+// (docs/adr/ADR-007-local-first-deployment.md's model doesn't really hold
+// once installs are distributed rather than self-hosted, but per-user
+// identity now comes from Google sign-in, not this key — see
+// docs/PublicHostingMVP.md Phase 2). Same storage-override escape hatch
+// as the backend URL above, for local dev.
+const DEFAULT_LOCAL_API_KEY = import.meta.env.VITE_LOCAL_API_KEY || "change-me-to-a-random-value";
 
 // "" means "Server default": no model is sent, so the backend uses whatever
 // its .env configures for its active provider (OpenAI or Anthropic). A
@@ -389,7 +399,11 @@ function parseSseEvent(raw: string): ChatStreamEvent | null {
  * use EventSource (GET-only) — this reads the fetch body stream directly
  * and splits it into events on blank-line boundaries.
  */
-export async function* streamChat(request: ChatRequest, onWaking?: () => void): AsyncGenerator<ChatStreamEvent> {
+export async function* streamChat(
+  request: ChatRequest,
+  onWaking?: () => void,
+  signal?: AbortSignal
+): AsyncGenerator<ChatStreamEvent> {
   const { backendUrl, apiKey, chatModel } = await getConfig();
 
   const response = await fetchWakingBackend(
@@ -416,6 +430,14 @@ export async function* streamChat(request: ChatRequest, onWaking?: () => void): 
   const decoder = new TextDecoder();
   let buffer = "";
 
+  // Stop button: cancelling the reader ends the pending read() with
+  // done=true, which closes the connection so the server stops generating.
+  if (signal?.aborted) {
+    await reader.cancel().catch(() => undefined);
+    return;
+  }
+  signal?.addEventListener("abort", () => void reader.cancel().catch(() => undefined), { once: true });
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) {
@@ -434,4 +456,32 @@ export async function* streamChat(request: ChatRequest, onWaking?: () => void): 
       separatorIndex = buffer.indexOf("\n\n");
     }
   }
+}
+
+async function authedJson<T>(path: string, init: RequestInit, failure: string): Promise<T> {
+  const { backendUrl, apiKey } = await getConfig();
+  const response = await fetchWakingBackend(
+    `${backendUrl}/api/v1${path}`,
+    { ...init, headers: { "X-API-Key": apiKey, ...(await authHeader()) } },
+    undefined,
+    CHAT_ATTEMPT_TIMEOUT_MS
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new ApiError(body?.detail ?? `${failure} (${response.status})`, response.status);
+  }
+  return (response.status === 204 ? undefined : await response.json()) as T;
+}
+
+/** The signed-in user's chats within the retention window, newest first. */
+export function listConversations(): Promise<ConversationListResponse> {
+  return authedJson("/conversations", {}, "Couldn't load recent chats");
+}
+
+export function getConversation(id: string): Promise<ConversationDetail> {
+  return authedJson(`/conversations/${id}`, {}, "Couldn't open that chat");
+}
+
+export function deleteConversation(id: string): Promise<void> {
+  return authedJson(`/conversations/${id}`, { method: "DELETE" }, "Couldn't delete that chat");
 }

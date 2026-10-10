@@ -10,7 +10,7 @@ The $0 hosting path: the backend runs as a **Render free web service**, Postgres
 |---|---|---|
 | Backend (FastAPI) | Render free web service | `https://<name>.onrender.com`, HTTPS built in. Built from `deploy/hosted/Dockerfile` per `render.yaml`; migrations run on every start. Redeploys on every push to `main`. |
 | Database | Neon Postgres | Paste Neon's connection string unchanged; `app/db/url.py` converts it for asyncpg (SSL included). Don't use Render's free Postgres: it expires after about 30 days. |
-| Cache | Upstash Redis (optional) | Without it, analysis caching falls back to Postgres and `/health` reports `degraded`, but everything works. |
+| Cache | Upstash Redis (optional) | Without `REDIS_URL` the analysis cache runs on Postgres alone and `/health` reports `"cache": true` as long as the database is up. Not needed at small scale. |
 | Keep-awake | cron-job.org (optional) | Pings `/api/v1/health` every 10 minutes so the service doesn't sleep. |
 
 **Free-tier limits (2026; check Render's pricing page):**
@@ -49,6 +49,16 @@ Render deploys from `main` (`branch:` in `render.yaml`), so this setup must be m
 
 At [cron-job.org](https://cron-job.org) (free, no card), create a job that requests `https://<name>.onrender.com/api/v1/health` **every 10 minutes**. One always-awake service stays within the 750 free hours. Without this, the first capture after 15 idle minutes waits about a minute; the extension shows "Waking up the server…" and retries automatically (`fetchWakingBackend` in `extension/src/shared/api-client.ts`).
 
+## 4a. Daily cleanup (required for retention)
+
+Chats and the slide content behind them are deleted `CHAT_RETENTION_DAYS` (default 30) after their last message. Render's free plan has no scheduled jobs, so a second cron-job.org job triggers it:
+
+- URL: `https://<name>.onrender.com/api/v1/maintenance/cleanup`
+- Method: **POST**, once a day
+- Header: `X-API-Key: <LOCAL_API_KEY>`
+
+Expired chats are already hidden on read, so a missed run only delays deletion. The response lists how many rows were removed.
+
 ## 5. Point the extension at it
 
 ```bash
@@ -63,7 +73,7 @@ Load `extension/dist` in `chrome://extensions` (Developer mode → **Load unpack
 
 - **Deploy fails / service restarts in a loop**: check **Logs**. `alembic upgrade head` failing usually means `DATABASE_URL` is missing, mistyped, or is the pooled (`-pooler`) endpoint.
 - **"Out of memory" in Logs**: make sure `WEB_CONCURRENCY` isn't set above 1 on the free plan.
-- **`/health` says `"cache": false`**: `REDIS_URL` isn't set or is wrong. Harmless; see the Upstash note.
+- **`/health` says `"cache": false`**: `REDIS_URL` is set but Redis is unreachable. Remove the variable or fix the URL.
 - **Extension says a model "requires an OpenAI-configured backend"**: set both Settings pickers to **Server default**.
 - **Slow when the whole class captures at once**: expected on 0.1 CPU. Render's cheapest paid instance (0.5 CPU) is the fix if it's a problem; set `WEB_CONCURRENCY=2` there.
 

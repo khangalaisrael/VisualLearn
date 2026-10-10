@@ -1,8 +1,11 @@
 /**
- * Settings tab — configure the backend URL and X-API-Key from the side
- * panel UI instead of a devtools console command. Values are stored in
- * chrome.storage.local (see shared/api-client.ts getConfig/setConfig);
- * this doesn't need a backend endpoint, everything here is local.
+ * Settings tab — user-facing account controls only. Backend URL, API key,
+ * and model selection are all baked in at build time (shared/api-client.ts
+ * — VITE_BACKEND_URL / VITE_LOCAL_API_KEY) and deliberately not exposed
+ * here: a real distributed user shouldn't be able to point the extension
+ * at an arbitrary backend or hand-edit a credential. Connection health is
+ * checked automatically on mount rather than behind a manual button, for
+ * the same reason — nothing here asks the user to debug anything.
  */
 
 import { useEffect, useState } from "react";
@@ -11,18 +14,13 @@ import {
   checkHealth,
   getAuthState,
   getConfig,
-  setConfig,
   signInWithGoogle,
   signInWithGooglePicker,
   signOut,
 } from "../../shared/api-client";
 import { Button } from "../components/Button";
 
-type ConnectionState =
-  | { status: "idle" }
-  | { status: "checking"; waking?: boolean }
-  | { status: "ok"; modelProvider: boolean }
-  | { status: "error"; message: string };
+type ConnectionState = { status: "checking" } | { status: "ok" } | { status: "error" };
 
 type SignInState =
   | { status: "signed-out" }
@@ -30,40 +28,15 @@ type SignInState =
   | { status: "signed-in"; email: string | null }
   | { status: "error"; message: string };
 
-// Grouped by provider: a backend has one active provider (OpenAI if
-// OPENAI_API_KEY is set, else Anthropic), and only that provider's models
-// are accepted as an override — see backend/app/api/deps.py.
-function ModelOptions(): JSX.Element {
-  return (
-    <>
-      <option value="">Server default — whatever the backend's .env configures</option>
-      <optgroup label="Anthropic backend">
-        <option value="claude-haiku-5-5">Claude Haiku 5.5 — Lowest cost</option>
-        <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — More accurate, higher cost</option>
-      </optgroup>
-      <optgroup label="OpenAI backend">
-        <option value="gpt-4o">gpt-4o — Accurate, higher cost</option>
-        <option value="gpt-4o-mini">gpt-4o-mini — Cheaper chat; images still costly</option>
-      </optgroup>
-    </>
-  );
-}
-
 export function SettingsTab(): JSX.Element {
-  const [backendUrl, setBackendUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [vlmModel, setVlmModel] = useState("");
-  const [chatModel, setChatModel] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [connection, setConnection] = useState<ConnectionState>({ status: "idle" });
+  const [connection, setConnection] = useState<ConnectionState>({ status: "checking" });
   const [signIn, setSignIn] = useState<SignInState>({ status: "signed-out" });
 
   useEffect(() => {
-    getConfig().then((config) => {
-      setBackendUrl(config.backendUrl);
-      setApiKey(config.apiKey);
-      setVlmModel(config.vlmModel);
-      setChatModel(config.chatModel);
+    getConfig().then(({ backendUrl }) => {
+      checkHealth(backendUrl)
+        .then(() => setConnection({ status: "ok" }))
+        .catch(() => setConnection({ status: "error" }));
     });
     getAuthState().then((auth) => {
       if (auth.sessionToken) {
@@ -97,134 +70,53 @@ export function SettingsTab(): JSX.Element {
     }
   };
 
-  const save = async () => {
-    await setConfig({ backendUrl: backendUrl.trim(), apiKey: apiKey.trim(), vlmModel, chatModel });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  const testConnection = async () => {
-    setConnection({ status: "checking" });
-    try {
-      const health = await checkHealth(backendUrl.trim(), () => setConnection({ status: "checking", waking: true }));
-      setConnection({ status: "ok", modelProvider: health.model_provider });
-    } catch (error) {
-      setConnection({ status: "error", message: error instanceof Error ? error.message : String(error) });
-    }
-  };
-
-  const inputClass =
-    "rounded-sm border border-slate-300 px-3 py-2 text-sm transition-colors duration-[120ms] focus:border-indigo-400";
-
   return (
-    <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-      <div className="flex flex-col gap-2 rounded-md border border-slate-200 p-3">
-        <span className="text-sm font-medium text-slate-700">Google Account</span>
+    <div className="scrollbar-thin flex flex-1 flex-col gap-5 overflow-y-auto p-5">
+      <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-subtle">
+        <h2 className="text-sm font-semibold text-slate-800">Account</h2>
+
         {signIn.status === "signed-in" ? (
-          <div className="flex flex-col gap-2">
-            <span className="text-sm text-slate-600">Signed in{signIn.email ? ` as ${signIn.email}` : ""}</span>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+                {(signIn.email ?? "?").charAt(0).toUpperCase()}
+              </span>
+              <span className="text-sm text-slate-700">{signIn.email ?? "Signed in"}</span>
+            </div>
             <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={() => void handleSwitchAccount()}>
+              <Button variant="secondary" onClick={() => void handleSwitchAccount()} className="text-xs">
                 Switch account
               </Button>
-              <Button variant="secondary" onClick={() => void handleSignOut()}>
+              <Button variant="secondary" onClick={() => void handleSignOut()} className="text-xs">
                 Sign out
               </Button>
             </div>
           </div>
         ) : (
-          <>
+          <div className="flex flex-col gap-2">
             <Button onClick={() => void handleSignIn()} disabled={signIn.status === "signing-in"}>
               {signIn.status === "signing-in" ? "Signing in…" : "Sign in with Google"}
             </Button>
             {signIn.status === "error" && <p className="text-xs text-red-600">{signIn.message}</p>}
-          </>
+            <p className="text-xs text-slate-400">Optional — everything works without signing in.</p>
+          </div>
         )}
-        <p className="text-xs text-slate-400">
-          Not required yet — the backend connection below still works on its own. Signing in is the first step
-          toward per-account features.
-        </p>
-      </div>
+      </section>
 
-      <p className="text-sm text-slate-500">
-        Connect the extension to your VisionLearn backend. Both values must match your backend's{" "}
-        <code className="rounded-sm bg-slate-100 px-1 font-mono text-[13px]">.env</code> (
-        <code className="rounded-sm bg-slate-100 px-1 font-mono text-[13px]">LOCAL_API_KEY</code>).
-      </p>
-
-      <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium text-slate-700">Backend URL</span>
-        <input
-          type="text"
-          value={backendUrl}
-          onChange={(event) => setBackendUrl(event.target.value)}
-          placeholder="http://127.0.0.1:8001"
-          className={inputClass}
+      <div className="flex items-center gap-2 px-1 text-xs text-slate-400">
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            connection.status === "ok"
+              ? "bg-emerald-500"
+              : connection.status === "error"
+                ? "bg-red-500"
+                : "animate-pulse bg-slate-300"
+          }`}
         />
-      </label>
-
-      <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium text-slate-700">API Key</span>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          placeholder="LOCAL_API_KEY from .env"
-          className={`${inputClass} font-mono`}
-        />
-      </label>
-
-      <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium text-slate-700">Slide Analysis Model</span>
-        <select value={vlmModel} onChange={(event) => setVlmModel(event.target.value)} className={inputClass}>
-          <ModelOptions />
-        </select>
-        <span className="text-xs text-slate-500">
-          Used for "Capture Current Slide". Pick a model from your backend's provider, or keep Server default.
-        </span>
-      </label>
-
-      <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium text-slate-700">Chat Model</span>
-        <select value={chatModel} onChange={(event) => setChatModel(event.target.value)} className={inputClass}>
-          <ModelOptions />
-        </select>
-        <span className="text-xs text-slate-500">Used for questions asked in the Ask tab.</span>
-      </label>
-
-      <div className="flex items-center gap-3">
-        <Button onClick={() => void save()}>Save</Button>
-        <Button variant="secondary" onClick={() => void testConnection()} disabled={connection.status === "checking"}>
-          Test Connection
-        </Button>
-        {saved && <span className="text-sm text-emerald-600">Saved</span>}
+        {connection.status === "ok" && "Connected"}
+        {connection.status === "checking" && "Checking connection…"}
+        {connection.status === "error" && "Can't reach the server right now — try again shortly."}
       </div>
-
-      {connection.status === "checking" && (
-        <p className="text-sm text-slate-500">
-          {connection.waking ? "Waking up the server — this takes about a minute after a quiet period…" : "Checking…"}
-        </p>
-      )}
-
-      {connection.status === "ok" && (
-        <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800 shadow-subtle">
-          Connected.{" "}
-          {connection.modelProvider
-            ? "A model provider is configured — analysis and chat will work."
-            : "No model provider is configured on the backend (OPENAI_API_KEY/ANTHROPIC_API_KEY) — analysis will use a placeholder and chat will fail."}
-        </div>
-      )}
-
-      {connection.status === "error" && (
-        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-subtle">
-          <p className="font-medium">Couldn't reach the backend.</p>
-          <p>{connection.message}</p>
-          <p className="mt-1 text-red-500">
-            Check that the URL above is correct and the backend is running (locally:{" "}
-            <code className="font-mono">docker compose ps</code>; hosted: the Space's status page).
-          </p>
-        </div>
-      )}
     </div>
   );
 }
