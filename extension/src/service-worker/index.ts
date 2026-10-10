@@ -6,6 +6,7 @@
  */
 
 import { ApiError, analyzeSlide } from "../shared/api-client";
+import { LOCAL_RETENTION_DAYS, latestPresentationFor, purgeOlderThan, saveCapture } from "../shared/capture-store";
 import type {
   BackendWakingMessage,
   BackgroundMessage,
@@ -43,25 +44,73 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
 const MAX_UPLOAD_LONG_EDGE_PX = 1568;
 const UPLOAD_JPEG_QUALITY = 0.9;
 
-async function shrinkForUpload(blob: Blob): Promise<Blob> {
-  const bitmap = await createImageBitmap(blob);
-  const scale = Math.min(1, MAX_UPLOAD_LONG_EDGE_PX / Math.max(bitmap.width, bitmap.height));
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
+// The small picture kept on this device for "Recent" (never uploaded).
+const THUMBNAIL_LONG_EDGE_PX = 320;
+const THUMBNAIL_JPEG_QUALITY = 0.7;
+
+/** Scales a bitmap down (never up, never cropped) and encodes it as JPEG. */
+async function renderJpeg(bitmap: ImageBitmap, maxLongEdge: number, quality: number): Promise<Blob | null> {
+  const scale = Math.min(1, maxLongEdge / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
 
   const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext("2d");
-  if (!context) {
-    bitmap.close();
-    return blob;
-  }
+  if (!context) return null;
   context.imageSmoothingQuality = "high";
   context.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-  return canvas.convertToBlob({ type: "image/jpeg", quality: UPLOAD_JPEG_QUALITY });
+  return canvas.convertToBlob({ type: "image/jpeg", quality });
+}
+
+/** Title and address of the tab, read before the screenshot so they describe
+ * the same page. The address loses its query string and fragment: those often
+ * carry tokens, and they don't identify the lecture. */
+async function readLecture(tabId: number): Promise<{ title: string; pageUrl: string; lectureKey: string }> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const url = new URL(tab.url ?? "");
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return { title: tab.title?.trim() ?? "", pageUrl: "", lectureKey: "" };
+    }
+    const pageUrl = `${url.origin}${url.pathname}`;
+    return { title: tab.title?.trim() || url.hostname, pageUrl, lectureKey: pageUrl.toLowerCase() };
+  } catch {
+    return { title: "", pageUrl: "", lectureKey: "" };
+  }
+}
+
+async function analyzeWithLecture(
+  image: Blob,
+  message: CaptureRequestMessage,
+  lecture: { title: string; pageUrl: string },
+  presentationId: string | null
+): Promise<SlideAnalysisResponse> {
+  const attempt = (id: string | null) =>
+    analyzeSlide({
+      image,
+      presentationId: id,
+      slideNumber: message.slideNumber,
+      lectureTitle: lecture.title,
+      pageUrl: lecture.pageUrl,
+      onWaking: () => {
+        const waking: BackendWakingMessage = { type: "BACKEND_WAKING" };
+        chrome.runtime.sendMessage(waking).catch(() => undefined);
+      },
+    });
+  try {
+    return await attempt(presentationId);
+  } catch (error) {
+    // The remembered presentation is gone (expired, deleted) or belongs to
+    // someone else who used this browser: start a fresh one rather than fail.
+    if (presentationId && message.presentationId === null && error instanceof ApiError && error.status === 404) {
+      return attempt(null);
+    }
+    throw error;
+  }
 }
 
 async function handleCaptureRequest(message: CaptureRequestMessage, tabId: number): Promise<void> {
+  const lecture = await readLecture(tabId);
   const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
   const imageBlob = await (await fetch(dataUrl)).blob();
   const imageHash = await sha256Hex(await imageBlob.arrayBuffer());
@@ -75,20 +124,38 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
   }
 
   try {
-    const result = await analyzeSlide({
-      image: await shrinkForUpload(imageBlob),
-      presentationId: message.presentationId,
-      slideNumber: message.slideNumber,
-      onWaking: () => {
-        const waking: BackendWakingMessage = { type: "BACKEND_WAKING" };
-        chrome.runtime.sendMessage(waking).catch(() => undefined);
-      },
-    });
+    const bitmap = await createImageBitmap(imageBlob);
+    let upload: Blob;
+    let thumbnail: Blob | null;
+    try {
+      upload = (await renderJpeg(bitmap, MAX_UPLOAD_LONG_EDGE_PX, UPLOAD_JPEG_QUALITY)) ?? imageBlob;
+      thumbnail = await renderJpeg(bitmap, THUMBNAIL_LONG_EDGE_PX, THUMBNAIL_JPEG_QUALITY).catch(() => null);
+    } finally {
+      bitmap.close();
+    }
+
+    // A signed-out capture of a page seen before joins that lecture's group;
+    // signed-in captures are grouped by the server as well.
+    const presentationId = message.presentationId ?? (await latestPresentationFor(lecture.lectureKey).catch(() => null));
+    const result = await analyzeWithLecture(upload, message, lecture, presentationId);
 
     // Remembered only on success, so a failed capture (a usage limit, a
     // network error) can be retried on the same slide.
     lastResultByTab.set(tabId, { hash: imageHash, result });
     deliverResult(result, tabId);
+
+    // Best effort: a failure here must never hide a result the user already has.
+    await saveCapture({
+      slide_id: result.slide_id,
+      presentation_id: result.presentation_id,
+      lectureKey: lecture.lectureKey,
+      title: lecture.title || "Untitled capture",
+      url: lecture.pageUrl,
+      thumbnail,
+      summary: result.summary.slice(0, 400),
+      capturedAt: Date.now(),
+    }).catch((error) => console.warn("[VisionLearn] couldn't save the capture locally", error));
+    void purgeOlderThan(LOCAL_RETENTION_DAYS).catch(() => undefined);
   } catch (error) {
     console.error("[VisionLearn] slide analysis failed", error);
     const outgoing: SlideAnalysisFailedMessage = {

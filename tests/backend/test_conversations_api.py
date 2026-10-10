@@ -9,7 +9,7 @@ from PIL import Image
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.orm import Conversation, Message, Presentation, RateLimitEvent, User
+from app.models.orm import Conversation, Message, Presentation, RateLimitEvent, Slide, User
 from app.models.orm import Session as SessionRow
 
 API_KEY = {"X-API-Key": "test-api-key"}
@@ -133,6 +133,7 @@ async def test_expired_chat_is_hidden_then_removed_by_cleanup(client: AsyncClien
     long_ago = datetime.now(UTC) - timedelta(days=31)
     await db_session.execute(update(Conversation).values(last_activity_at=long_ago))
     await db_session.execute(update(Presentation).values(created_at=long_ago))
+    await db_session.execute(update(Slide).values(created_at=long_ago))
     db_session.add(RateLimitEvent(key="ip:1.2.3.4", action="chat", created_at=long_ago))
     await db_session.commit()
     fresh = await _capture_and_chat(client, headers, "fresh chat")

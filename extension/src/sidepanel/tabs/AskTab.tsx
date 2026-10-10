@@ -209,7 +209,8 @@ function EmptyState(): JSX.Element {
 /** A chat reopened from Recent: its slide, messages and id, so the next
  * question continues the same conversation. */
 export interface RestoredChat {
-  conversationId: string;
+  /** null when a capture is reopened that has no chat yet. */
+  conversationId: string | null;
   slide: NonNullable<ConversationDetail["slide"]>;
   messages: ConversationDetail["messages"];
 }

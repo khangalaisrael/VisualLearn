@@ -154,6 +154,16 @@ All three need `Authorization: Bearer <session token>`; without one they return 
 - `POST /waitlist` `{ source: "daily" | "monthly" | "settings" }` (signed in; `401` otherwise) → `{ joined: true }`.
 - Every limit `429` carries `Retry-After` (seconds) and `X-Limit-Kind: daily | monthly | global`. Admins (`ADMIN_EMAILS`) are never limited.
 
+## 3c. Capture history (lectures)
+
+`POST /slides/analyze` also accepts optional form fields `lecture_title` (page title) and `page_url` (the extension strips the query string and fragment; the server cleans it again). A signed-in user's captures of the same page (case-insensitive URL, no query) land in one presentation; without `page_url` a new presentation is created as before. An explicit `presentation_id` always wins.
+
+- `GET /lectures` (signed in; `401` otherwise) → `{ retention_days, lectures: [{ id, title, page_url, last_activity_at, captures: [{ slide_id, slide_number, summary (first 400 chars), created_at, conversations: [{ id, title, message_count, last_activity_at }] }] }] }`. Newest lecture first, captures newest first, only captures inside the retention window.
+- `GET /slides/{id}` → `SlideAnalysisResponse` (owner, or anonymous captures); `404` otherwise.
+- `DELETE /slides/{id}` and `DELETE /lectures/{id}` → `204`, signed-in owner only (`401` signed out, `404` someone else's). They also delete the attached chats.
+
+Thumbnails are not part of this API: the extension keeps them in IndexedDB on the device.
+
 `GET /privacy` (public, HTML) is the privacy policy the Chrome Web Store listing links to.
 
 `POST /maintenance/cleanup` (API key only) deletes everything past retention and returns the row counts.

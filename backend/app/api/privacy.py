@@ -59,6 +59,7 @@ _PAGE = """<!doctype html>
 <table>
 <tr><th>Data</th><th>Why</th></tr>
 <tr><td><strong>Screenshot of your current tab</strong>, only when you press Capture</td><td>To read the slide. The image is sent to our server and on to the AI provider, then discarded. <strong>We do not store the image</strong>; we keep only a one-way fingerprint (hash) so an identical slide isn't analysed twice.</td></tr>
+<tr><td><strong>The title and address of the page you captured</strong> (the address without anything after a <code>?</code> or <code>#</code>)</td><td>To group your captures by lecture in <em>Recent</em> (for example "CSC2001 lecture 1"). Page titles can contain whatever the page owner wrote, so avoid capturing pages whose title you consider private.</td></tr>
 <tr><td><strong>What the slide contains</strong> (extracted text, equations, summaries)</td><td>To show you the result and to answer your questions about it. This may include whatever appears on the slide, including course material.</td></tr>
 <tr><td><strong>Your questions and the answers</strong></td><td>To hold the conversation and, if you are signed in, to show it again in <em>Recent chats</em>.</td></tr>
 <tr><td><strong>Google account email and Google's account identifier</strong>, only if you sign in</td><td>To keep your chats private to you and available across devices. We receive nothing else from your Google account.</td></tr>
@@ -88,9 +89,10 @@ _PAGE = """<!doctype html>
 
 <h2>Your choices</h2>
 <ul>
-<li><strong>Delete a chat</strong> from the <em>Recent chats</em> screen at any time.</li>
+<li><strong>Delete a capture, a whole lecture or a chat</strong> from the <em>Recent</em> screen at any time.</li>
 <li><strong>Delete your account and all your data</strong> from <em>Settings</em> in the extension. This is immediate and cannot be undone.</li>
 <li><strong>Use it without signing in.</strong> Without an account there are no saved chats, and anonymous captures expire on the schedule above.</li>
+<li><strong>Small thumbnails</strong> of your captures are kept only in your browser, on your device, and are never sent to us. They are removed after __DAYS__ days, when you delete the capture, when you delete your account, or when you uninstall the extension.</li>
 <li>Uninstalling the extension removes everything stored in your browser.</li>
 </ul>
 

@@ -52,26 +52,32 @@ async def run_cleanup(db: AsyncSession) -> CleanupResult:
     await db.execute(delete(Message).where(Message.conversation_id.in_(expired_conversations)))
     conversations = await db.execute(delete(Conversation).where(Conversation.last_activity_at < cutoff))
 
-    # A presentation goes once it is past the cutoff and no surviving chat
-    # still refers to it. Ids are materialized so the slide delete below
-    # cannot change which presentations match.
-    old_presentation_ids = list(
+    # A capture goes once it is past the cutoff and no surviving chat still
+    # refers to it. Ids are materialized so the deletes below cannot change
+    # which rows match.
+    old_slide_ids = list(
         (
             await db.execute(
-                select(Presentation.id).where(
-                    Presentation.created_at < cutoff,
-                    ~exists().where(Conversation.presentation_id == Presentation.id),
+                select(Slide.id).where(
+                    Slide.created_at < cutoff,
+                    ~exists().where(Conversation.slide_id == Slide.id),
                 )
             )
         )
         .scalars()
         .all()
     )
-    old_slides = select(Slide.id).where(Slide.presentation_id.in_(old_presentation_ids))
-    await db.execute(delete(ObjectRecord).where(ObjectRecord.slide_id.in_(old_slides)))
-    await db.execute(delete(CacheEntry).where(CacheEntry.slide_id.in_(old_slides)))
-    await db.execute(delete(Slide).where(Slide.presentation_id.in_(old_presentation_ids)))
-    presentations = await db.execute(delete(Presentation).where(Presentation.id.in_(old_presentation_ids)))
+    await db.execute(delete(ObjectRecord).where(ObjectRecord.slide_id.in_(old_slide_ids)))
+    await db.execute(delete(CacheEntry).where(CacheEntry.slide_id.in_(old_slide_ids)))
+    await db.execute(delete(Slide).where(Slide.id.in_(old_slide_ids)))
+    # A lecture goes once it is past the cutoff with no captures or chats left.
+    presentations = await db.execute(
+        delete(Presentation).where(
+            Presentation.created_at < cutoff,
+            ~exists().where(Slide.presentation_id == Presentation.id),
+            ~exists().where(Conversation.presentation_id == Presentation.id),
+        )
+    )
 
     cache_entries = await db.execute(delete(CacheEntry).where(CacheEntry.created_at < cutoff))
     rate_limit_events = await db.execute(

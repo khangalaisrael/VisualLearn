@@ -43,6 +43,7 @@ from app.repositories.presentations import PresentationRepository
 from app.repositories.slides import SlideRepository
 from app.repositories.usage_events import UsageEventRepository
 from app.services.cache_service import CacheService
+from app.services.lecture_meta import clean_page_url, clean_title, lecture_key
 from app.services.slide_analyzer import SlideAnalyzer
 from app.services.usage import estimate_cost_usd, start_accumulator
 
@@ -57,6 +58,8 @@ async def analyze_slide(
     presentation_id: str | None = Form(default=None),
     slide_number: int = Form(...),
     model: str | None = Form(default=None),
+    lecture_title: str | None = Form(default=None),
+    page_url: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
     redis: Redis | None = Depends(get_redis),
     analyzer: SlideAnalyzer = Depends(get_slide_analyzer),
@@ -108,9 +111,21 @@ async def analyze_slide(
             raise HTTPException(status_code=404, detail="Unknown presentation_id")
         ensure_presentation_access(presentation, current_user_id)
     else:
-        presentation = await presentations.create(
-            title="Untitled presentation", source_type="live_capture", user_id=current_user_id
-        )
+        # One lecture, one presentation: a signed-in user's captures of the
+        # same page keep landing in the same group, even from a new device.
+        clean_url = clean_page_url(page_url)
+        key = lecture_key(clean_url)
+        presentation = None
+        if current_user_id is not None and key is not None:
+            presentation = await presentations.get_for_lecture(current_user_id, key)
+        if presentation is None:
+            presentation = await presentations.create(
+                title=clean_title(lecture_title),
+                source_type="live_capture",
+                user_id=current_user_id,
+                page_url=clean_url,
+                lecture_key=key,
+            )
 
     usage = start_accumulator()
     start = time.perf_counter()

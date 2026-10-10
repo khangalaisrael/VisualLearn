@@ -79,6 +79,34 @@ class SlideAnalysisResponse(BaseModel):
     summary: str
 
 
+class CaptureConversation(BaseModel):
+    id: str
+    title: str
+    message_count: int
+    last_activity_at: datetime
+
+
+class CaptureSummary(BaseModel):
+    slide_id: str
+    slide_number: int
+    summary: str
+    created_at: datetime
+    conversations: list[CaptureConversation]
+
+
+class LectureSummary(BaseModel):
+    id: str
+    title: str
+    page_url: str | None
+    last_activity_at: datetime
+    captures: list[CaptureSummary]
+
+
+class LectureListResponse(BaseModel):
+    retention_days: int
+    lectures: list[LectureSummary]
+
+
 QueryMode = Literal["figure", "slide", "algorithm", "presentation", "general", "auto"]
 
 # docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. Only

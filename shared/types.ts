@@ -157,3 +157,31 @@ export interface ConversationDetail {
   slide: SlideAnalysisResponse | null;
   messages: ConversationMessage[];
 }
+
+export interface CaptureConversation {
+  id: string;
+  title: string;
+  message_count: number;
+  last_activity_at: string;
+}
+
+export interface CaptureSummary {
+  slide_id: string;
+  slide_number: number;
+  summary: string;
+  created_at: string;
+  conversations: CaptureConversation[];
+}
+
+export interface LectureSummary {
+  id: string;
+  title: string;
+  page_url: string | null;
+  last_activity_at: string;
+  captures: CaptureSummary[];
+}
+
+export interface LectureListResponse {
+  retention_days: number;
+  lectures: LectureSummary[];
+}

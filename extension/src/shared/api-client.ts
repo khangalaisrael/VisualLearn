@@ -10,6 +10,7 @@ import type {
   ConversationDetail,
   ConversationListResponse,
   HealthResponse,
+  LectureListResponse,
   LimitKind,
   SlideAnalysisResponse,
   UsageResponse,
@@ -324,6 +325,9 @@ export interface AnalyzeSlideParams {
   image: Blob;
   presentationId: string | null;
   slideNumber: number;
+  /** The page's title and URL (query string already stripped): groups captures by lecture. */
+  lectureTitle?: string;
+  pageUrl?: string;
   onWaking?: () => void;
 }
 
@@ -368,6 +372,12 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
   }
   if (params.presentationId) {
     formData.append("presentation_id", params.presentationId);
+  }
+  if (params.lectureTitle) {
+    formData.append("lecture_title", params.lectureTitle);
+  }
+  if (params.pageUrl) {
+    formData.append("page_url", params.pageUrl);
   }
 
   const response = await fetchWakingBackend(
@@ -489,7 +499,7 @@ async function authedJson<T>(path: string, init: RequestInit, failure: string): 
   const { backendUrl, apiKey } = await getConfig();
   const response = await fetchWakingBackend(
     `${backendUrl}/api/v1${path}`,
-    { ...init, headers: { "X-API-Key": apiKey, ...(await authHeader()) } },
+    { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-API-Key": apiKey, ...(await authHeader()) } },
     undefined,
     CHAT_ATTEMPT_TIMEOUT_MS
   );
@@ -511,6 +521,24 @@ export function getConversation(id: string): Promise<ConversationDetail> {
 
 export function deleteConversation(id: string): Promise<void> {
   return authedJson(`/conversations/${id}`, { method: "DELETE" }, "Couldn't delete that chat");
+}
+
+/** The signed-in user's captures within the retention window, grouped by lecture. */
+export function getLectures(): Promise<LectureListResponse> {
+  return authedJson("/lectures", {}, "Couldn't load recent captures");
+}
+
+/** Re-opens one capture's analysis (works for signed-out captures too). */
+export function getSlide(slideId: string): Promise<SlideAnalysisResponse> {
+  return authedJson(`/slides/${slideId}`, {}, "Couldn't open that capture");
+}
+
+export function deleteSlide(slideId: string): Promise<void> {
+  return authedJson(`/slides/${slideId}`, { method: "DELETE" }, "Couldn't delete that capture");
+}
+
+export function deleteLecture(lectureId: string): Promise<void> {
+  return authedJson(`/lectures/${lectureId}`, { method: "DELETE" }, "Couldn't delete that lecture");
 }
 
 /** Deletes the signed-in account and all its data on the server, then signs out locally. */

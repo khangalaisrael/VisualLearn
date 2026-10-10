@@ -20,6 +20,7 @@ import {
   signInWithGooglePicker,
   signOut,
 } from "../../shared/api-client";
+import { clearCaptures } from "../../shared/capture-store";
 import { refreshUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 
@@ -75,6 +76,8 @@ export function SettingsTab(): JSX.Element {
     setDeleteError(null);
     try {
       await deleteAccount();
+      // The thumbnails and text kept in this browser go with the account.
+      await clearCaptures().catch(() => undefined);
       setConfirmingDelete(false);
       setSignIn({ status: "signed-out" });
     } catch (error) {

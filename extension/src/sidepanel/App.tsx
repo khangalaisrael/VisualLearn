@@ -109,7 +109,7 @@ export function App(): JSX.Element {
           </button>
         )}
         <div className="flex items-center gap-1">
-          <NavButton label="Recent chats" active={view === "recent"} onClick={() => toggle("recent")}>
+          <NavButton label="Recent" active={view === "recent"} onClick={() => toggle("recent")}>
             <RecentIcon />
           </NavButton>
           <NavButton label="Settings" active={view === "settings"} onClick={() => toggle("settings")}>

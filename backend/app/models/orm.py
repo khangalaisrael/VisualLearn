@@ -133,6 +133,10 @@ class Presentation(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
     source_type: Mapped[str] = mapped_column(String(32))  # "live_capture" | "uploaded_deck"
+    # Where the lecture came from (query string and fragment stripped) and a
+    # stable key for it, so one lecture's captures share one presentation.
+    page_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    lecture_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -154,6 +158,8 @@ class Slide(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | analyzed | failed
     summary: Mapped[str | None] = mapped_column(nullable=True)
     analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the capture was made; retention and "Recent" order by this.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     presentation: Mapped["Presentation"] = relationship(back_populates="slides")
 
