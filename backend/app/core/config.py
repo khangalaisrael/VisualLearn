@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     # comment on why the container preserves the same directory nesting).
     prompts_dir: str | None = None
 
+    # Phase 4 (docs/PublicHostingMVP.md) — per-user/per-IP daily caps on the
+    # two expensive endpoints, enforced by app/services/rate_limiter.py.
+    # "Generous" defaults picked for a single active student's realistic
+    # daily use (several lecture captures across a few classes, a chat
+    # question or two per slide) with real headroom — not a guess meant to
+    # be tight, since the actual goal (per the doc) is stopping runaway/bot
+    # abuse, not rationing normal use. Revisit once real usage is visible.
+    rate_limit_captures_per_day: int = 50
+    rate_limit_chat_messages_per_day: int = 100
+
 
 @lru_cache
 def get_settings() -> Settings:

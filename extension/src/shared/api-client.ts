@@ -341,8 +341,12 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
   );
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new ApiError(body?.message ?? `Analysis request failed (${response.status})`, response.status);
+    // FastAPI's HTTPException body is always {"detail": "..."}, never
+    // "message" — the message-only check here previously meant a backend
+    // error's actual text (e.g. a 429 rate-limit message meant to be read
+    // by the student) never reached past the generic fallback.
+    const body = (await response.json().catch(() => null)) as { message?: string; detail?: string } | null;
+    throw new ApiError(body?.message ?? body?.detail ?? `Analysis request failed (${response.status})`, response.status);
   }
 
   return (await response.json()) as SlideAnalysisResponse;
@@ -404,8 +408,8 @@ export async function* streamChat(request: ChatRequest, onWaking?: () => void): 
   );
 
   if (!response.ok || !response.body) {
-    const body = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new ApiError(body?.message ?? `Chat request failed (${response.status})`, response.status);
+    const body = (await response.json().catch(() => null)) as { message?: string; detail?: string } | null;
+    throw new ApiError(body?.message ?? body?.detail ?? `Chat request failed (${response.status})`, response.status);
   }
 
   const reader = response.body.getReader();

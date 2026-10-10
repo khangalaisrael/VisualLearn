@@ -65,6 +65,28 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class RateLimitEvent(Base):
+    """One row per rate-limited action actually performed (Phase 4,
+    docs/PublicHostingMVP.md). Backed by Postgres, not Redis — Redis/
+    Upstash isn't actually configured on the live deployment yet, and
+    unlike cache_service.py's analysis cache (a pure speed optimization
+    that's fine to degrade on a Redis outage), a rate limit that silently
+    stops enforcing itself on a cache miss would defeat its entire
+    purpose. A small daily volume of rows per key is cheap to count.
+
+    `key` is `"user:<uuid>"` for a signed-in request or `"ip:<address>"`
+    for an anonymous one (Phase 4's own goal explicitly includes "a bot
+    hitting the API directly, bypassing the extension" — which has no
+    session token at all, so IP is the only thing left to key on)."""
+
+    __tablename__ = "rate_limit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)  # "analyze" | "chat"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Presentation(Base):
     __tablename__ = "presentations"
 

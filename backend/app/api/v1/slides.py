@@ -26,7 +26,14 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ensure_presentation_access, get_current_user_id, get_slide_analyzer, resolve_slide_analyzer, verify_api_key
+from app.api.deps import (
+    ensure_presentation_access,
+    enforce_capture_rate_limit,
+    get_current_user_id,
+    get_slide_analyzer,
+    resolve_slide_analyzer,
+    verify_api_key,
+)
 from app.core.cache import get_redis
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -39,7 +46,7 @@ from app.services.slide_analyzer import SlideAnalyzer
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["slides"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(tags=["slides"], dependencies=[Depends(verify_api_key), Depends(enforce_capture_rate_limit)])
 
 
 @router.post("/slides/analyze", response_model=SlideAnalysisResponse)

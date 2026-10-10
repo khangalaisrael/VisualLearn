@@ -25,7 +25,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
-from app.api.deps import ensure_presentation_access, get_chat_service, get_current_user_id, resolve_chat_service, verify_api_key
+from app.api.deps import (
+    ensure_presentation_access,
+    enforce_chat_rate_limit,
+    get_chat_service,
+    get_current_user_id,
+    resolve_chat_service,
+    verify_api_key,
+)
 from app.core.prompt_loader import load_prompt
 from app.db.session import get_db
 from app.models.orm import ObjectRecord
@@ -44,7 +51,7 @@ from app.services.recurrence_solver import RecurrenceAnalysis, analyze_recurrenc
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key), Depends(enforce_chat_rate_limit)])
 
 _PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v5"}
 _EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium"}

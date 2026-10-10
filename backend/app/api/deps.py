@@ -7,18 +7,20 @@ Kept out of individual routers so the routers stay thin (docs/ARCHITECTURE.md
 import logging
 import uuid
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.orm import Presentation
+from app.repositories.rate_limit_events import RateLimitEventRepository
 from app.repositories.sessions import SessionRepository
 from app.services.chat_service import ChatService
 from app.services.claude_chat_service import ClaudeChatService
 from app.services.claude_vlm_analyzer import ClaudeVLMAnalyzer
 from app.services.openai_chat_service import OpenAIChatService
 from app.services.openai_vlm_analyzer import OpenAIVLMAnalyzer
+from app.services.rate_limiter import enforce_rate_limit
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -221,3 +223,51 @@ def ensure_presentation_access(presentation: Presentation, current_user_id: uuid
     """
     if presentation.user_id is not None and presentation.user_id != current_user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown presentation_id")
+
+
+def _rate_limit_key(request: Request, current_user_id: uuid.UUID | None) -> str:
+    """`"user:<id>"` for a signed-in request, `"ip:<address>"` otherwise —
+    see app/models/orm.py's RateLimitEvent docstring for why anonymous
+    requests need a key at all (Phase 4's whole point includes a bot
+    hitting the API directly, which has no session token).
+
+    `request.client.host` reflects the real client IP, not Render's own
+    proxy address, because deploy/hosted/start.sh runs uvicorn with
+    `--proxy-headers --forwarded-allow-ips "*"`, which makes Starlette
+    trust `X-Forwarded-For` for this field."""
+    if current_user_id is not None:
+        return f"user:{current_user_id}"
+    client_host = request.client.host if request.client else "unknown"
+    return f"ip:{client_host}"
+
+
+async def enforce_capture_rate_limit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
+) -> None:
+    key = _rate_limit_key(request, current_user_id)
+    settings = get_settings()
+    await enforce_rate_limit(
+        RateLimitEventRepository(db),
+        key=key,
+        action="analyze",
+        limit=settings.rate_limit_captures_per_day,
+        action_description="slide captures",
+    )
+
+
+async def enforce_chat_rate_limit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
+) -> None:
+    key = _rate_limit_key(request, current_user_id)
+    settings = get_settings()
+    await enforce_rate_limit(
+        RateLimitEventRepository(db),
+        key=key,
+        action="chat",
+        limit=settings.rate_limit_chat_messages_per_day,
+        action_description="chat messages",
+    )
