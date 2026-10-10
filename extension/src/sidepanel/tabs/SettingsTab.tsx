@@ -21,6 +21,7 @@ import {
   signOut,
 } from "../../shared/api-client";
 import { clearCaptures } from "../../shared/capture-store";
+import { type ThemeChoice, getTheme, setTheme } from "../../shared/theme";
 import { refreshUsage, useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 
@@ -34,6 +35,10 @@ type SignInState =
 
 export function SettingsTab(): JSX.Element {
   const usage = useUsage();
+  const [theme, setThemeChoice] = useState<ThemeChoice>("system");
+  useEffect(() => {
+    void getTheme().then(setThemeChoice);
+  }, []);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -159,6 +164,30 @@ export function SettingsTab(): JSX.Element {
             <p className="text-xs text-slate-400">Optional — everything works without signing in.</p>
           </div>
         )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-subtle">
+        <h2 className="text-sm font-semibold text-slate-800">Appearance</h2>
+        <div role="group" aria-label="Theme" className="flex gap-1 rounded-md bg-slate-100 p-1">
+          {(["system", "light", "dark"] as const).map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              aria-pressed={theme === choice}
+              onClick={() => {
+                setThemeChoice(choice);
+                void setTheme(choice);
+              }}
+              className={`flex-1 rounded-sm px-3 py-1.5 text-xs font-medium capitalize transition-colors duration-[120ms] ${
+                theme === choice
+                  ? "bg-white text-slate-800 shadow-subtle"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {choice}
+            </button>
+          ))}
+        </div>
       </section>
 
       {usage?.is_admin && (

@@ -1,6 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./src/**/*.{ts,tsx,html}"],
+  // Dark mode is a class on <html>, set by src/shared/theme.ts (System / Light / Dark).
+  darkMode: "selector",
   theme: {
     extend: {
       // Neutral and tint steps come from CSS variables (src/sidepanel/index.css)

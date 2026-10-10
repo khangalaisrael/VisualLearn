@@ -1,8 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import { initTheme } from "../shared/theme";
 import "../sidepanel/index.css";
 import { AdminApp } from "./AdminApp";
+
+initTheme();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
