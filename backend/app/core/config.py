@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # store listing's support contact instead.
     privacy_contact_email: str | None = None
 
+    # https link to the shareable extension zip (for example a GitHub Release asset).
+    # When set, the home page and /install offer it as a download. The zip contains the
+    # shared API key, so it is hosted outside the repository, never committed.
+    extension_download_url: str | None = None
+
     # Comma-separated Google emails with no rate limits and access to the
     # admin page. Parsed by `admin_email_set` (pydantic-settings would expect
     # JSON for a list-typed field).

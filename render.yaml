@@ -23,6 +23,9 @@ services:
       # Copy it from the service's Environment tab into the extension.
       - key: LOCAL_API_KEY
         generateValue: true
+      # Link to the extension zip offered on /install (a GitHub Release asset).
+      - key: EXTENSION_DOWNLOAD_URL
+        sync: false
       # Comma-separated Google emails with unlimited use (the owner).
       - key: ADMIN_EMAILS
         sync: false
