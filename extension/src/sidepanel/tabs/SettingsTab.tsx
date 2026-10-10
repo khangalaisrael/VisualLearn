@@ -7,7 +7,15 @@
 
 import { useEffect, useState } from "react";
 
-import { checkHealth, getAuthState, getConfig, setConfig, signInWithGoogle, signOut } from "../../shared/api-client";
+import {
+  checkHealth,
+  getAuthState,
+  getConfig,
+  setConfig,
+  signInWithGoogle,
+  signInWithGooglePicker,
+  signOut,
+} from "../../shared/api-client";
 import { Button } from "../components/Button";
 
 type ConnectionState =
@@ -79,6 +87,16 @@ export function SettingsTab(): JSX.Element {
     setSignIn({ status: "signed-out" });
   };
 
+  const handleSwitchAccount = async () => {
+    setSignIn({ status: "signing-in" });
+    try {
+      const auth = await signInWithGooglePicker();
+      setSignIn({ status: "signed-in", email: auth.email });
+    } catch (error) {
+      setSignIn({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
   const save = async () => {
     await setConfig({ backendUrl: backendUrl.trim(), apiKey: apiKey.trim(), vlmModel, chatModel });
     setSaved(true);
@@ -103,11 +121,16 @@ export function SettingsTab(): JSX.Element {
       <div className="flex flex-col gap-2 rounded-md border border-slate-200 p-3">
         <span className="text-sm font-medium text-slate-700">Google Account</span>
         {signIn.status === "signed-in" ? (
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-col gap-2">
             <span className="text-sm text-slate-600">Signed in{signIn.email ? ` as ${signIn.email}` : ""}</span>
-            <Button variant="secondary" onClick={() => void handleSignOut()}>
-              Sign out
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => void handleSwitchAccount()}>
+                Switch account
+              </Button>
+              <Button variant="secondary" onClick={() => void handleSignOut()}>
+                Sign out
+              </Button>
+            </div>
           </div>
         ) : (
           <>

@@ -76,20 +76,15 @@ async function setAuthState(state: AuthState): Promise<void> {
 }
 
 /**
- * Signs in with Google via `chrome.identity.getAuthToken` (the extension-
- * side half of docs/PublicHostingMVP.md Phase 2 — requires the `identity`
- * permission and the `oauth2` block in manifest.json), then exchanges that
- * Google access token for a VisionLearn session token at POST /auth/google.
- * Stores the result in chrome.storage.local and returns the signed-in
- * email. Throws on either step failing — a user declining the Google
- * consent prompt rejects here, same as a network/API failure.
+ * POSTs a Google access token (however it was obtained — `getAuthToken`
+ * or `launchWebAuthFlow` below both produce the same kind of token) to
+ * POST /auth/google, stores the resulting VisionLearn session, and
+ * returns it. The backend only ever verifies "is this a valid Google
+ * access token" (app/services/google_oauth.py) — it has no idea which
+ * extension-side flow produced it, so both sign-in paths share this
+ * exact exchange step.
  */
-export async function signInWithGoogle(): Promise<AuthState> {
-  const { token: googleAccessToken } = await chrome.identity.getAuthToken({ interactive: true });
-  if (!googleAccessToken) {
-    throw new Error("Google sign-in was cancelled or did not return a token.");
-  }
-
+async function exchangeGoogleAccessToken(googleAccessToken: string): Promise<AuthState> {
   const { backendUrl, apiKey } = await getConfig();
   const response = await fetch(`${backendUrl}/api/v1/auth/google`, {
     method: "POST",
@@ -98,11 +93,6 @@ export async function signInWithGoogle(): Promise<AuthState> {
   });
 
   if (!response.ok) {
-    // The Google token itself was obtained but the backend rejected it (or
-    // couldn't verify it) — remove it from Chrome's cache so the next
-    // sign-in attempt fetches a fresh one instead of retrying the same
-    // already-rejected token.
-    await chrome.identity.removeCachedAuthToken({ token: googleAccessToken }).catch(() => undefined);
     const body = (await response.json().catch(() => null)) as { message?: string; detail?: string } | null;
     throw new ApiError(body?.message ?? body?.detail ?? `Sign-in failed (${response.status})`, response.status);
   }
@@ -111,6 +101,77 @@ export async function signInWithGoogle(): Promise<AuthState> {
   const state: AuthState = { sessionToken: auth.session_token, email: auth.email };
   await setAuthState(state);
   return state;
+}
+
+/**
+ * Signs in with Google via `chrome.identity.getAuthToken` — the simpler,
+ * native Chrome flow (extension-side half of docs/PublicHostingMVP.md
+ * Phase 2, requires the `identity` permission and the `oauth2` block in
+ * manifest.json). Silently reuses whichever Google account Chrome itself
+ * is signed into; it has no way to show an account picker — see
+ * `signInWithGooglePicker` below for that. Throws on failure — a declined
+ * consent prompt rejects here, same as a network/API failure.
+ */
+export async function signInWithGoogle(): Promise<AuthState> {
+  const { token: googleAccessToken } = await chrome.identity.getAuthToken({ interactive: true });
+  if (!googleAccessToken) {
+    throw new Error("Google sign-in was cancelled or did not return a token.");
+  }
+
+  try {
+    return await exchangeGoogleAccessToken(googleAccessToken);
+  } catch (error) {
+    // The Google token itself was obtained but the backend rejected it (or
+    // couldn't verify it) — remove it from Chrome's cache so the next
+    // sign-in attempt fetches a fresh one instead of retrying the same
+    // already-rejected token.
+    await chrome.identity.removeCachedAuthToken({ token: googleAccessToken }).catch(() => undefined);
+    throw error;
+  }
+}
+
+// Separate OAuth client from manifest.json's `oauth2.client_id` — a "Web
+// application" type, not "Chrome Extension", since only that type supports
+// `launchWebAuthFlow`'s full redirect-based consent screen (and its
+// `prompt=select_account` control over the account picker, which
+// `getAuthToken` never exposes). Not a secret: this flow is a public
+// client (implicit grant, no client secret involved) — same reasoning as
+// manifest.json's client_id being safe to ship in the extension bundle.
+const WEB_OAUTH_CLIENT_ID = "156756671908-4v0eut5p9l3qc5o6pnnnillhp1n3d0d1.apps.googleusercontent.com";
+
+/**
+ * Signs in with Google via `chrome.identity.launchWebAuthFlow`, forcing
+ * Google's account picker (`prompt=select_account`) regardless of which
+ * account Chrome itself is already signed into — the capability
+ * `signInWithGoogle` structurally can't offer. Exists alongside that
+ * simpler flow, not instead of it; both end up calling the same
+ * `exchangeGoogleAccessToken`, so the backend and stored session state
+ * are identical either way.
+ */
+export async function signInWithGooglePicker(): Promise<AuthState> {
+  const redirectUri = chrome.identity.getRedirectURL();
+  const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authUrl.searchParams.set("client_id", WEB_OAUTH_CLIENT_ID);
+  authUrl.searchParams.set("response_type", "token");
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("scope", "openid email profile");
+  authUrl.searchParams.set("prompt", "select_account");
+
+  const redirectedTo = await chrome.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive: true });
+  if (!redirectedTo) {
+    throw new Error("Google sign-in was cancelled.");
+  }
+
+  // Google returns the token in the URL fragment (implicit grant), e.g.
+  // "...#access_token=...&token_type=Bearer&expires_in=3599" — never in
+  // the query string, so it's parsed out of `hash`, not `searchParams`.
+  const fragment = new URLSearchParams(new URL(redirectedTo).hash.slice(1));
+  const googleAccessToken = fragment.get("access_token");
+  if (!googleAccessToken) {
+    throw new Error("Google sign-in did not return an access token.");
+  }
+
+  return exchangeGoogleAccessToken(googleAccessToken);
 }
 
 export async function signOut(): Promise<void> {

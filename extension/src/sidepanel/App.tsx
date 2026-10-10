@@ -8,11 +8,12 @@
  * workaround with a real UI — see extension/README.md.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AskTab } from "./tabs/AskTab";
 import { ComingSoonTab } from "./tabs/ComingSoonTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { WelcomeScreen } from "./WelcomeScreen";
 
 type TabId = "ask" | "concepts" | "notes" | "quiz" | "settings";
 
@@ -24,8 +25,33 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "settings", label: "Settings" },
 ];
 
+const HAS_SEEN_WELCOME_KEY = "hasSeenWelcome";
+
 export function App(): JSX.Element {
   const [activeTab, setActiveTab] = useState<TabId>("ask");
+  // null while unknown (first paint, before chrome.storage resolves) so
+  // the normal tab UI never flashes before the welcome screen on a truly
+  // first-ever open — see the loading-state render below.
+  const [showWelcome, setShowWelcome] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    chrome.storage.local.get(HAS_SEEN_WELCOME_KEY).then((stored) => {
+      setShowWelcome(!stored[HAS_SEEN_WELCOME_KEY]);
+    });
+  }, []);
+
+  const dismissWelcome = () => {
+    chrome.storage.local.set({ [HAS_SEEN_WELCOME_KEY]: true }).catch(() => undefined);
+    setShowWelcome(false);
+  };
+
+  if (showWelcome === null) {
+    return <div className="h-screen w-full bg-white" />;
+  }
+
+  if (showWelcome) {
+    return <WelcomeScreen onDone={dismissWelcome} />;
+  }
 
   return (
     <div className="flex h-screen w-full flex-col bg-white">
