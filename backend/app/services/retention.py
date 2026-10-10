@@ -23,8 +23,9 @@ from app.models.orm import (
     Slide,
 )
 
-# Rate limiting only ever looks back 24h; the extra day is slack.
-_RATE_LIMIT_EVENT_LIFETIME = timedelta(hours=48)
+# The monthly capture allowance counts events over a rolling 30 days; the
+# extra day is slack.
+_RATE_LIMIT_EVENT_LIFETIME = timedelta(days=31)
 
 
 def retention_cutoff() -> datetime:

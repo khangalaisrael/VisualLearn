@@ -80,7 +80,10 @@ class Settings(BaseSettings):
     # question or two per slide) with real headroom — not a guess meant to
     # be tight, since the actual goal (per the doc) is stopping runaway/bot
     # abuse, not rationing normal use. Revisit once real usage is visible.
-    rate_limit_captures_per_day: int = 50
+    rate_limit_captures_per_day: int = 20
+    # Rolling 30-day allowance on top of the daily cap, so a month's spend is
+    # bounded: users x this x cost per capture.
+    rate_limit_captures_per_month: int = 400
     rate_limit_chat_messages_per_day: int = 100
 
     # Chats (and the slide content behind them) are deleted this many days

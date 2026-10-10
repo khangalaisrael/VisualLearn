@@ -62,7 +62,7 @@ _PAGE = """<!doctype html>
 <tr><td><strong>What the slide contains</strong> (extracted text, equations, summaries)</td><td>To show you the result and to answer your questions about it. This may include whatever appears on the slide, including course material.</td></tr>
 <tr><td><strong>Your questions and the answers</strong></td><td>To hold the conversation and, if you are signed in, to show it again in <em>Recent chats</em>.</td></tr>
 <tr><td><strong>Google account email and Google's account identifier</strong>, only if you sign in</td><td>To keep your chats private to you and available across devices. We receive nothing else from your Google account.</td></tr>
-<tr><td><strong>IP address</strong></td><td>To limit how many captures one person can make per day (kept 48 hours), and it appears in our hosting provider's standard request logs.</td></tr>
+<tr><td><strong>IP address</strong></td><td>To limit how many captures one person can make per day and per month (kept 31 days), and it appears in our hosting provider's standard request logs.</td></tr>
 </table>
 <p>Signing in is optional. VisionLearn does not read your browsing history, the content of pages other than the screenshot you capture, or anything while you are not pressing Capture. It has no analytics, advertising or tracking code.</p>
 
@@ -78,7 +78,7 @@ _PAGE = """<!doctype html>
 <ul>
 <li>Chats and the slide content behind them: deleted <strong>__DAYS__ days</strong> after your last message in that chat. Captures made without a chat are deleted __DAYS__ days after capture.</li>
 <li>Sign-in sessions: expire after 30 days.</li>
-<li>Daily-limit counters: 48 hours.</li>
+<li>Usage counters used to enforce the daily and monthly limits (including the IP address for people who are not signed in): 31 days.</li>
 <li>Shared analysis results (keyed by the slide fingerprint, not linked to you): __DAYS__ days.</li>
 <li>Hosting request logs follow Render's own log retention.</li>
 </ul>

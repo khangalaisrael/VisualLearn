@@ -13,14 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.orm import Presentation
-from app.repositories.rate_limit_events import RateLimitEventRepository
+from app.repositories.rate_limit_events import DAY, MONTH, RateLimitEventRepository
 from app.repositories.sessions import SessionRepository
 from app.services.chat_service import ChatService
 from app.services.claude_chat_service import ClaudeChatService
 from app.services.claude_vlm_analyzer import ClaudeVLMAnalyzer
 from app.services.openai_chat_service import OpenAIChatService
 from app.services.openai_vlm_analyzer import OpenAIVLMAnalyzer
-from app.services.rate_limiter import enforce_rate_limit
+from app.services.rate_limiter import Limit, enforce_rate_limits
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -248,12 +248,18 @@ async def enforce_capture_rate_limit(
 ) -> None:
     key = _rate_limit_key(request, current_user_id)
     settings = get_settings()
-    await enforce_rate_limit(
+    await enforce_rate_limits(
         RateLimitEventRepository(db),
         key=key,
         action="analyze",
-        limit=settings.rate_limit_captures_per_day,
-        action_description="slide captures",
+        limits=[
+            Limit(DAY, settings.rate_limit_captures_per_day, "today's limit for slide captures"),
+            Limit(
+                MONTH,
+                settings.rate_limit_captures_per_month,
+                f"this month's allowance of {settings.rate_limit_captures_per_month} slide captures",
+            ),
+        ],
     )
 
 
@@ -264,10 +270,9 @@ async def enforce_chat_rate_limit(
 ) -> None:
     key = _rate_limit_key(request, current_user_id)
     settings = get_settings()
-    await enforce_rate_limit(
+    await enforce_rate_limits(
         RateLimitEventRepository(db),
         key=key,
         action="chat",
-        limit=settings.rate_limit_chat_messages_per_day,
-        action_description="chat messages",
+        limits=[Limit(DAY, settings.rate_limit_chat_messages_per_day, "today's limit for chat messages")],
     )

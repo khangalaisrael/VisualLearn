@@ -1,16 +1,20 @@
-"""Phase 4 — per-user/per-IP daily rate limits (docs/PublicHostingMVP.md).
+"""Phase 4 — per-user/per-IP daily and monthly rate limits (docs/PublicHostingMVP.md).
 
-Uses a low limit override per test (rather than the real 50/100 defaults)
+Uses a low limit override per test (rather than the real defaults)
 so a test can actually reach the limit without making dozens of requests.
 """
 
 import io
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
 from PIL import Image
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.orm import RateLimitEvent
 
 
 def _fake_png_bytes() -> bytes:
@@ -22,16 +26,25 @@ def _fake_png_bytes() -> bytes:
 @pytest.fixture(autouse=True)
 def low_limits():
     """Every test in this file gets a 2-per-day cap instead of the real
-    50/100 — get_settings() is @lru_cache'd, but the `client` fixture's
+    defaults — get_settings() is @lru_cache'd, but the `client` fixture's
     settings object is the same cached instance the app already resolved
     dependencies against, so mutating its attributes directly (not
     reassigning the cache) takes effect immediately."""
     settings = get_settings()
-    original = (settings.rate_limit_captures_per_day, settings.rate_limit_chat_messages_per_day)
+    original = (
+        settings.rate_limit_captures_per_day,
+        settings.rate_limit_captures_per_month,
+        settings.rate_limit_chat_messages_per_day,
+    )
     settings.rate_limit_captures_per_day = 2
+    settings.rate_limit_captures_per_month = 400
     settings.rate_limit_chat_messages_per_day = 2
     yield
-    settings.rate_limit_captures_per_day, settings.rate_limit_chat_messages_per_day = original
+    (
+        settings.rate_limit_captures_per_day,
+        settings.rate_limit_captures_per_month,
+        settings.rate_limit_chat_messages_per_day,
+    ) = original
 
 
 async def _capture(client: AsyncClient) -> int:
@@ -106,3 +119,57 @@ async def test_chat_and_capture_limits_are_independent(client: AsyncClient) -> N
     }
     first_chat = await client.post("/api/v1/chat", json=chat_payload, headers={"X-API-Key": "test-api-key"})
     assert first_chat.status_code == 200
+
+
+async def _capture_response(client: AsyncClient):
+    return await client.post(
+        "/api/v1/slides/analyze",
+        files={"image": ("slide.png", _fake_png_bytes(), "image/png")},
+        data={"slide_number": "1"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+
+async def test_monthly_allowance_blocks_even_when_the_daily_limit_has_room(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    settings = get_settings()
+    settings.rate_limit_captures_per_day = 10
+    settings.rate_limit_captures_per_month = 3
+
+    assert (await _capture_response(client)).status_code == 200  # creates this client's key row
+    key = (await db_session.execute(select(RateLimitEvent.key))).scalars().first()
+    # Two more captures made 5 days ago: outside the daily window, inside the monthly one.
+    for _ in range(2):
+        db_session.add(RateLimitEvent(key=key, action="analyze", created_at=datetime.now(UTC) - timedelta(days=5)))
+    await db_session.commit()
+
+    blocked = await _capture_response(client)
+    assert blocked.status_code == 429
+    assert "this month's allowance of 3" in blocked.json()["detail"]
+    # The wait reflects the monthly window (~25 days), not the 24h one.
+    assert int(blocked.headers["Retry-After"]) > 20 * 24 * 3600
+    assert "days" in blocked.json()["detail"]
+
+
+async def test_captures_older_than_a_month_do_not_count(client: AsyncClient, db_session: AsyncSession) -> None:
+    settings = get_settings()
+    settings.rate_limit_captures_per_day = 10
+    settings.rate_limit_captures_per_month = 2
+    assert (await _capture_response(client)).status_code == 200
+    key = (await db_session.execute(select(RateLimitEvent.key))).scalars().first()
+    for _ in range(5):
+        db_session.add(RateLimitEvent(key=key, action="analyze", created_at=datetime.now(UTC) - timedelta(days=40)))
+    await db_session.commit()
+
+    assert (await _capture_response(client)).status_code == 200  # second this month
+    assert (await _capture_response(client)).status_code == 429  # third
+
+
+async def test_daily_limit_message_names_the_daily_limit(client: AsyncClient) -> None:
+    """With only the daily limit reached, the message names the daily limit."""
+    await _capture(client)
+    await _capture(client)
+    blocked = await _capture_response(client)
+    assert blocked.status_code == 429
+    assert "today's limit for slide captures" in blocked.json()["detail"]

@@ -9,15 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import RateLimitEvent
 
-WINDOW = timedelta(hours=24)
+DAY = timedelta(hours=24)
+MONTH = timedelta(days=30)
 
 
 class RateLimitEventRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def count_recent(self, key: str, action: str) -> int:
-        since = datetime.now(timezone.utc) - WINDOW
+    async def count_recent(self, key: str, action: str, window: timedelta = DAY) -> int:
+        since = datetime.now(timezone.utc) - window
         result = await self._db.execute(
             select(func.count())
             .select_from(RateLimitEvent)
@@ -29,13 +30,13 @@ class RateLimitEventRepository:
         self._db.add(RateLimitEvent(key=key, action=action))
         await self._db.flush()
 
-    async def seconds_until_next_slot(self, key: str, action: str) -> int:
-        """How long until the oldest event in the current 24h window ages
-        out, freeing up a slot — what a "try again in X" message tells the
+    async def seconds_until_next_slot(self, key: str, action: str, window: timedelta = DAY) -> int:
+        """How long until the oldest event in the current `window` ages out,
+        freeing up a slot — what a "try again in X" message tells the
         caller. Used only once the limit has already been hit, so a result
-        is always found (the count that triggered the 429 is itself
-        at least one row in this window)."""
-        since = datetime.now(timezone.utc) - WINDOW
+        is always found (the count that triggered the 429 is itself at
+        least one row in this window)."""
+        since = datetime.now(timezone.utc) - window
         result = await self._db.execute(
             select(func.min(RateLimitEvent.created_at)).where(
                 RateLimitEvent.key == key, RateLimitEvent.action == action, RateLimitEvent.created_at >= since
@@ -48,5 +49,5 @@ class RateLimitEventRepository:
             # Same SQLite-vs-Postgres timezone round-trip gotcha as
             # sessions.py's get_valid_by_token — see that docstring.
             oldest = oldest.replace(tzinfo=timezone.utc)
-        resets_at = oldest + WINDOW
+        resets_at = oldest + window
         return max(0, int((resets_at - datetime.now(timezone.utc)).total_seconds()))
