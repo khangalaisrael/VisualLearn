@@ -2,7 +2,14 @@
  * Backend API client — POST /slides/analyze and POST /chat.
  */
 
-import type { ChatDoneEvent, ChatErrorEvent, ChatRequest, HealthResponse, SlideAnalysisResponse } from "@shared/types";
+import type {
+  AuthResponse,
+  ChatDoneEvent,
+  ChatErrorEvent,
+  ChatRequest,
+  HealthResponse,
+  SlideAnalysisResponse,
+} from "@shared/types";
 
 // Port 8001, not 8000 — see docker-compose.yml's `backend.ports` comment:
 // some environments have another local process already bound to
@@ -43,6 +50,87 @@ export async function getConfig(): Promise<BackendConfig> {
 
 export async function setConfig(config: BackendConfig): Promise<void> {
   await chrome.storage.local.set(config);
+}
+
+// Sign-in state (docs/PublicHostingMVP.md Phase 2) — kept separate from
+// BackendConfig above since it's identity, not backend connection config,
+// and most of this codebase's existing flows (capture, chat) don't need it
+// yet (the session token isn't required by any endpoint today — see
+// auth.py's module docstring on why it's additive to X-API-Key, not a
+// replacement).
+export interface AuthState {
+  sessionToken: string | null;
+  email: string | null;
+}
+
+export async function getAuthState(): Promise<AuthState> {
+  const stored = await chrome.storage.local.get(["sessionToken", "userEmail"]);
+  return {
+    sessionToken: (stored.sessionToken as string | undefined) ?? null,
+    email: (stored.userEmail as string | undefined) ?? null,
+  };
+}
+
+async function setAuthState(state: AuthState): Promise<void> {
+  await chrome.storage.local.set({ sessionToken: state.sessionToken, userEmail: state.email });
+}
+
+/**
+ * Signs in with Google via `chrome.identity.getAuthToken` (the extension-
+ * side half of docs/PublicHostingMVP.md Phase 2 — requires the `identity`
+ * permission and the `oauth2` block in manifest.json), then exchanges that
+ * Google access token for a VisionLearn session token at POST /auth/google.
+ * Stores the result in chrome.storage.local and returns the signed-in
+ * email. Throws on either step failing — a user declining the Google
+ * consent prompt rejects here, same as a network/API failure.
+ */
+export async function signInWithGoogle(): Promise<AuthState> {
+  const { token: googleAccessToken } = await chrome.identity.getAuthToken({ interactive: true });
+  if (!googleAccessToken) {
+    throw new Error("Google sign-in was cancelled or did not return a token.");
+  }
+
+  const { backendUrl, apiKey } = await getConfig();
+  const response = await fetch(`${backendUrl}/api/v1/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+    body: JSON.stringify({ access_token: googleAccessToken }),
+  });
+
+  if (!response.ok) {
+    // The Google token itself was obtained but the backend rejected it (or
+    // couldn't verify it) — remove it from Chrome's cache so the next
+    // sign-in attempt fetches a fresh one instead of retrying the same
+    // already-rejected token.
+    await chrome.identity.removeCachedAuthToken({ token: googleAccessToken }).catch(() => undefined);
+    const body = (await response.json().catch(() => null)) as { message?: string; detail?: string } | null;
+    throw new ApiError(body?.message ?? body?.detail ?? `Sign-in failed (${response.status})`, response.status);
+  }
+
+  const auth = (await response.json()) as AuthResponse;
+  const state: AuthState = { sessionToken: auth.session_token, email: auth.email };
+  await setAuthState(state);
+  return state;
+}
+
+export async function signOut(): Promise<void> {
+  const { backendUrl, apiKey } = await getConfig();
+  const { sessionToken } = await getAuthState();
+
+  if (sessionToken) {
+    // Best-effort — if this fails (offline, server down), still clear
+    // local state below so the UI reflects "signed out" either way; a
+    // stray still-valid session token server-side just expires on its own
+    // (SESSION_LIFETIME in sessions.py).
+    await fetch(`${backendUrl}/api/v1/auth/logout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify({ session_token: sessionToken }),
+    }).catch(() => undefined);
+  }
+
+  await chrome.identity.clearAllCachedAuthTokens().catch(() => undefined);
+  await setAuthState({ sessionToken: null, email: null });
 }
 
 // A free Render web service sleeps after 15 minutes idle (docs/DEPLOY_RENDER.md)

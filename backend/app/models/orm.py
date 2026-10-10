@@ -33,15 +33,36 @@ from app.db.types import GUID
 
 
 class User(Base):
-    """Placeholder for hosted multi-tenant mode (see ADR-007). Unpopulated
-    while the product runs local-first — every row below has a nullable
-    `user_id` so hosting later is additive, not a migration."""
+    """Hosted multi-tenant mode (see ADR-007, docs/PublicHostingMVP.md Phase
+    2). Unpopulated while the product runs purely local-first — every other
+    table's `user_id` is nullable, so this is additive, not a migration, for
+    anyone still on the local-only flow. `google_sub` is Google's stable
+    per-account identifier (the OAuth `sub` claim) — the lookup key for
+    sign-in, since a Google account's email can change but `sub` doesn't."""
 
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Session(Base):
+    """A signed-in session issued after Google sign-in (Phase 2). `token` is
+    a random opaque string (same "boring, inspectable" style as
+    `LOCAL_API_KEY` — see ADR-007 — not a JWT: revocation is just a DB
+    delete, no signing-key rotation story to build). The extension sends it
+    as `Authorization: Bearer <token>`, additive to the existing `X-API-Key`
+    check per docs/API_CONTRACT.md, not a replacement for it."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class Presentation(Base):

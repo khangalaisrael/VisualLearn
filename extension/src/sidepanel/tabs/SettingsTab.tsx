@@ -7,13 +7,19 @@
 
 import { useEffect, useState } from "react";
 
-import { checkHealth, getConfig, setConfig } from "../../shared/api-client";
+import { checkHealth, getAuthState, getConfig, setConfig, signInWithGoogle, signOut } from "../../shared/api-client";
 import { Button } from "../components/Button";
 
 type ConnectionState =
   | { status: "idle" }
   | { status: "checking"; waking?: boolean }
   | { status: "ok"; modelProvider: boolean }
+  | { status: "error"; message: string };
+
+type SignInState =
+  | { status: "signed-out" }
+  | { status: "signing-in" }
+  | { status: "signed-in"; email: string | null }
   | { status: "error"; message: string };
 
 // Grouped by provider: a backend has one active provider (OpenAI if
@@ -42,6 +48,7 @@ export function SettingsTab(): JSX.Element {
   const [chatModel, setChatModel] = useState("");
   const [saved, setSaved] = useState(false);
   const [connection, setConnection] = useState<ConnectionState>({ status: "idle" });
+  const [signIn, setSignIn] = useState<SignInState>({ status: "signed-out" });
 
   useEffect(() => {
     getConfig().then((config) => {
@@ -50,7 +57,27 @@ export function SettingsTab(): JSX.Element {
       setVlmModel(config.vlmModel);
       setChatModel(config.chatModel);
     });
+    getAuthState().then((auth) => {
+      if (auth.sessionToken) {
+        setSignIn({ status: "signed-in", email: auth.email });
+      }
+    });
   }, []);
+
+  const handleSignIn = async () => {
+    setSignIn({ status: "signing-in" });
+    try {
+      const auth = await signInWithGoogle();
+      setSignIn({ status: "signed-in", email: auth.email });
+    } catch (error) {
+      setSignIn({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    setSignIn({ status: "signed-out" });
+  };
 
   const save = async () => {
     await setConfig({ backendUrl: backendUrl.trim(), apiKey: apiKey.trim(), vlmModel, chatModel });
@@ -73,6 +100,29 @@ export function SettingsTab(): JSX.Element {
 
   return (
     <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div className="flex flex-col gap-2 rounded-md border border-slate-200 p-3">
+        <span className="text-sm font-medium text-slate-700">Google Account</span>
+        {signIn.status === "signed-in" ? (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm text-slate-600">Signed in{signIn.email ? ` as ${signIn.email}` : ""}</span>
+            <Button variant="secondary" onClick={() => void handleSignOut()}>
+              Sign out
+            </Button>
+          </div>
+        ) : (
+          <>
+            <Button onClick={() => void handleSignIn()} disabled={signIn.status === "signing-in"}>
+              {signIn.status === "signing-in" ? "Signing in…" : "Sign in with Google"}
+            </Button>
+            {signIn.status === "error" && <p className="text-xs text-red-600">{signIn.message}</p>}
+          </>
+        )}
+        <p className="text-xs text-slate-400">
+          Not required yet — the backend connection below still works on its own. Signing in is the first step
+          toward per-account features.
+        </p>
+      </div>
+
       <p className="text-sm text-slate-500">
         Connect the extension to your VisionLearn backend. Both values must match your backend's{" "}
         <code className="rounded-sm bg-slate-100 px-1 font-mono text-[13px]">.env</code> (

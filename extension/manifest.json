@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VisionLearn AI",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoh+1rVpFoh1ox8UIv6gccCU7cDM14dWvjCgWYUZw0/NM+S5nddyjckTMstjNFmwNulseeaGuIkYMjW/epIn9MiO3YGk7jNfILT+U0LIsz41ESJu22hoB6R0UeWM5O6Wn4ZBRs8cMeQsGYU5MMRoWz2pMdrfK3Ob2rcHDwEuMYT5np0kk70oboQolIpbJRtBHMPs0VMwwx6pjR3+M76K9YBN/RCZXqJOEaq8BB2ECtPEW2fDt5p19zP/5FZgIR3nhoNRYEb9uYEpPsQy6hYBmJMpcmQhVX2T0KLlS5pADoybHHaTX2uzxkrAOEQlNOzJadBDC0EyG6tgQD/r5xSsoqwIDAQAB",
   "version": "0.1.0",
   "description": "Understands STEM lecture slides — text, equations, diagrams, and charts — and lets you ask questions grounded in what's on screen.",
   "icons": {
@@ -16,8 +17,12 @@
       "32": "icons/icon-32.png"
     }
   },
-  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "tabs"],
+  "permissions": ["activeTab", "identity", "scripting", "sidePanel", "storage", "tabs"],
   "host_permissions": ["<all_urls>"],
+  "oauth2": {
+    "client_id": "156756671908-pftlqf00isph66l4mbjgn5mtsu1nrg51.apps.googleusercontent.com",
+    "scopes": ["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"]
+  },
   "background": {
     "service_worker": "src/service-worker/index.ts",
     "type": "module"

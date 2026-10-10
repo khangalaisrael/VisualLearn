@@ -133,3 +133,23 @@ class HealthResponse(BaseModel):
     db: bool
     cache: bool
     model_provider: bool
+
+
+class GoogleAuthRequest(BaseModel):
+    """POST /auth/google request body. `access_token` is what the extension
+    gets back from `chrome.identity.getAuthToken` — an OAuth access token
+    valid for calling Google's own APIs, not a signed ID token — so the
+    backend verifies it by calling Google's userinfo endpoint with it
+    (app/services/google_oauth.py), rather than verifying a JWT signature
+    locally."""
+
+    access_token: str
+
+
+class AuthResponse(BaseModel):
+    session_token: str
+    email: str | None = None
+
+
+class LogoutRequest(BaseModel):
+    session_token: str

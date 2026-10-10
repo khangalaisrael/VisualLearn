@@ -98,3 +98,16 @@ export interface ErrorResponse {
   message: string;
   request_id: string;
 }
+
+export interface GoogleAuthRequest {
+  access_token: string;
+}
+
+export interface AuthResponse {
+  session_token: string;
+  email: string | null;
+}
+
+export interface LogoutRequest {
+  session_token: string;
+}
