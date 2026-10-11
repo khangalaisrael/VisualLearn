@@ -192,7 +192,10 @@ async def test_flashcard_progress_is_saved_and_validated(client: AsyncClient, db
 # --- cleanup ------------------------------------------------------------------------
 
 
-async def test_study_aids_go_with_cleanup_the_series_and_the_account(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_study_aids_go_with_cleanup_the_series_and_the_account(
+    client: AsyncClient, db_session: AsyncSession, aid_limit
+) -> None:
+    aid_limit.rate_limit_study_aids_per_day = 10  # this test is about cleanup, not the allowance
     headers = await _sign_in(db_session, "a@example.com")
     lam = await _series(client, headers, "white", LAMBDA)
     dp = await _series(client, headers, "red", "Dynamic Programming")

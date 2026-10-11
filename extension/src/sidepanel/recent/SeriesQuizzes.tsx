@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { QuizOut, QuizSummary } from "@shared/types";
 
-import { createQuiz, getQuiz, listQuizzes } from "../../shared/api-client";
+import { ApiError, createQuiz, getQuiz, listQuizzes } from "../../shared/api-client";
 import { Button } from "../components/Button";
 import { relativeTime } from "./library";
 
@@ -14,6 +14,16 @@ const LENGTHS = [5, 10];
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** What went wrong, and whether it is just the day's allowance being used up (HTTP 429). */
+interface Problem {
+  message: string;
+  limited: boolean;
+}
+
+function problemFrom(error: unknown): Problem {
+  return { message: errorText(error), limited: error instanceof ApiError && error.status === 429 };
 }
 
 export function SeriesQuizzes({
@@ -31,7 +41,7 @@ export function SeriesQuizzes({
   const [research, setResearch] = useState(false);
   const [writing, setWriting] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -51,7 +61,7 @@ export function SeriesQuizzes({
     try {
       onOpen(await createQuiz(seriesId, { count, research: canResearch && research }));
     } catch (caught) {
-      setError(errorText(caught));
+      setError(problemFrom(caught));
     } finally {
       setWriting(false);
     }
@@ -63,7 +73,7 @@ export function SeriesQuizzes({
     try {
       onOpen(await getQuiz(quizId));
     } catch (caught) {
-      setError(errorText(caught));
+      setError(problemFrom(caught));
     } finally {
       setOpening(null);
     }
@@ -114,9 +124,14 @@ export function SeriesQuizzes({
         )}
       </div>
 
-      {error && (
+      {error && error.limited && (
+        <p role="status" className="rounded-md border border-violet-100 bg-violet-50/50 p-3 text-sm text-slate-600">
+          {error.message}
+        </p>
+      )}
+      {error && !error.limited && (
         <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
-          {error}
+          {error.message}
         </p>
       )}
 

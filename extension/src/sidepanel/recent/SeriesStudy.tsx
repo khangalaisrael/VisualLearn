@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { StudyAidKind, StudyAidOut, StudyAidSummary } from "@shared/types";
 
-import { createStudyAid, getStudyAid, listStudyAids } from "../../shared/api-client";
+import { ApiError, createStudyAid, getStudyAid, listStudyAids } from "../../shared/api-client";
 import { Button } from "../components/Button";
 import { relativeTime } from "./library";
 
@@ -24,11 +24,21 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** What went wrong, and whether it is just the day's allowance being used up (HTTP 429). */
+interface Problem {
+  message: string;
+  limited: boolean;
+}
+
+function problemFrom(error: unknown): Problem {
+  return { message: errorText(error), limited: error instanceof ApiError && error.status === 429 };
+}
+
 export function SeriesStudy({ seriesId, onOpen }: { seriesId: string; onOpen: (aid: StudyAidOut) => void }): JSX.Element {
   const [state, setState] = useState<ListState>({ status: "loading" });
   // The kind being written or opened right now; everything else waits.
   const [working, setWorking] = useState<{ kind: StudyAidKind; task: "writing" | "opening" } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -52,7 +62,7 @@ export function SeriesStudy({ seriesId, onOpen }: { seriesId: string; onOpen: (a
     try {
       onOpen(await createStudyAid(seriesId, kind));
     } catch (caught) {
-      setError(errorText(caught));
+      setError(problemFrom(caught));
     } finally {
       setWorking(null);
     }
@@ -64,7 +74,7 @@ export function SeriesStudy({ seriesId, onOpen }: { seriesId: string; onOpen: (a
     try {
       onOpen(await getStudyAid(aid.id));
     } catch (caught) {
-      setError(errorText(caught));
+      setError(problemFrom(caught));
     } finally {
       setWorking(null);
     }
@@ -93,9 +103,14 @@ export function SeriesStudy({ seriesId, onOpen }: { seriesId: string; onOpen: (a
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
+      {error && error.limited && (
+        <p role="status" className="rounded-md border border-violet-100 bg-violet-50/50 p-3 text-sm text-slate-600">
+          {error.message}
+        </p>
+      )}
+      {error && !error.limited && (
         <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
-          {error}
+          {error.message}
         </p>
       )}
       <ul className="flex flex-col gap-2">
