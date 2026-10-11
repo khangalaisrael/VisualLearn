@@ -32,6 +32,7 @@ from app.services.rate_limiter import (
     quiz_limits,
 )
 from app.services.quiz_generator import ClaudeQuizGenerator, PlaceholderQuizGenerator, QuizGenerator
+from app.services.resource_finder import ClaudeResourceFinder, ResourceFinder
 from app.services.series_sorter import ClaudeSeriesSorter, PlaceholderSeriesSorter, SeriesSorter
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 
@@ -152,6 +153,27 @@ _quiz_generator = _build_quiz_generator()
 async def get_quiz_generator() -> QuizGenerator:
     """Tests override this (tests/backend/conftest.py) so they never call a provider."""
     return _quiz_generator
+
+
+def _build_resource_finder() -> ResourceFinder | None:
+    """None without an Anthropic key: there is no honest placeholder for
+    links to real web pages."""
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        return None
+    return ClaudeResourceFinder(
+        api_key=settings.anthropic_api_key,
+        model=settings.anthropic_chat_model,
+        max_searches=settings.research_max_searches,
+    )
+
+
+_resource_finder = _build_resource_finder()
+
+
+async def get_resource_finder() -> ResourceFinder | None:
+    """Tests override this (tests/backend/conftest.py) so they never search the web."""
+    return _resource_finder
 
 
 def _check_requested_model(requested_model: str, *, default_is_openai: bool, default_is_claude: bool) -> None:

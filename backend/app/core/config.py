@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     # Quizzes a signed-in user may generate per day (each is one model call).
     rate_limit_quizzes_per_day: int = 10
 
+    # Web research for a quiz's study resources (admins only for now): how many
+    # searches one quiz may run, how long it may take, and what a search costs
+    # (Anthropic bills web search per request, on top of tokens).
+    research_max_searches: int = 3
+    research_timeout_seconds: float = 90.0
+    web_search_usd_per_request: float = 0.01
+
     # Notes are kept until deleted, so their number per account is bounded.
     max_notes_per_user: int = 500
 

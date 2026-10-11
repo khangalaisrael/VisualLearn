@@ -7,6 +7,8 @@ against the stored correct option, never a model call. Tutoring on a missed
 question goes through POST /chat in "tutor" mode (api/v1/chat.py).
 """
 
+import asyncio
+import logging
 import uuid
 from collections.abc import Sequence
 
@@ -14,7 +16,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import enforce_quiz_rate_limit, get_current_user, get_current_user_id, get_quiz_generator, is_admin, verify_api_key
+from app.api.deps import (
+    enforce_quiz_rate_limit,
+    get_current_user,
+    get_current_user_id,
+    get_quiz_generator,
+    get_resource_finder,
+    is_admin,
+    verify_api_key,
+)
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.orm import ObjectRecord, Quiz, QuizAttempt, Series, Slide, User
 from app.models.schemas import (
@@ -30,8 +41,11 @@ from app.models.schemas import (
 from app.repositories.objects import ObjectRepository
 from app.repositories.usage_events import UsageEventRepository
 from app.services.quiz_generator import QuizGenerator, QuizSource
+from app.services.resource_finder import ResearchResult, ResourceFinder
 from app.services.retention import retention_cutoff
 from app.services.usage import estimate_cost_usd, start_accumulator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["quizzes"], dependencies=[Depends(verify_api_key)])
 
@@ -73,6 +87,20 @@ def slide_text(slide: Slide, objects: Sequence[ObjectRecord]) -> str:
     heading = f"[{slide.subtopic}] " if slide.subtopic else ""
     body = "\n".join(o.extracted_text or o.latex or o.summary or "" for o in objects).strip()
     return f"{heading}{slide.summary or ''}\n{body}"[:_MAX_SLIDE_CHARS].strip()
+
+
+async def _research(finder: ResourceFinder, series: Series, slides: Sequence[Slide]) -> ResearchResult:
+    """Never raises and never outlasts its time limit: a quiz without
+    resources is still a quiz."""
+    subtopics = list(dict.fromkeys(s.subtopic for s in slides if s.subtopic))[:8]
+    try:
+        return await asyncio.wait_for(
+            finder.find(category=series.category, title=series.title, subtopics=subtopics),
+            timeout=get_settings().research_timeout_seconds,
+        )
+    except Exception:
+        logger.warning("quiz_research_failed series_id=%s", series.id, exc_info=True)
+        return ResearchResult()
 
 
 async def _attempt_stats(db: AsyncSession, quiz_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[int, int]]:
@@ -119,6 +147,7 @@ async def create_quiz(
     body: QuizCreateRequest,
     db: AsyncSession = Depends(get_db),
     generator: QuizGenerator = Depends(get_quiz_generator),
+    finder: ResourceFinder | None = Depends(get_resource_finder),
     user: User | None = Depends(get_current_user),
 ) -> QuizOut:
     user_id = _require_user(user.id if user else None)
@@ -152,10 +181,17 @@ async def create_quiz(
     )
 
     usage = start_accumulator()
+    # The questions and the web research do not depend on each other, so they run side by side.
+    research_task = (
+        asyncio.create_task(_research(finder, series, lectures)) if body.research and finder is not None else None
+    )
     try:
         generated = await generator.generate(source, body.count)
     except Exception as exc:
+        if research_task is not None:
+            research_task.cancel()
         raise HTTPException(status_code=502, detail="The quiz could not be written. Please try again.") from exc
+    research = await research_task if research_task is not None else None
 
     quiz = Quiz(
         user_id=user_id,
@@ -171,7 +207,7 @@ async def create_quiz(
             }
             for q in generated.questions
         ],
-        resources=[],
+        resources=[{"title": r.title, "url": r.url, "why": r.why} for r in research.resources] if research else [],
     )
     db.add(quiz)
     await UsageEventRepository(db).record(
@@ -182,6 +218,16 @@ async def create_quiz(
         output_tokens=usage.output_tokens,
         est_cost_usd=estimate_cost_usd(generator.model_name, usage.input_tokens, usage.output_tokens),
     )
+    if research is not None and finder is not None:
+        await UsageEventRepository(db).record(
+            user_id=user_id,
+            action="research",
+            model=finder.model_name,
+            input_tokens=research.input_tokens,
+            output_tokens=research.output_tokens,
+            est_cost_usd=estimate_cost_usd(finder.model_name, research.input_tokens, research.output_tokens)
+            + research.searches * get_settings().web_search_usd_per_request,
+        )
     await db.commit()
     await db.refresh(quiz)
     return _out(quiz, {})

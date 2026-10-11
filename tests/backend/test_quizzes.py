@@ -307,3 +307,131 @@ async def test_generator_calls_the_model_once_and_trims_to_the_requested_count()
     assert len(quiz.questions) == 3
     assert fake_client.messages.create.call_count == 1
     assert fake_client.messages.create.call_args.kwargs["model"] == "claude-haiku-5-5"
+
+
+# --- web research (admins only) -----------------------------------------------
+
+from app.api.deps import get_resource_finder  # noqa: E402
+from app.main import app  # noqa: E402
+from app.services.resource_finder import (  # noqa: E402
+    ClaudeResourceFinder,
+    ResearchResult,
+    Resource,
+    pick_resources,
+    search_tool_type,
+)
+
+_NOTES_URL = "https://www.mscs.dal.ca/~selinger/papers/lambdanotes.pdf"
+
+
+class _FakeFinder:
+    model_name = "claude-haiku-5-5"
+
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[dict] = []
+
+    async def find(self, *, category: str, title: str, subtopics: list[str]) -> ResearchResult:
+        self.calls.append({"category": category, "title": title, "subtopics": subtopics})
+        if self.fail:
+            raise RuntimeError("search is down")
+        return ResearchResult(
+            resources=[Resource("Selinger's lecture notes", _NOTES_URL, "Rigorous notes with exercises.")],
+            input_tokens=20_000,
+            output_tokens=500,
+            searches=2,
+        )
+
+
+async def test_an_admin_quiz_can_carry_researched_resources(client: AsyncClient, db_session: AsyncSession, quiz_limit) -> None:
+    quiz_limit.admin_emails = "boss@example.com"
+    headers = await _sign_in(db_session, "boss@example.com")
+    captured = await _capture(client, headers)
+    finder = _FakeFinder()
+    app.dependency_overrides[get_resource_finder] = lambda: finder
+
+    quiz = await _quiz(client, headers, captured["series"]["id"], count=3, research=True)
+    assert quiz["resources"] == [
+        {"title": "Selinger's lecture notes", "url": _NOTES_URL, "why": "Rigorous notes with exercises."}
+    ]
+    assert finder.calls == [{"category": "General", "title": LAMBDA, "subtopics": []}]
+
+    event = (await db_session.execute(select(UsageEvent).where(UsageEvent.action == "research"))).scalar_one()
+    # 20,000 in and 500 out on Haiku, plus two searches at one cent each.
+    assert event.est_cost_usd == pytest.approx(20_000 * 0.10 / 1e6 + 500 * 0.50 / 1e6 + 0.02)
+
+    # Without the flag, nothing is searched.
+    plain = await _quiz(client, headers, captured["series"]["id"], count=3)
+    assert plain["resources"] == [] and len(finder.calls) == 1
+
+
+async def test_failed_research_still_returns_the_quiz(client: AsyncClient, db_session: AsyncSession, quiz_limit) -> None:
+    quiz_limit.admin_emails = "boss@example.com"
+    headers = await _sign_in(db_session, "boss@example.com")
+    captured = await _capture(client, headers)
+    app.dependency_overrides[get_resource_finder] = lambda: _FakeFinder(fail=True)
+
+    quiz = await _quiz(client, headers, captured["series"]["id"], count=3, research=True)
+    assert quiz["resources"] == []
+    assert len(quiz["questions"]) == 3
+
+
+def test_only_urls_that_were_actually_searched_are_kept() -> None:
+    searched = {_NOTES_URL, "https://example.edu/video", "ftp://example.edu/file"}
+    payload = {
+        "resources": [
+            {"url": _NOTES_URL, "title": " Selinger   notes ", "why": "Good."},
+            {"url": "https://www.dal.ca/~selinger/papers/lambdanotes.pdf", "title": "Altered host", "why": "x"},
+            {"url": _NOTES_URL, "title": "Duplicate", "why": "x"},
+            {"url": "ftp://example.edu/file", "title": "Not a web page", "why": "x"},
+            {"url": "https://example.edu/video", "title": "", "why": "No title"},
+        ]
+    }
+    assert pick_resources(payload, searched) == [Resource("Selinger notes", _NOTES_URL, "Good.")]
+
+
+def test_the_search_tool_follows_the_model() -> None:
+    assert search_tool_type("claude-haiku-5-5") == "web_search_20250305"
+    assert search_tool_type("claude-sonnet-5-5") == "web_search_20260209"
+
+
+def _search_response(stop_reason: str, *, urls: list[str], text: str | None, searches: int) -> SimpleNamespace:
+    content = [
+        SimpleNamespace(type="server_tool_use", name="web_search", input={"query": "q"}),
+        SimpleNamespace(type="web_search_tool_result", content=[SimpleNamespace(url=u, title="t") for u in urls]),
+        # A failed search is a single error object, not a list.
+        SimpleNamespace(type="web_search_tool_result", content=SimpleNamespace(error_code="unavailable")),
+    ]
+    if text is not None:
+        content.append(SimpleNamespace(type="text", text=text))
+    usage = SimpleNamespace(input_tokens=100, output_tokens=10, server_tool_use=SimpleNamespace(web_search_requests=searches))
+    return SimpleNamespace(content=content, stop_reason=stop_reason, usage=usage)
+
+
+async def test_finder_resumes_a_paused_turn_and_checks_urls_across_both() -> None:
+    answer = json.dumps(
+        {"resources": [{"url": _NOTES_URL, "title": "Notes", "why": "w"}, {"url": "https://made.up/x", "title": "Invented", "why": "w"}]}
+    )
+    fake_client = AsyncMock()
+    fake_client.messages.create.side_effect = [
+        _search_response("pause_turn", urls=[_NOTES_URL], text=None, searches=1),
+        _search_response("end_turn", urls=["https://example.edu/other"], text=answer, searches=1),
+    ]
+    finder = ClaudeResourceFinder(client=fake_client, model="claude-haiku-5-5", max_searches=3)
+    result = await finder.find(category="Functional Programming", title=LAMBDA, subtopics=["Beta Reduction"])
+
+    assert result.resources == [Resource("Notes", _NOTES_URL, "w")]  # found in the first turn, cited in the second
+    assert (result.input_tokens, result.output_tokens, result.searches) == (200, 20, 2)
+    first, second = fake_client.messages.create.call_args_list
+    assert first.kwargs["tools"] == [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
+    assert "Beta Reduction" in first.kwargs["messages"][0]["content"]
+    # The resume sends the paused assistant turn back and adds no new user message.
+    assert [m["role"] for m in second.kwargs["messages"]] == ["user", "assistant"]
+
+
+async def test_finder_returns_nothing_when_the_answer_is_cut_off() -> None:
+    fake_client = AsyncMock()
+    fake_client.messages.create.return_value = _search_response("max_tokens", urls=[_NOTES_URL], text='{"resources": [', searches=1)
+    finder = ClaudeResourceFinder(client=fake_client, model="claude-haiku-5-5", max_searches=3)
+    result = await finder.find(category="C", title="T", subtopics=[])
+    assert result.resources == [] and result.searches == 1
