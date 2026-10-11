@@ -12,8 +12,8 @@ import type { QuizOut, StudyAidOut } from "@shared/types";
 
 import { useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
-import { type LibraryCapture, type LibrarySeries, countLabel, coverOf, relativeTime } from "./library";
-import { BackIcon, CloseIcon, Cover, ICON_BUTTON, MoreIcon, SlideRow } from "./parts";
+import { type LibraryCapture, type LibrarySeries, countLabel, relativeTime } from "./library";
+import { BackIcon, CloseIcon, ICON_BUTTON, MoreIcon, SlideRow } from "./parts";
 import { FlashcardsView } from "./FlashcardsView";
 import { QuizView } from "./QuizView";
 import { SeriesQuizzes } from "./SeriesQuizzes";
@@ -212,7 +212,6 @@ export function SeriesDetail({
         All series
       </button>
 
-      <Cover blob={coverOf(series)} title={series.title} className="w-full rounded-md" />
 
       {renaming ? (
         <RenameForm
