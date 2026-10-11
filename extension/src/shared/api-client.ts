@@ -15,6 +15,10 @@ import type {
   HealthResponse,
   LectureListResponse,
   LimitKind,
+  MoveSlideRequest,
+  SeriesListResponse,
+  SeriesRef,
+  SeriesUpdateRequest,
   SlideAnalysisResponse,
   UsageResponse,
   WaitlistSource,
@@ -542,6 +546,29 @@ export function deleteSlide(slideId: string): Promise<void> {
 
 export function deleteLecture(lectureId: string): Promise<void> {
   return authedJson(`/lectures/${lectureId}`, { method: "DELETE" }, "Couldn't delete that lecture");
+}
+
+/** The signed-in user's captures sorted into topic series, newest activity first. */
+export function getSeries(): Promise<SeriesListResponse> {
+  return authedJson("/series", {}, "Couldn't load your series");
+}
+
+function jsonBody(method: string, body: unknown): RequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
+/** Renames a series, changes its category, or picks its cover capture. */
+export function updateSeries(seriesId: string, changes: SeriesUpdateRequest): Promise<void> {
+  return authedJson(`/series/${seriesId}`, jsonBody("PATCH", changes), "Couldn't update that series");
+}
+
+/** Corrects the sorter: moves one capture to another (or a new) series. */
+export function moveSlide(slideId: string, target: MoveSlideRequest): Promise<SeriesRef> {
+  return authedJson(`/slides/${slideId}/move`, jsonBody("POST", target), "Couldn't move that capture");
+}
+
+export function deleteSeries(seriesId: string): Promise<void> {
+  return authedJson(`/series/${seriesId}`, { method: "DELETE" }, "Couldn't delete that series");
 }
 
 /** Deletes the signed-in account and all its data on the server, then signs out locally. */

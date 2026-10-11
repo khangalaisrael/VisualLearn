@@ -1,140 +1,59 @@
 /**
- * Recent captures, grouped by lecture. Signed in, the text comes from the
- * server (so it follows the account across devices) and thumbnails from this
- * browser, matched by slide id; signed out, everything is the local copy.
- * How long things are kept comes from the server, never hardcoded here.
+ * Recent: the user's captures as a searchable library of series (see
+ * recent/library.ts for where the data comes from). A series unfolds in
+ * place, or opens as its own page (recent/SeriesDetail.tsx). How long things
+ * are kept comes from the server, never hardcoded here.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  deleteLecture,
+  deleteSeries,
   deleteSlide,
-  getAuthState,
   getConversation,
-  getLectures,
   getSlide,
+  moveSlide,
   signInWithGoogle,
+  updateSeries,
 } from "../../shared/api-client";
-import {
-  type CaptureRecord,
-  LOCAL_RETENTION_DAYS,
-  deleteCapture,
-  deleteLectureCaptures,
-  listCaptures,
-  purgeOlderThan,
-} from "../../shared/capture-store";
+import { deleteCaptures } from "../../shared/capture-store";
 import { Button } from "../components/Button";
+import {
+  type Library,
+  type LibraryCapture,
+  type LibrarySeries,
+  categoriesOf,
+  countLabel,
+  filterLibrary,
+  loadLibrary,
+} from "../recent/library";
+import { CloseIcon, SearchIcon } from "../recent/parts";
+import { SeriesCard, SeriesCardSkeleton } from "../recent/SeriesCard";
+import { type SeriesActions, SeriesDetail } from "../recent/SeriesDetail";
 import type { RestoredChat } from "./AskTab";
 
-interface CaptureItem {
-  slideId: string;
-  summary: string;
-  capturedAt: number;
-  followUps: number;
-  latestConversationId: string | null;
-  thumbnail: Blob | null;
-}
+type ListState = { status: "loading" } | { status: "loaded"; library: Library } | { status: "error"; message: string };
 
-interface LectureGroup {
-  id: string;
-  title: string;
-  lastActivity: number;
-  captures: CaptureItem[];
-}
-
-type ListState =
-  | { status: "loading" }
-  | { status: "loaded"; groups: LectureGroup[]; retentionDays: number; signedIn: boolean }
-  | { status: "error"; message: string };
-
-function relativeTime(timestamp: number): string {
-  const minutes = Math.floor((Date.now() - timestamp) / 60_000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "Yesterday" : `${days} days ago`;
-}
-
-function groupLocal(records: CaptureRecord[]): LectureGroup[] {
-  const groups = new Map<string, LectureGroup>();
-  for (const record of records) {
-    const existing = groups.get(record.presentation_id);
-    const item: CaptureItem = {
-      slideId: record.slide_id,
-      summary: record.summary,
-      capturedAt: record.capturedAt,
-      followUps: 0,
-      latestConversationId: null,
-      thumbnail: record.thumbnail,
-    };
-    if (existing) {
-      existing.captures.push(item);
-    } else {
-      groups.set(record.presentation_id, {
-        id: record.presentation_id,
-        title: record.title,
-        lastActivity: record.capturedAt,
-        captures: [item],
-      });
-    }
-  }
-  return [...groups.values()].sort((a, b) => b.lastActivity - a.lastActivity);
-}
-
-function Thumbnail({ blob }: { blob: Blob | null }): JSX.Element {
-  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
-  useEffect(() => () => (url ? URL.revokeObjectURL(url) : undefined), [url]);
-  return url ? (
-    <img src={url} alt="" className="h-12 w-[72px] flex-none rounded border border-slate-200 object-cover" />
-  ) : (
-    <div className="h-12 w-[72px] flex-none rounded border border-slate-100 bg-slate-50" aria-hidden="true" />
-  );
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }): JSX.Element {
   const [state, setState] = useState<ListState>({ status: "loading" });
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setState({ status: "loading" });
+  /** `quiet` refreshes after a change without flashing the loading state. */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setState({ status: "loading" });
     try {
-      const { sessionToken } = await getAuthState();
-      await purgeOlderThan(LOCAL_RETENTION_DAYS).catch(() => undefined);
-      const local = await listCaptures().catch(() => [] as CaptureRecord[]);
-
-      let groups: LectureGroup[];
-      let retentionDays = LOCAL_RETENTION_DAYS;
-      if (sessionToken) {
-        const response = await getLectures();
-        retentionDays = response.retention_days;
-        const thumbnails = new Map(local.map((record) => [record.slide_id, record.thumbnail]));
-        groups = response.lectures.map((lecture) => ({
-          id: lecture.id,
-          title: lecture.title,
-          lastActivity: new Date(lecture.last_activity_at).getTime(),
-          captures: lecture.captures.map((capture) => ({
-            slideId: capture.slide_id,
-            summary: capture.summary,
-            capturedAt: new Date(capture.created_at).getTime(),
-            // A user message and its answer are two saved messages.
-            followUps: capture.conversations.reduce((sum, chat) => sum + Math.ceil(chat.message_count / 2), 0),
-            latestConversationId: capture.conversations[0]?.id ?? null,
-            thumbnail: thumbnails.get(capture.slide_id) ?? null,
-          })),
-        }));
-      } else {
-        // Signed out: only captures made while signed out, never a previous account's.
-        groups = groupLocal(local.filter((record) => (record.owner ?? "") === ""));
-      }
-      setState({ status: "loaded", groups, retentionDays, signedIn: Boolean(sessionToken) });
-      setExpanded(new Set(groups[0] ? [groups[0].id] : []));
+      setState({ status: "loaded", library: await loadLibrary() });
     } catch (error) {
-      setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      setState({ status: "error", message: errorText(error) });
     }
   }, []);
 
@@ -142,14 +61,35 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
     void load();
   }, [load]);
 
-  const toggle = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
+  const library = state.status === "loaded" ? state.library : null;
+  const categories = useMemo(() => (library ? categoriesOf(library.series) : []), [library]);
+  const visible = useMemo(
+    () => (library ? filterLibrary(library.series, query, category) : []),
+    [library, query, category]
+  );
+  const selected = library?.series.find((series) => series.id === selectedId) ?? null;
+  const searching = query.trim() !== "";
 
-  const open = async (capture: CaptureItem) => {
+  // A category can disappear (its last series renamed or deleted).
+  useEffect(() => {
+    if (category !== null && !categories.some((item) => item.name === category)) setCategory(null);
+  }, [categories, category]);
+
+  /** Runs one change, then refreshes the list from the server. */
+  const run = async (work: () => Promise<unknown>) => {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await work();
+      await load(true);
+    } catch (error) {
+      setActionError(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openCapture = async (capture: LibraryCapture) => {
     setBusy(true);
     setActionError(null);
     try {
@@ -162,177 +102,188 @@ export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }):
       }
       onOpen({ conversationId: null, slide: await getSlide(capture.slideId), messages: [] });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
+      setActionError(errorText(error));
     } finally {
       setBusy(false);
     }
   };
 
-  const removeFromState = (predicate: (group: LectureGroup, capture: CaptureItem | null) => boolean) =>
-    setState((prev) =>
-      prev.status === "loaded"
-        ? {
-            ...prev,
-            groups: prev.groups
-              .filter((group) => !predicate(group, null))
-              .map((group) => ({ ...group, captures: group.captures.filter((c) => !predicate(group, c)) }))
-              .filter((group) => group.captures.length > 0),
-          }
-        : prev
-    );
-
-  const removeCapture = async (capture: CaptureItem, signedIn: boolean) => {
-    setBusy(true);
-    setActionError(null);
-    try {
-      if (signedIn) await deleteSlide(capture.slideId);
-      await deleteCapture(capture.slideId).catch(() => undefined);
-      removeFromState((_, c) => c?.slideId === capture.slideId);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
+  const signedIn = library?.signedIn ?? false;
+  const actions: SeriesActions = {
+    openCapture: (capture) => void openCapture(capture),
+    deleteCapture: (capture) =>
+      void run(async () => {
+        if (signedIn) await deleteSlide(capture.slideId);
+        await deleteCaptures([capture.slideId]).catch(() => undefined);
+      }),
+    deleteSeries: (series: LibrarySeries) => {
+      const count = countLabel(series.captures.length, "slide");
+      if (!window.confirm(`Delete "${series.title}" with its ${count} and their chats?`)) return;
+      void run(async () => {
+        const slideIds = series.captures.map((capture) => capture.slideId);
+        if (signedIn && series.sorted) await deleteSeries(series.id);
+        else if (signedIn) await Promise.all(slideIds.map((id) => deleteSlide(id)));
+        await deleteCaptures(slideIds).catch(() => undefined);
+        setSelectedId(null);
+      });
+    },
+    rename: (series, title, category) => void run(() => updateSeries(series.id, { title, category })),
+    setCover: (series, capture) => void run(() => updateSeries(series.id, { cover_slide_id: capture.slideId })),
+    moveToSeries: (capture, seriesId) => void run(() => moveSlide(capture.slideId, { series_id: seriesId })),
+    moveToNewSeries: (capture, title, category) => void run(() => moveSlide(capture.slideId, { title, category })),
   };
 
-  const removeLecture = async (group: LectureGroup, signedIn: boolean) => {
-    if (!window.confirm(`Delete "${group.title}" and its ${group.captures.length} capture(s) and chats?`)) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      if (signedIn) await deleteLecture(group.id);
-      await deleteLectureCaptures(group.id).catch(() => undefined);
-      removeFromState((g, c) => c === null && g.id === group.id);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   const signIn = async () => {
     try {
       await signInWithGoogle();
       await load();
     } catch (error) {
-      setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      setState({ status: "error", message: errorText(error) });
     }
   };
 
   return (
     <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-      <h2 className="text-base font-semibold text-slate-800">Recent</h2>
-
-      {state.status === "loading" && <p className="text-sm text-slate-400">Loading…</p>}
-
-      {state.status === "error" && (
-        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
-          <p>{state.message}</p>
-          <button type="button" onClick={() => void load()} className="mt-2 font-medium underline underline-offset-2">
-            Try again
-          </button>
-        </div>
-      )}
-
-      {actionError && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">{actionError}</p>}
-
-      {state.status === "loaded" && !state.signedIn && (
-        <div className="flex flex-col items-start gap-3 rounded-lg border border-slate-200 p-4 shadow-subtle">
-          <p className="text-sm text-slate-600">Sign in to keep your chats and pick them up on any device.</p>
-          <Button onClick={() => void signIn()}>Sign in with Google</Button>
-        </div>
-      )}
-
-      {state.status === "loaded" && state.groups.length === 0 && (
-        <p className="rounded-md border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">
-          No captures yet. Capture a slide to see it here.
+      {actionError && (
+        <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
+          {actionError}
         </p>
       )}
 
-      {state.status === "loaded" &&
-        state.groups.map((group) => {
-          const isOpen = expanded.has(group.id);
-          return (
-            <section key={group.id} className="rounded-lg border border-slate-200 shadow-subtle">
-              <div className="flex items-center gap-1 pr-2">
-                <button
-                  type="button"
-                  onClick={() => toggle(group.id)}
-                  aria-expanded={isOpen}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left"
-                >
-                  <span className="text-xs text-slate-400" aria-hidden="true">
-                    {isOpen ? "▾" : "▸"}
-                  </span>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-sm font-medium text-slate-800">{group.title}</span>
-                    <span className="text-xs text-slate-400">
-                      {group.captures.length} {group.captures.length === 1 ? "capture" : "captures"} ·{" "}
-                      {relativeTime(group.lastActivity)}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void removeLecture(group, state.signedIn)}
-                  aria-label={`Delete lecture: ${group.title}`}
-                  className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-400 transition-colors duration-[120ms] hover:bg-red-50 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
-                >
-                  ✕
-                </button>
+      {selected && library ? (
+        <SeriesDetail
+          key={selected.id}
+          series={selected}
+          allSeries={library.series}
+          busy={busy}
+          actions={actions}
+          onBack={() => setSelectedId(null)}
+        />
+      ) : (
+        <>
+          <h2 className="text-base font-semibold text-slate-800">Recent</h2>
+
+          {state.status === "loading" && (
+            <ul className="flex flex-col gap-3" aria-label="Loading your series">
+              <SeriesCardSkeleton />
+              <SeriesCardSkeleton />
+              <SeriesCardSkeleton />
+            </ul>
+          )}
+
+          {state.status === "error" && (
+            <div role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
+              <p>{state.message}</p>
+              <button type="button" onClick={() => void load()} className="mt-2 font-medium underline underline-offset-2">
+                Try again
+              </button>
+            </div>
+          )}
+
+          {library && !library.signedIn && (
+            <div className="flex flex-col items-start gap-3 rounded-md border border-slate-200 p-4 shadow-subtle">
+              <p className="text-sm text-slate-600">
+                Sign in to have your slides sorted by topic and kept across devices.
+              </p>
+              <Button onClick={() => void signIn()}>Sign in with Google</Button>
+            </div>
+          )}
+
+          {library && library.series.length === 0 && (
+            <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+              Nothing here yet. Capture a slide and it will be filed under its topic.
+            </p>
+          )}
+
+          {library && library.series.length > 0 && (
+            <>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
+                  <SearchIcon />
+                </span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search series and slides"
+                  aria-label="Search series and slides"
+                  className="w-full rounded-sm border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 transition-colors duration-[120ms] placeholder:text-slate-400 focus:border-indigo-400 [&::-webkit-search-cancel-button]:hidden"
+                />
+                {searching && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    aria-label="Clear search"
+                    className="absolute inset-y-0 right-1 my-auto flex h-7 w-7 items-center justify-center rounded-sm text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <CloseIcon />
+                  </button>
+                )}
               </div>
 
-              {isOpen && (
-                <ul className="flex flex-col gap-1 border-t border-slate-100 p-2">
-                  {group.captures.map((capture) => (
-                    <li
-                      key={capture.slideId}
-                      className="flex items-start gap-1 rounded-md transition-colors duration-[120ms] hover:bg-indigo-50/40"
-                    >
+              {categories.length > 1 && (
+                <div
+                  className="-mx-4 flex flex-none gap-2 overflow-x-auto px-4 py-0.5 [scrollbar-width:none]"
+                  role="group"
+                  aria-label="Categories"
+                >
+                  {[{ name: null as string | null, label: "All" }, ...categories.map((c) => ({ name: c.name, label: c.name }))].map(
+                    ({ name, label }) => (
                       <button
+                        key={label}
                         type="button"
-                        disabled={busy}
-                        onClick={() => void open(capture)}
-                        className="flex min-w-0 flex-1 gap-3 p-2 text-left disabled:opacity-50"
+                        aria-pressed={category === name}
+                        onClick={() => setCategory(name)}
+                        className={`flex-none rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-[120ms] ${
+                          category === name
+                            ? "border-indigo-600 bg-indigo-600 text-white"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
                       >
-                        <Thumbnail blob={capture.thumbnail} />
-                        <span className="flex min-w-0 flex-1 flex-col gap-1">
-                          <span className="line-clamp-2 text-sm text-slate-700">
-                            {capture.summary || "Captured slide"}
-                          </span>
-                          <span className="flex items-center gap-2 text-xs text-slate-400">
-                            {relativeTime(capture.capturedAt)}
-                            {capture.followUps > 0 && (
-                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:text-indigo-300">
-                                {capture.followUps} {capture.followUps === 1 ? "follow-up" : "follow-ups"}
-                              </span>
-                            )}
-                          </span>
-                        </span>
+                        {label}
                       </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void removeCapture(capture, state.signedIn)}
-                        aria-label="Delete this capture"
-                        className="mt-1 flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-300 transition-colors duration-[120ms] hover:bg-red-50 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
-                      >
-                        ✕
-                      </button>
-                    </li>
+                    )
+                  )}
+                </div>
+              )}
+
+              {visible.length === 0 ? (
+                <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+                  No series or slide matches "{query.trim()}".
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {visible.map((series) => (
+                    <SeriesCard
+                      key={series.id}
+                      series={series}
+                      // While searching, matches are shown without another click.
+                      open={searching || expanded.has(series.id)}
+                      busy={busy}
+                      onToggle={() => toggle(series.id)}
+                      onSelect={() => setSelectedId(series.id)}
+                      onOpenCapture={(capture) => void openCapture(capture)}
+                    />
                   ))}
                 </ul>
               )}
-            </section>
-          );
-        })}
+            </>
+          )}
 
-      {state.status === "loaded" && (
-        <p className="text-xs text-slate-400">
-          Captures and chats are deleted {state.retentionDays} days after they were made. Thumbnails stay on this
-          device only. You can delete anything sooner.
-        </p>
+          {library && (
+            <p className="text-xs text-slate-400">
+              Slides and chats are deleted {library.retentionDays} days after they were made. Pictures stay on this
+              device only. You can delete anything sooner.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

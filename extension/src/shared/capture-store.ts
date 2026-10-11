@@ -12,6 +12,10 @@ const DB_VERSION = 1;
 
 export const LOCAL_RETENTION_DAYS = 30;
 
+/** When thumbnails shipped. Captures from before it have no picture anywhere
+ * and were deleted on the server too (migration 0012). */
+export const FIRST_THUMBNAIL_AT = Date.UTC(2026, 9, 10, 12, 20);
+
 export interface CaptureRecord {
   slide_id: string;
   presentation_id: string;
@@ -74,6 +78,10 @@ export async function deleteLectureCaptures(presentationId: string): Promise<voi
   await Promise.all(all.filter((c) => c.presentation_id === presentationId).map((c) => deleteCapture(c.slide_id)));
 }
 
+export async function deleteCaptures(slideIds: string[]): Promise<void> {
+  await Promise.all(slideIds.map((id) => deleteCapture(id)));
+}
+
 export function clearCaptures(): Promise<unknown> {
   return run("readwrite", (store) => store.clear());
 }
@@ -89,9 +97,10 @@ export async function latestPresentationFor(lectureKey: string, owner: string): 
   return matches[0]?.presentation_id ?? null;
 }
 
-/** Drops records past the retention window (the server drops its copy too). */
+/** Drops records past the retention window, and any from before thumbnails
+ * existed (the server drops its copies too). */
 export async function purgeOlderThan(days: number): Promise<void> {
-  const cutoff = Date.now() - days * 86_400_000;
+  const cutoff = Math.max(Date.now() - days * 86_400_000, FIRST_THUMBNAIL_AT);
   const all = await listCaptures();
   await Promise.all(all.filter((c) => c.capturedAt < cutoff).map((c) => deleteCapture(c.slide_id)));
 }
