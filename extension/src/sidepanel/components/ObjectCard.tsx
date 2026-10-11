@@ -65,7 +65,7 @@ function TableView({ rows }: { rows: string[][] }): JSX.Element {
         <thead>
           <tr>
             {header.map((cell, index) => (
-              <th key={index} className="border-b border-amber-200 px-3 py-1.5 text-left font-medium text-amber-900 dark:text-amber-100">
+              <th key={index} className="border-b border-amber-200 px-3 py-1.5 text-left font-medium text-amber-900 dark:text-amber-300">
                 <MathText text={cell} />
               </th>
             ))}
@@ -119,7 +119,7 @@ export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
           {object.type}
         </span>
         {object.confidence < LOW_CONFIDENCE && (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
             May be misread
           </span>
         )}
@@ -139,7 +139,7 @@ export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
         tableRows ? (
           <TableView rows={tableRows} />
         ) : (
-          <pre className="overflow-x-auto whitespace-pre-wrap rounded-sm bg-amber-50/70 px-3 py-2 font-mono text-xs text-amber-900 dark:text-amber-100">
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-sm bg-amber-50/70 px-3 py-2 font-mono text-xs text-amber-900 dark:text-amber-300">
             {object.extracted_text}
           </pre>
         )

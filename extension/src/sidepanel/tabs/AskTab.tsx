@@ -120,7 +120,7 @@ function TypingIndicator(): JSX.Element {
 // fetchWakingBackend) — otherwise a ~1 minute wait looks like a hang.
 function WakingNotice(): JSX.Element {
   return (
-    <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:text-amber-200 shadow-subtle">
+    <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:text-amber-300 shadow-subtle">
       Waking up the server — this takes about a minute after a quiet period. Hang tight…
     </p>
   );
@@ -588,7 +588,7 @@ export function AskTab({
               <button
                 type="button"
                 onClick={() => setFigureSelection(null)}
-                className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-200"
+                className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300"
                 aria-label="Clear figure selection, go back to asking about the whole slide"
               >
                 <CloseIcon />
@@ -717,7 +717,7 @@ export function AskTab({
               <button
                 type="button"
                 onClick={retryLastQuestion}
-                className="mt-2 text-sm font-medium text-red-700 dark:text-red-300 underline decoration-red-300 underline-offset-2 hover:text-red-800 dark:hover:text-red-200"
+                className="mt-2 text-sm font-medium text-red-700 dark:text-red-300 underline decoration-red-300 underline-offset-2 hover:text-red-800 dark:hover:text-red-300"
               >
                 Retry
               </button>

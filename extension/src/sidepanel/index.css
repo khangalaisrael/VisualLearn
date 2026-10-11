@@ -83,8 +83,12 @@
   --slate-100: 241 245 249;
   --slate-200: 226 232 240;
   --slate-300: 203 213 225;
-  --slate-400: 148 163 184;
-  --slate-500: 100 116 139;
+  /* 400 and 500 are darker than Tailwind's own: they are used for small
+     secondary text (times, counts, hints), which at the stock values was
+     2.6:1 and 4.3:1 against the panel's white and slate-100 surfaces. These
+     give at least 4.5:1 (WCAG AA) on white, slate-50, slate-100 and indigo-50. */
+  --slate-400: 92 107 130;
+  --slate-500: 82 97 120;
   --slate-600: 71 85 105;
   --slate-700: 51 65 85;
   --slate-800: 30 41 59;
@@ -103,8 +107,9 @@
   --violet-200: 221 214 254;
 }
 
-/* Dark mode: <html class="dark"> (see src/shared/theme.ts). Light values above
-   are Tailwind's own defaults, so light mode is unchanged. */
+/* Dark mode: <html class="dark"> (see src/shared/theme.ts). The 50/100/200
+   steps of each colour become dark surfaces here, so in dark mode they are
+   never a text colour: text uses the 300 step (dark:text-amber-300). */
 :root.dark {
   color-scheme: dark;
   --slate-50: 30 41 59;

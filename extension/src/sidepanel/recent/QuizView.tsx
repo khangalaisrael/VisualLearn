@@ -17,7 +17,7 @@ import { BackIcon } from "./parts";
 import { TutorChat } from "./TutorChat";
 
 const RIGHT = "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200";
-const WRONG = "border-red-200 bg-red-50 text-red-800 dark:text-red-200";
+const WRONG = "border-red-200 bg-red-50 text-red-800 dark:text-red-300";
 
 function letter(index: number): string {
   return String.fromCharCode(65 + index);
@@ -61,10 +61,17 @@ export function QuizView({ quiz, onBack }: { quiz: QuizOut; onBack: () => void }
     setReviewing(null);
   };
 
+  /** Answers given so far are only kept once the run is finished. */
+  const leave = () => {
+    const underway = !finished && order.some((q) => answers[q] !== undefined);
+    if (underway && !window.confirm("Leave this quiz? Your answers so far won't be kept.")) return;
+    onBack();
+  };
+
   const back = (
     <button
       type="button"
-      onClick={onBack}
+      onClick={leave}
       className="-ml-1 flex items-center gap-1 self-start rounded-sm px-1 py-1 text-sm font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-50 hover:text-slate-700"
     >
       <BackIcon />
@@ -189,6 +196,7 @@ export function QuizView({ quiz, onBack }: { quiz: QuizOut; onBack: () => void }
     <div className="flex flex-col gap-4">
       {back}
       <div className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold leading-snug text-slate-800">{quiz.title}</h2>
         <p className="text-xs font-medium tabular-nums text-slate-500">
           Question {position + 1} of {total}
         </p>

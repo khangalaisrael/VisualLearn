@@ -99,7 +99,7 @@ export function Cover({
 
 export function PracticeTag(): JSX.Element {
   return (
-    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
       Practice
     </span>
   );

@@ -115,6 +115,7 @@ function NoteView({
       }}
     >
       {back}
+      <h2 className="text-base font-semibold text-slate-800">{draft.id === null ? "New note" : "Edit note"}</h2>
       <label className="flex flex-col gap-2 text-xs font-medium text-slate-600">
         Title
         <input

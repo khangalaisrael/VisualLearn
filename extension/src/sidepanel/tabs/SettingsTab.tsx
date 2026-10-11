@@ -127,7 +127,7 @@ export function SettingsTab(): JSX.Element {
             </div>
             {confirmingDelete ? (
               <div className="flex flex-col gap-2 rounded-md bg-red-50 p-3">
-                <p className="text-xs text-red-800 dark:text-red-200">
+                <p className="text-xs text-red-800 dark:text-red-300">
                   This permanently deletes your account, all your chats and your captured slides. It can't be undone.
                 </p>
                 <div className="flex items-center gap-2">
@@ -149,7 +149,7 @@ export function SettingsTab(): JSX.Element {
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
-                className="self-start text-xs font-medium text-slate-400 transition-colors duration-[120ms] hover:text-red-600 dark:hover:text-red-400"
+                className="-ml-2 self-start rounded-sm px-2 py-1.5 text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-red-50 hover:text-red-700 dark:hover:text-red-300"
               >
                 Delete my account and data
               </button>
@@ -209,7 +209,7 @@ export function SettingsTab(): JSX.Element {
           href={policyUrl}
           target="_blank"
           rel="noreferrer"
-          className="px-1 text-xs font-medium text-indigo-600 dark:text-indigo-300 underline-offset-2 hover:underline"
+          className="self-start rounded-sm px-1 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-300 underline-offset-2 hover:underline"
         >
           Privacy policy
         </a>
