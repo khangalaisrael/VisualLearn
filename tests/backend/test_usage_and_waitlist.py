@@ -82,7 +82,7 @@ async def _sign_in(db_session: AsyncSession, email: str) -> tuple[dict[str, str]
     db_session.add(user)
     await db_session.flush()
     token = f"token-{email}"
-    db_session.add(SessionRow(id=uuid.uuid4(), user_id=user.id, token=token, expires_at=T0 + timedelta(days=1)))
+    db_session.add(SessionRow(id=uuid.uuid4(), user_id=user.id, token=token, expires_at=datetime.now(UTC) + timedelta(days=1)))
     await db_session.commit()
     return {**API_KEY, "Authorization": f"Bearer {token}"}, user.id
 

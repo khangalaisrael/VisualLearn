@@ -34,7 +34,7 @@ async def _sign_in(db: AsyncSession, email: str) -> tuple[dict[str, str], uuid.U
     user = User(id=uuid.uuid4(), google_sub=f"sub-{email}", email=email)
     db.add(user)
     await db.flush()
-    db.add(SessionRow(id=uuid.uuid4(), user_id=user.id, token=f"token-{email}", expires_at=T0 + timedelta(days=1)))
+    db.add(SessionRow(id=uuid.uuid4(), user_id=user.id, token=f"token-{email}", expires_at=datetime.now(UTC) + timedelta(days=1)))
     await db.commit()
     return {**API_KEY, "Authorization": f"Bearer token-{email}"}, user.id
 
