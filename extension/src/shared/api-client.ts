@@ -28,6 +28,9 @@ import type {
   SeriesRef,
   SeriesUpdateRequest,
   SlideAnalysisResponse,
+  StudyAidKind,
+  StudyAidListResponse,
+  StudyAidOut,
   UsageResponse,
   WaitlistSource,
 } from "@shared/types";
@@ -626,6 +629,29 @@ export function getQuiz(quizId: string): Promise<QuizOut> {
 /** Records a finished run: the chosen option per question, null for a skipped one. */
 export function recordQuizAttempt(quizId: string, answers: (number | null)[]): Promise<QuizAttemptResponse> {
   return authedJson(`/quizzes/${quizId}/attempts`, jsonBody("POST", { answers }), "Couldn't save your result");
+}
+
+/** Writes a study guide, a cheat sheet or flashcards from the series' slides, replacing any earlier one of that kind. */
+export function createStudyAid(seriesId: string, kind: StudyAidKind): Promise<StudyAidOut> {
+  return authedJson(
+    `/series/${seriesId}/study-aids`,
+    jsonBody("POST", { kind }),
+    "Couldn't write that",
+    QUIZ_ATTEMPT_TIMEOUT_MS
+  );
+}
+
+export function listStudyAids(seriesId: string): Promise<StudyAidListResponse> {
+  return authedJson(`/series/${seriesId}/study-aids`, {}, "Couldn't load study aids");
+}
+
+export function getStudyAid(aidId: string): Promise<StudyAidOut> {
+  return authedJson(`/study-aids/${aidId}`, {}, "Couldn't open that");
+}
+
+/** Records which cards of a deck (by position, from 0) the student knows. */
+export function saveFlashcardProgress(aidId: string, known: number[]): Promise<StudyAidOut> {
+  return authedJson(`/study-aids/${aidId}/progress`, jsonBody("PATCH", { known }), "Couldn't save your progress");
 }
 
 /** Deletes the signed-in account and all its data on the server, then signs out locally. */

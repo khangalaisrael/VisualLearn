@@ -142,6 +142,7 @@ export function WhatsNewCard({ onOpenRecent, onDismiss }: { onOpenRecent: () => 
       <ul className="flex flex-col gap-1.5 text-sm text-slate-600">
         <li>Your slides are sorted into series by topic, and you can search them.</li>
         <li>Each series can quiz you, with a tutor for the questions you miss.</li>
+        <li>It can also write you a study guide, a cheat sheet and flashcards.</li>
         <li>Answers can be saved as notes that you edit and keep.</li>
         <li>The chat carries on when you capture the next slide of a topic.</li>
       </ul>

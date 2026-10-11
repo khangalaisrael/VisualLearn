@@ -2,19 +2,23 @@
  * One selected series: its cover and name, its slides (lecture and practice
  * apart), and the corrections a student can make when the sorter got it
  * wrong: rename, pick another cover, move a slide elsewhere, delete. A
- * sorted series also has quizzes (SeriesQuizzes.tsx, QuizView.tsx).
+ * sorted series also has quizzes (SeriesQuizzes.tsx, QuizView.tsx) and study
+ * aids (SeriesStudy.tsx: a guide, a cheat sheet, flashcards).
  */
 
 import { useState } from "react";
 
-import type { QuizOut } from "@shared/types";
+import type { QuizOut, StudyAidOut } from "@shared/types";
 
 import { useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 import { type LibraryCapture, type LibrarySeries, countLabel, coverOf, relativeTime } from "./library";
 import { BackIcon, CloseIcon, Cover, ICON_BUTTON, MoreIcon, SlideRow } from "./parts";
+import { FlashcardsView } from "./FlashcardsView";
 import { QuizView } from "./QuizView";
 import { SeriesQuizzes } from "./SeriesQuizzes";
+import { SeriesStudy } from "./SeriesStudy";
+import { StudyDoc } from "./StudyDoc";
 
 const FIELD =
   "w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 transition-colors duration-[120ms] focus:border-indigo-400";
@@ -31,7 +35,7 @@ export interface SeriesActions {
   moveToNewSeries: (capture: LibraryCapture, title: string, category: string) => void;
 }
 
-type Section = "slides" | "practice" | "quizzes";
+type Section = "slides" | "practice" | "quizzes" | "study";
 
 function RenameForm({
   series,
@@ -170,6 +174,7 @@ export function SeriesDetail({
   const [renaming, setRenaming] = useState(false);
   const [toolsFor, setToolsFor] = useState<string | null>(null);
   const [quiz, setQuiz] = useState<QuizOut | null>(null);
+  const [aid, setAid] = useState<StudyAidOut | null>(null);
   const usage = useUsage();
 
   const lectures = series.captures.filter((capture) => capture.kind !== "practice");
@@ -177,8 +182,8 @@ export function SeriesDetail({
   const sections: [Section, string][] = [
     ...(lectures.length > 0 ? [["slides", `Slides (${lectures.length})`] as [Section, string]] : []),
     ...(practice.length > 0 ? [["practice", `Practice (${practice.length})`] as [Section, string]] : []),
-    // Quizzes are written on the server from a real series.
-    ...(series.sorted ? [["quizzes", "Quizzes"] as [Section, string]] : []),
+    // Quizzes and study aids are written on the server from a real series.
+    ...(series.sorted ? [["quizzes", "Quizzes"] as [Section, string], ["study", "Study"] as [Section, string]] : []),
   ];
   // The chosen section can vanish (its last slide moved away): fall back to the first.
   const active = sections.some(([value]) => value === section) ? section : (sections[0]?.[0] ?? "slides");
@@ -187,6 +192,13 @@ export function SeriesDetail({
 
   if (quiz) {
     return <QuizView key={quiz.id} quiz={quiz} onBack={() => setQuiz(null)} />;
+  }
+  if (aid) {
+    return aid.kind === "flashcards" ? (
+      <FlashcardsView key={aid.id} aid={aid} onBack={() => setAid(null)} />
+    ) : (
+      <StudyDoc key={aid.id} aid={aid} onBack={() => setAid(null)} />
+    );
   }
 
   return (
@@ -260,7 +272,9 @@ export function SeriesDetail({
         <SeriesQuizzes seriesId={series.id} canResearch={usage?.is_admin ?? false} onOpen={setQuiz} />
       )}
 
-      <ul className={active === "quizzes" ? "hidden" : "flex flex-col gap-1"}>
+      {active === "study" && <SeriesStudy seriesId={series.id} onOpen={setAid} />}
+
+      <ul className={active === "quizzes" || active === "study" ? "hidden" : "flex flex-col gap-1"}>
         {shown.map((capture) => (
           <li key={capture.slideId} className="flex flex-col gap-1">
             <div className="flex items-center gap-1">
