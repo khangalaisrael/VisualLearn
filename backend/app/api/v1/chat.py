@@ -1,9 +1,10 @@
 """POST /chat — docs/API_CONTRACT.md §3.
 
-Milestone 3 scope: "figure", "slide", and "algorithm" query_mode values
-are handled. "presentation" and "auto" need RetrievalService (M4);
-"general" has no grounding story yet — all three are rejected with 400
-rather than silently degraded to something else. "algorithm" grounds the
+"figure", "slide", "algorithm", "tutor" and "general" query_mode values are
+handled. "presentation" and "auto" need RetrievalService (M4) and are
+rejected with 400 rather than silently degraded to something else.
+"general" is an open chat with no slide behind it: no presentation, no
+grounding data, just the tutor prompt and the conversation. "algorithm" grounds the
 same way as "slide" (same objects, same slide_id requirement) but also
 runs each object through recurrence_solver.py's deterministic Master
 Theorem checker and injects any verified results into the context
@@ -62,8 +63,15 @@ _PROMPT_BY_MODE = {
     "slide": "chat_slide.v5",
     "algorithm": "chat_algorithm.v5",
     "tutor": "chat_tutor.v1",
+    "general": "chat_general.v1",
 }
-_EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium", "tutor": "medium"}
+_EFFORT_BY_MODE: dict[str, ChatEffort] = {
+    "figure": "low",
+    "slide": "medium",
+    "algorithm": "medium",
+    "tutor": "medium",
+    "general": "medium",
+}
 
 # docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. "university"
 # has no entry — it's what chat_algorithm.v4.md's baseline tone already is,
@@ -566,6 +574,10 @@ async def chat(
         context_text, referenced_object_ids, quiz_slide = await _build_tutor_context(db, request, current_user_id)
         presentation_uuid = quiz_slide.presentation_id if quiz_slide is not None else None
         slide_uuid = quiz_slide.id if quiz_slide is not None else None
+    elif request.query_mode == "general":
+        # An open chat: nothing is looked up, so there is nothing of anyone's to guard.
+        context_text, referenced_object_ids = "", []
+        presentation_uuid = slide_uuid = None
     else:
         if not request.presentation_id:
             raise HTTPException(status_code=400, detail="presentation_id is required")
@@ -590,7 +602,7 @@ async def chat(
     explanation_mode_prefix = ""
     if request.query_mode == "algorithm":
         explanation_mode_prefix = _explanation_mode_prefix(request.explanation_mode)
-    system_prompt = f"{explanation_mode_prefix}{base_prompt}\n\n{context_text}"
+    system_prompt = f"{explanation_mode_prefix}{base_prompt}\n\n{context_text}".rstrip()
     effort = _EFFORT_BY_MODE[request.query_mode]
 
     return StreamingResponse(

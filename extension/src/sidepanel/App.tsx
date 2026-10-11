@@ -1,24 +1,26 @@
 /**
  * Side panel shell. Chrome's own title bar already shows the product name,
- * so there is no in-app header: one row of navigation with the three places
- * a student works (Ask, Recent, Notes), today's capture count, and Settings.
- * Ask stays mounted while another view is open so a chat in progress is not
- * lost.
+ * so there is no in-app header: one row of navigation with the places a
+ * student works (Ask about a slide, Chat without one, Recent, Notes), today's
+ * capture count, and Settings. Ask and Chat stay mounted while another view
+ * is open so a conversation in progress is not lost.
  */
 
 import { useEffect, useState } from "react";
 
 import { AskTab, type RestoredChat } from "./tabs/AskTab";
+import { ChatTab } from "./tabs/ChatTab";
 import { NotesTab } from "./tabs/NotesTab";
 import { RecentTab } from "./tabs/RecentTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { UsageMeter } from "./components/UsageMeter";
 import { WelcomeScreen } from "./WelcomeScreen";
 
-type View = "ask" | "recent" | "notes" | "settings";
+type View = "ask" | "chat" | "recent" | "notes" | "settings";
 
 const TABS: { view: View; label: string }[] = [
   { view: "ask", label: "Ask" },
+  { view: "chat", label: "Chat" },
   { view: "recent", label: "Recent" },
   { view: "notes", label: "Notes" },
 ];
@@ -98,7 +100,7 @@ export function App(): JSX.Element {
             type="button"
             onClick={() => go(tab.view)}
             aria-current={view === tab.view ? "page" : undefined}
-            className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors duration-[120ms] ${
+            className={`rounded-sm px-2.5 py-1.5 text-sm font-medium transition-colors duration-[120ms] ${
               view === tab.view
                 ? "bg-indigo-50 text-indigo-700 dark:text-indigo-300"
                 : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
@@ -108,7 +110,10 @@ export function App(): JSX.Element {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-1">
-          <UsageMeter />
+          {/* At the panel's narrowest the four tabs need the room; the count is also on the Ask screen's limit card. */}
+          <span className="max-[350px]:hidden">
+            <UsageMeter />
+          </span>
           <button
             type="button"
             onClick={() => go("settings")}
@@ -141,6 +146,9 @@ export function App(): JSX.Element {
             setView("recent");
           }}
         />
+      </div>
+      <div className={view === "chat" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
+        <ChatTab />
       </div>
       {view === "recent" && (
         <div className="flex flex-1 flex-col overflow-hidden">

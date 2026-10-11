@@ -356,10 +356,10 @@ ExplanationMode = Literal["simple", "university", "rigorous", "exam", "socratic"
 
 class ChatRequest(BaseModel):
     """POST /chat request body (docs/API_CONTRACT.md §3). "figure", "slide",
-    and "algorithm" query_mode values are handled as of Milestone 3 —
-    "presentation" and "auto" arrive with M4's RetrievalService, "general"
-    has no grounding story yet; the router rejects those three with 400 for
-    now. "algorithm" grounds on the same objects as "slide" (same
+    "algorithm", "tutor" and "general" query_mode values are handled.
+    "presentation" and "auto" arrive with M4's RetrievalService; the router
+    rejects those two with 400 for now. "general" is an open chat with no
+    slide: it needs only `message`. "algorithm" grounds on the same objects as "slide" (same
     slide_id requirement) but also runs a deterministic Master Theorem
     check on any recurrence found and uses an algorithms-aware prompt
     (docs/AlgorithmsMVP.md Phase 1 & 2)."""
