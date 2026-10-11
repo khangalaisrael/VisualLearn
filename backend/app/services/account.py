@@ -18,6 +18,7 @@ from app.models.orm import (
     Presentation,
     ProWaitlistClick,
     RateLimitEvent,
+    Series,
     Session,
     Slide,
     UsageEvent,
@@ -36,6 +37,7 @@ async def delete_account(db: AsyncSession, user_id: uuid.UUID) -> None:
     await db.execute(delete(CacheEntry).where(CacheEntry.slide_id.in_(slide_ids)))
     await db.execute(delete(Slide).where(Slide.presentation_id.in_(presentation_ids)))
     await db.execute(delete(Presentation).where(Presentation.id.in_(presentation_ids)))
+    await db.execute(delete(Series).where(Series.user_id == user_id))
 
     await db.execute(delete(RateLimitEvent).where(RateLimitEvent.key == f"user:{user_id}"))
     await db.execute(delete(Session).where(Session.user_id == user_id))

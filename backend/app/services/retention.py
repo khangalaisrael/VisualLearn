@@ -19,6 +19,7 @@ from app.models.orm import (
     ObjectRecord,
     Presentation,
     RateLimitEvent,
+    Series,
     Session,
     Slide,
 )
@@ -70,6 +71,8 @@ async def run_cleanup(db: AsyncSession) -> CleanupResult:
     await db.execute(delete(ObjectRecord).where(ObjectRecord.slide_id.in_(old_slide_ids)))
     await db.execute(delete(CacheEntry).where(CacheEntry.slide_id.in_(old_slide_ids)))
     await db.execute(delete(Slide).where(Slide.id.in_(old_slide_ids)))
+    # A series goes with its last capture.
+    await db.execute(delete(Series).where(~exists().where(Slide.series_id == Series.id)))
     # A lecture goes once it is past the cutoff with no captures or chats left.
     presentations = await db.execute(
         delete(Presentation).where(

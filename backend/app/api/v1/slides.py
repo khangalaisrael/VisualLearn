@@ -30,6 +30,7 @@ from app.api.deps import (
     ensure_presentation_access,
     enforce_capture_rate_limit,
     get_current_user_id,
+    get_series_sorter,
     get_slide_analyzer,
     resolve_slide_analyzer,
     verify_api_key,
@@ -37,6 +38,7 @@ from app.api.deps import (
 from app.core.cache import get_redis
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.models.orm import Series
 from app.models.schemas import SlideAnalysisResponse
 from app.repositories.objects import ObjectRepository
 from app.repositories.presentations import PresentationRepository
@@ -44,6 +46,8 @@ from app.repositories.slides import SlideRepository
 from app.repositories.usage_events import UsageEventRepository
 from app.services.cache_service import CacheService
 from app.services.lecture_meta import clean_page_url, clean_title, lecture_key
+from app.services.series import assign_series, series_ref
+from app.services.series_sorter import SeriesSorter
 from app.services.slide_analyzer import SlideAnalyzer
 from app.services.usage import estimate_cost_usd, start_accumulator
 
@@ -63,6 +67,7 @@ async def analyze_slide(
     db: AsyncSession = Depends(get_db),
     redis: Redis | None = Depends(get_redis),
     analyzer: SlideAnalyzer = Depends(get_slide_analyzer),
+    sorter: SeriesSorter = Depends(get_series_sorter),
     current_user_id: uuid.UUID | None = Depends(get_current_user_id),
 ) -> SlideAnalysisResponse:
     """Analyze a captured slide image.
@@ -151,7 +156,7 @@ async def analyze_slide(
         # docstring for why object identity belongs to this table, not
         # the cache.
         slide = existing_slide
-        response_objects = [objects_repo.to_slide_object(record) for record in await objects_repo.list_by_slide(slide.id)]
+        records = await objects_repo.list_by_slide(slide.id)
     else:
         slide = await slides.create(
             presentation_id=presentation.id,
@@ -163,8 +168,8 @@ async def analyze_slide(
         # Fresh ids minted here (see ObjectRepository.create_many) since
         # this is the first time this specific slide gets objects, even
         # if `result` itself came from another presentation's cache hit.
-        created = await objects_repo.create_many(slide.id, result.objects)
-        response_objects = [objects_repo.to_slide_object(record) for record in created]
+        records = await objects_repo.create_many(slide.id, result.objects)
+    response_objects = [objects_repo.to_slide_object(record) for record in records]
 
     await UsageEventRepository(db).record(
         user_id=current_user_id,
@@ -176,6 +181,13 @@ async def analyze_slide(
         est_cost_usd=estimate_cost_usd(analyzer.model_name, usage.input_tokens, usage.output_tokens),
         slide_id=slide.id,
     )
+
+    # Sorting belongs to an account; a capture already placed keeps its place.
+    series = await db.get(Series, slide.series_id) if slide.series_id is not None else None
+    if series is None and current_user_id is not None and presentation.user_id == current_user_id:
+        series = await assign_series(
+            db, sorter, user_id=current_user_id, slide=slide, objects=records, page_title=presentation.title
+        )
     await db.commit()
 
     # Structured per docs/ARCHITECTURE.md §6: processing time, model used,
@@ -196,4 +208,5 @@ async def analyze_slide(
         status=slide.status,
         objects=response_objects,
         summary=result.summary,
+        series=series_ref(series, slide),
     )

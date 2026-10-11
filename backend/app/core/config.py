@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     global_captures_per_day: int = 250
     rate_limit_chat_messages_per_day: int = 100
 
+    # Sorting a capture into a series runs inside the capture request; past
+    # this many seconds the capture is returned unsorted and sorted later.
+    sort_timeout_seconds: float = 6.0
+    # Unsorted captures placed per load of the series list, so one load is
+    # never a long wait.
+    sort_backfill_per_request: int = 5
+
     # Chats (and the slide content behind them) are deleted this many days
     # after their last message — see services/retention.py.
     chat_retention_days: int = 30

@@ -30,6 +30,7 @@ from app.services.rate_limiter import (
     enforce_global_capture_cap,
     enforce_rate_limits,
 )
+from app.services.series_sorter import ClaudeSeriesSorter, PlaceholderSeriesSorter, SeriesSorter
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,23 @@ async def get_chat_service() -> ChatService | None:
     this dependency directly (tests/backend/conftest.py) to guarantee they
     never call a real provider API."""
     return _chat_service
+
+
+def _build_series_sorter() -> SeriesSorter:
+    """Sorting uses Claude when an Anthropic key is set, whichever provider
+    analyses slides; otherwise captures are grouped by page title."""
+    settings = get_settings()
+    if settings.anthropic_api_key:
+        return ClaudeSeriesSorter(api_key=settings.anthropic_api_key, model=settings.anthropic_chat_model)
+    return PlaceholderSeriesSorter()
+
+
+_series_sorter = _build_series_sorter()
+
+
+async def get_series_sorter() -> SeriesSorter:
+    """Tests override this (tests/backend/conftest.py) so they never call a provider."""
+    return _series_sorter
 
 
 def _check_requested_model(requested_model: str, *, default_is_openai: bool, default_is_claude: bool) -> None:

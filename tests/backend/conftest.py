@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.api.deps import get_chat_service, get_slide_analyzer
+from app.api.deps import get_chat_service, get_series_sorter, get_slide_analyzer
 from app.core.cache import get_redis
 from app.core.config import get_settings
 from app.db.base import Base
@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.schemas import ChatUsage
 from app.services.chat_service import ChatChunk
+from app.services.series_sorter import PlaceholderSeriesSorter
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
@@ -114,10 +115,14 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_chat_service() -> FakeChatService:
         return FakeChatService()
 
+    async def override_get_series_sorter() -> PlaceholderSeriesSorter:
+        return PlaceholderSeriesSorter()
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_redis] = override_get_redis
     app.dependency_overrides[get_slide_analyzer] = override_get_slide_analyzer
     app.dependency_overrides[get_chat_service] = override_get_chat_service
+    app.dependency_overrides[get_series_sorter] = override_get_series_sorter
 
     settings = get_settings()
     settings.local_api_key = "test-api-key"

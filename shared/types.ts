@@ -36,6 +36,17 @@ export interface SlideObject {
   confidence: number;
 }
 
+export type ContentKind = "lecture" | "practice";
+
+/** Where the sorter filed one capture: category > series, plus this slide's own subtopic. */
+export interface SeriesRef {
+  id: string;
+  category: string;
+  title: string;
+  subtopic: string | null;
+  kind: ContentKind;
+}
+
 export interface SlideAnalysisResponse {
   presentation_id: string;
   slide_id: string;
@@ -43,6 +54,8 @@ export interface SlideAnalysisResponse {
   status: "analyzed" | "pending" | "failed";
   objects: SlideObject[];
   summary: string;
+  // Null for a signed-out capture, or one the sorter could not place.
+  series: SeriesRef | null;
 }
 
 export type QueryMode = "figure" | "slide" | "algorithm" | "presentation" | "general" | "auto";
@@ -187,6 +200,46 @@ export interface LectureSummary {
 export interface LectureListResponse {
   retention_days: number;
   lectures: LectureSummary[];
+}
+
+export interface SeriesCapture {
+  slide_id: string;
+  summary: string;
+  subtopic: string | null;
+  kind: ContentKind;
+  created_at: string;
+  page_title: string;
+  page_url: string | null;
+  conversations: CaptureConversation[];
+}
+
+export interface SeriesSummary {
+  id: string;
+  category: string;
+  title: string;
+  cover_slide_id: string | null;
+  last_activity_at: string;
+  captures: SeriesCapture[];
+}
+
+export interface SeriesListResponse {
+  retention_days: number;
+  series: SeriesSummary[];
+  // Captures the sorter has not placed yet.
+  unsorted: SeriesCapture[];
+}
+
+export interface SeriesUpdateRequest {
+  title?: string;
+  category?: string;
+  cover_slide_id?: string;
+}
+
+/** An existing series (`series_id`), or a new one (`category` and `title`). */
+export interface MoveSlideRequest {
+  series_id?: string;
+  category?: string;
+  title?: string;
 }
 
 export interface AdminDay {

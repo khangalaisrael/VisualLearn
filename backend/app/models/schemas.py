@@ -70,6 +70,20 @@ class SlideObject(BaseModel):
     graph_structure: GraphStructure | None = None
 
 
+ContentKind = Literal["lecture", "practice"]
+
+
+class SeriesRef(BaseModel):
+    """Where the sorter filed one capture (services/series.py)."""
+
+    id: str
+    category: str
+    title: str
+    # The specific aspect this one slide covers, narrower than the series title.
+    subtopic: str | None = None
+    kind: ContentKind = "lecture"
+
+
 class SlideAnalysisResponse(BaseModel):
     presentation_id: UUID
     slide_id: UUID
@@ -77,6 +91,8 @@ class SlideAnalysisResponse(BaseModel):
     status: Literal["analyzed", "pending", "failed"]
     objects: list[SlideObject]
     summary: str
+    # Null for a signed-out capture, or one the sorter could not place.
+    series: SeriesRef | None = None
 
 
 class AdminDay(BaseModel):
@@ -162,6 +178,49 @@ class LectureSummary(BaseModel):
 class LectureListResponse(BaseModel):
     retention_days: int
     lectures: list[LectureSummary]
+
+
+class SeriesCapture(BaseModel):
+    slide_id: str
+    summary: str
+    subtopic: str | None
+    kind: ContentKind
+    created_at: datetime
+    # The page the capture was taken from.
+    page_title: str
+    page_url: str | None
+    conversations: list[CaptureConversation]
+
+
+class SeriesSummary(BaseModel):
+    id: str
+    category: str
+    title: str
+    cover_slide_id: str | None
+    last_activity_at: datetime
+    captures: list[SeriesCapture]  # newest first
+
+
+class SeriesListResponse(BaseModel):
+    retention_days: int
+    series: list[SeriesSummary]  # most recently active first
+    # Captures the sorter has not placed yet.
+    unsorted: list[SeriesCapture]
+
+
+class SeriesUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    category: str | None = Field(default=None, min_length=1, max_length=80)
+    cover_slide_id: str | None = None
+
+
+class MoveSlideRequest(BaseModel):
+    """Move a capture to an existing series (`series_id`) or to a new one
+    (`category` and `title`)."""
+
+    series_id: str | None = None
+    category: str | None = Field(default=None, min_length=1, max_length=80)
+    title: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 QueryMode = Literal["figure", "slide", "algorithm", "presentation", "general", "auto"]

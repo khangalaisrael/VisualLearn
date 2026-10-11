@@ -145,6 +145,24 @@ class Presentation(Base):
     slides: Mapped[list["Slide"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")
 
 
+class Series(Base):
+    """A topic a signed-in user's captures are sorted into (services/series.py),
+    e.g. category "Functional Programming", title "Lambda Calculus". Unlike a
+    presentation, which is one web page, a series follows the subject across
+    pages. It goes when its last capture does."""
+
+    __tablename__ = "series"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String(80))
+    title: Mapped[str] = mapped_column(String(120))
+    # A plain column, not a foreign key: slides already point at their series.
+    cover_slide_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Slide(Base):
     __tablename__ = "slides"
     __table_args__ = (
@@ -160,6 +178,11 @@ class Slide(Base):
     analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # When the capture was made; retention and "Recent" order by this.
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Set by the sorter; all three stay null for signed-out captures and for
+    # a capture the sorter could not place.
+    series_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("series.id"), nullable=True)
+    subtopic: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    content_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)  # "lecture" | "practice"
 
     presentation: Mapped["Presentation"] = relationship(back_populates="slides")
 

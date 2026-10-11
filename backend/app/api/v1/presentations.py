@@ -7,18 +7,16 @@ session token, since an anonymous capture has no owner to authorise.
 """
 
 import uuid
-from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ensure_presentation_access, get_current_user_id, verify_api_key
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.orm import Conversation, Message, Presentation, Slide
+from app.models.orm import Presentation, Series, Slide
 from app.models.schemas import (
-    CaptureConversation,
     CaptureSummary,
     LectureListResponse,
     LectureSummary,
@@ -27,12 +25,12 @@ from app.models.schemas import (
 from app.repositories.objects import ObjectRepository
 from app.repositories.presentations import PresentationRepository
 from app.repositories.slides import SlideRepository
+from app.services.captures import SUMMARY_PREVIEW_CHARS, conversations_by_slide
 from app.services.presentations import delete_presentation, delete_slides
 from app.services.retention import retention_cutoff
+from app.services.series import prune_series, series_ref
 
 router = APIRouter(tags=["lectures"], dependencies=[Depends(verify_api_key)])
-
-_SUMMARY_PREVIEW_CHARS = 400
 
 
 def _require_user(current_user_id: uuid.UUID | None) -> uuid.UUID:
@@ -65,37 +63,7 @@ async def list_lectures(
         )
     ).all()
 
-    slide_ids = [slide.id for slide, _ in rows]
-    chats: dict[uuid.UUID, list[CaptureConversation]] = defaultdict(list)
-    if slide_ids:
-        chat_rows = (
-            await db.execute(
-                select(
-                    Conversation.id,
-                    Conversation.title,
-                    Conversation.slide_id,
-                    Conversation.last_activity_at,
-                    func.count(Message.id),
-                )
-                .join(Message, Message.conversation_id == Conversation.id)
-                .where(
-                    Conversation.user_id == user_id,
-                    Conversation.slide_id.in_(slide_ids),
-                    Conversation.last_activity_at >= since,
-                )
-                .group_by(Conversation.id)
-                .order_by(Conversation.last_activity_at.desc())
-            )
-        ).all()
-        for conversation_id, title, slide_id, last_activity_at, message_count in chat_rows:
-            chats[slide_id].append(
-                CaptureConversation(
-                    id=str(conversation_id),
-                    title=title or "Untitled chat",
-                    message_count=message_count,
-                    last_activity_at=last_activity_at,
-                )
-            )
+    chats = await conversations_by_slide(db, user_id, [slide.id for slide, _ in rows], since)
 
     lectures: dict[uuid.UUID, LectureSummary] = {}
     for slide, presentation in rows:
@@ -112,7 +80,7 @@ async def list_lectures(
             CaptureSummary(
                 slide_id=str(slide.id),
                 slide_number=slide.slide_number,
-                summary=(slide.summary or "")[:_SUMMARY_PREVIEW_CHARS],
+                summary=(slide.summary or "")[:SUMMARY_PREVIEW_CHARS],
                 created_at=slide.created_at,
                 conversations=chats.get(slide.id, []),
             )
@@ -152,6 +120,7 @@ async def get_slide(
         status=slide.status,
         objects=[objects.to_slide_object(record) for record in await objects.list_by_slide(slide.id)],
         summary=slide.summary or "",
+        series=series_ref(await db.get(Series, slide.series_id) if slide.series_id else None, slide),
     )
 
 
@@ -167,6 +136,7 @@ async def delete_slide(
     if presentation is None or presentation.user_id != user_id:
         raise HTTPException(status_code=404, detail="Unknown slide")
     await delete_slides(db, [slide.id])
+    await prune_series(db, user_id)
     await db.commit()
 
 
@@ -181,4 +151,5 @@ async def delete_lecture(
     if presentation is None or presentation.user_id != user_id:
         raise HTTPException(status_code=404, detail="Unknown lecture")
     await delete_presentation(db, presentation.id)
+    await prune_series(db, user_id)
     await db.commit()
