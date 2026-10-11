@@ -12,6 +12,7 @@ from typing import Literal, Protocol
 import anthropic
 
 from app.core.prompt_loader import load_prompt
+from app.services.model_call import final_message
 from app.services.series_source import SeriesText, format_slides
 from app.services.usage import record_response_usage
 
@@ -21,9 +22,9 @@ MAX_CARDS = 20
 _MIN_CARDS = 8
 _CARDS_PER_SLIDE = 4
 # Thinking counts against max_tokens. A guide to a short series is about
-# 1,500 tokens of text, and it grows with the series. Above roughly 21,000
-# the SDK requires a streamed request.
-_MAX_TOKENS = 20_000
+# 1,500 tokens of text and it grows with the series (30 slides: 7,000 with
+# thinking), so the request is streamed (services/model_call.py).
+_MAX_TOKENS = 32_000
 
 _PROMPTS: dict[AidKind, str] = {
     "guide": "study_guide.v1",
@@ -132,7 +133,8 @@ class ClaudeStudyAidGenerator:
             request += f"\n\nWrite {card_count(source)} cards."
             output_config["format"] = {"type": "json_schema", "schema": _CARDS_SCHEMA}
 
-        response = await self._client.messages.create(
+        response = await final_message(
+            self._client,
             model=self.model_name,
             max_tokens=_MAX_TOKENS,
             system=load_prompt(_PROMPTS[kind]),

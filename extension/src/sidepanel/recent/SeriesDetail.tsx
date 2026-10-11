@@ -268,7 +268,12 @@ export function SeriesDetail({
       )}
 
       {active === "quizzes" && (
-        <SeriesQuizzes seriesId={series.id} canResearch={usage?.is_admin ?? false} onOpen={setQuiz} />
+        <SeriesQuizzes
+          seriesId={series.id}
+          slideCount={series.captures.length}
+          canResearch={usage?.is_admin ?? false}
+          onOpen={setQuiz}
+        />
       )}
 
       {active === "study" && <SeriesStudy seriesId={series.id} onOpen={setAid} />}

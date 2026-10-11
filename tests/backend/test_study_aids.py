@@ -10,9 +10,9 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
+from conftest import streaming_client
 from httpx import AsyncClient
 from PIL import Image
 from sqlalchemy import select, update
@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_study_aid_generator
 from app.core.config import get_settings
 from app.main import app
-from app.models.orm import Series, Slide, StudyAid, UsageEvent, User
+from app.models.orm import Slide, StudyAid, UsageEvent, User
 from app.models.orm import Session as SessionRow
-from app.services.series_source import MAX_SLIDES, SeriesText, read_series
+from app.services.series_source import SeriesText
 from app.services.study_aid_generator import (
     MAX_CARDS,
     Card,
@@ -244,32 +244,29 @@ def test_cards_missing_a_side_are_dropped() -> None:
 
 
 async def test_a_guide_is_plain_markdown_from_its_own_prompt() -> None:
-    fake_client = AsyncMock()
-    fake_client.messages.create.return_value = _response("## The big picture\nLambda calculus is...")
+    fake_client = streaming_client(_response("## The big picture\nLambda calculus is..."))
     aid = await ClaudeStudyAidGenerator(client=fake_client, model="claude-haiku-5-5").generate("guide", _SOURCE)
 
     assert (aid.title, aid.cards) == ("Lambda Calculus study guide", None)
     assert aid.markdown.startswith("## The big picture")
-    call = fake_client.messages.create.call_args.kwargs
+    call = fake_client.messages.stream.call_args.kwargs
     assert call["system"].startswith("You write a study guide")
     assert "format" not in call["output_config"]
     assert "[Slide 2]\nbeta reduction" in call["messages"][0]["content"]
 
 
 async def test_flashcards_use_structured_output_and_ask_for_a_count() -> None:
-    fake_client = AsyncMock()
-    fake_client.messages.create.return_value = _response(json.dumps({"cards": [{"front": "What is a redex?", "back": "A reducible expression."}]}))
+    fake_client = streaming_client(_response(json.dumps({"cards": [{"front": "What is a redex?", "back": "A reducible expression."}]})))
     aid = await ClaudeStudyAidGenerator(client=fake_client, model="claude-haiku-5-5").generate("flashcards", _SOURCE)
 
     assert aid.markdown is None and [(c.front, c.back) for c in aid.cards] == [("What is a redex?", "A reducible expression.")]
-    call = fake_client.messages.create.call_args.kwargs
+    call = fake_client.messages.stream.call_args.kwargs
     assert call["output_config"]["format"]["type"] == "json_schema"
     assert call["messages"][0]["content"].endswith("Write 8 cards.")
 
 
 async def test_a_cut_off_answer_is_an_error_not_half_a_guide() -> None:
-    fake_client = AsyncMock()
-    fake_client.messages.create.return_value = _response("## The big pic", stop_reason="max_tokens")
+    fake_client = streaming_client(_response("## The big pic", stop_reason="max_tokens"))
     with pytest.raises(ValueError):
         await ClaudeStudyAidGenerator(client=fake_client, model="claude-haiku-5-5").generate("cheatsheet", _SOURCE)
 
@@ -296,7 +293,7 @@ async def test_a_study_aid_is_written_from_every_slide_of_a_long_series(
     headers = await _sign_in(db_session, "a@example.com")
     series_id = await _series(client, headers)
     first = (await db_session.execute(select(Slide))).scalar_one()
-    count = MAX_SLIDES + 8
+    count = 20
     for n in range(1, count):
         db_session.add(
             Slide(
@@ -318,9 +315,3 @@ async def test_a_study_aid_is_written_from_every_slide_of_a_long_series(
         await _make(client, headers, series_id, kind)
     assert [len(source.slides) for source in recorder.sources] == [count, count, count]
     assert recorder.sources[0].slides[-1].startswith(f"Summary {count - 1}")  # in capture order
-
-    # A quiz keeps reading the newest dozen.
-    series = await db_session.get(Series, uuid.UUID(series_id))
-    quiz_source = await read_series(db_session, series)
-    assert quiz_source is not None and len(quiz_source.text.slides) == MAX_SLIDES
-    assert quiz_source.text.slides[-1].startswith(f"Summary {count - 1}")

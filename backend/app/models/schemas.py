@@ -310,7 +310,7 @@ class QuizListResponse(BaseModel):
 
 
 class QuizCreateRequest(BaseModel):
-    count: int = Field(default=5, ge=3, le=10)
+    count: int = Field(default=5, ge=3, le=20)
     # Also search the web for study resources on the topic. Admins only for now.
     research: bool = False
 

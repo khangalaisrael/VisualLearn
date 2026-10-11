@@ -10,7 +10,12 @@ import { relativeTime } from "./library";
 
 type ListState = { status: "loading" } | { status: "loaded"; quizzes: QuizSummary[] } | { status: "error"; message: string };
 
-const LENGTHS = [5, 10];
+const LENGTHS = [5, 10, 15, 20];
+
+/** A longer series starts on a longer quiz: about one question for every two slides. */
+function suggestedLength(slideCount: number): number {
+  return LENGTHS.find((length) => length * 2 >= slideCount) ?? LENGTHS[LENGTHS.length - 1];
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -28,16 +33,19 @@ function problemFrom(error: unknown): Problem {
 
 export function SeriesQuizzes({
   seriesId,
+  slideCount,
   canResearch,
   onOpen,
 }: {
   seriesId: string;
+  /** How many slides the series has: sets the quiz length offered first. */
+  slideCount: number;
   /** Web research for study resources is switched on for this account. */
   canResearch: boolean;
   onOpen: (quiz: QuizOut) => void;
 }): JSX.Element {
   const [state, setState] = useState<ListState>({ status: "loading" });
-  const [count, setCount] = useState(LENGTHS[0]);
+  const [count, setCount] = useState(() => suggestedLength(slideCount));
   const [research, setResearch] = useState(false);
   const [writing, setWriting] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
@@ -83,7 +91,8 @@ export function SeriesQuizzes({
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 shadow-subtle">
         <p className="text-sm text-slate-600">
-          A quiz is written from the slides in this series. Get one wrong and you can have it explained.
+          A quiz is written from all the slides in this series, and each new one asks different questions. Get one
+          wrong and you can have it explained.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-2 text-xs font-medium text-slate-600">

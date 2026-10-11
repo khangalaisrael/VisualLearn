@@ -146,3 +146,26 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+def streaming_client(*final_messages):
+    """A stand-in Anthropic client for services that stream their request
+    (services/model_call.py): each `messages.stream(...)` call yields the
+    next of these messages as its final message (the last one repeats).
+    The request is in `client.messages.stream.call_args.kwargs`."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    remaining = list(final_messages)
+
+    def open_stream(**_request):
+        message = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+        stream = MagicMock()
+        stream.get_final_message = AsyncMock(return_value=message)
+        manager = MagicMock()
+        manager.__aenter__ = AsyncMock(return_value=stream)
+        manager.__aexit__ = AsyncMock(return_value=False)
+        return manager
+
+    client = MagicMock()
+    client.messages.stream = MagicMock(side_effect=open_stream)
+    return client

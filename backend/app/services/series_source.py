@@ -1,9 +1,9 @@
 """A series read as text, for the things written from it (quizzes, study aids).
 
 Slides are sent to a model as their already-extracted text, never as images,
-each cut to a fixed length. A quiz reads the most recent dozen, so its cost
-does not grow with the series; a study aid reads the whole series, because
-a guide to a long series has to cover all of it.
+each cut to a fixed length. The whole series is read, however long: a quiz
+or a guide that only knew the latest slides would leave the rest of a long
+series unpractised.
 """
 
 import uuid
@@ -17,8 +17,6 @@ from app.models.orm import ObjectRecord, Series, Slide
 from app.repositories.objects import ObjectRepository
 from app.services.retention import retention_cutoff
 
-# How many of the most recent slides a quiz reads, and how much text of each slide is kept.
-MAX_SLIDES = 12
 MAX_PRACTICE_SLIDES = 3
 MAX_SLIDE_CHARS = 1200
 
@@ -49,11 +47,8 @@ def slide_text(slide: Slide, objects: Sequence[ObjectRecord]) -> str:
     return f"{heading}{slide.summary or ''}\n{body}"[:MAX_SLIDE_CHARS].strip()
 
 
-async def read_series(
-    db: AsyncSession, series: Series, max_slides: int | None = MAX_SLIDES
-) -> SeriesSource | None:
-    """None when the series has no unexpired slides to read. `max_slides`
-    keeps only the most recent ones; None reads the whole series."""
+async def read_series(db: AsyncSession, series: Series) -> SeriesSource | None:
+    """None when the series has no unexpired slides to read."""
     slides = list(
         (
             await db.execute(
@@ -67,7 +62,7 @@ async def read_series(
     # Written from the lecture slides; a series of nothing but practice
     # slides is read from those instead.
     lectures = [s for s in slides if s.content_kind != "practice"] or practice
-    lectures = lectures[:max_slides][::-1]  # the newest ones, in the order they were captured
+    lectures = lectures[::-1]  # in the order they were captured
     if not lectures:
         return None
 

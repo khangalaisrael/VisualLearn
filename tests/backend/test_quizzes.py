@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from conftest import FakeChatService
+from conftest import FakeChatService, streaming_client
 from httpx import AsyncClient
 from PIL import Image
 from sqlalchemy import select, update
@@ -21,7 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.orm import Quiz, QuizAttempt, UsageEvent, User
 from app.models.orm import Session as SessionRow
-from app.services.quiz_generator import ClaudeQuizGenerator, QuizSource, format_source, parse_quiz
+from app.services.quiz_generator import (
+    MAX_ASKED,
+    ClaudeQuizGenerator,
+    GeneratedQuestion,
+    GeneratedQuiz,
+    QuizSource,
+    format_source,
+    parse_quiz,
+)
 
 API_KEY = {"X-API-Key": "test-api-key"}
 LAMBDA = "Lambda Calculus"
@@ -93,7 +101,7 @@ async def test_quiz_requests_are_validated(client: AsyncClient, db_session: Asyn
     captured = await _capture(client, headers)
     url = f"/api/v1/series/{captured['series']['id']}/quizzes"
     assert (await client.post(url, json={"count": 2}, headers=headers)).status_code == 422
-    assert (await client.post(url, json={"count": 11}, headers=headers)).status_code == 422
+    assert (await client.post(url, json={"count": 21}, headers=headers)).status_code == 422
     assert (await client.post(url, json={}, headers=API_KEY)).status_code == 401
     # Web research is not open to non-admins.
     assert (await client.post(url, json={"research": True}, headers=headers)).status_code == 403
@@ -298,20 +306,29 @@ def test_malformed_questions_are_dropped_and_slides_mapped() -> None:
 
 
 async def test_generator_calls_the_model_once_and_trims_to_the_requested_count() -> None:
-    fake_client = AsyncMock()
-    fake_client.messages.create.return_value = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=json.dumps({"title": "T", "questions": [_question()] * 4}))]
+    fake_client = streaming_client(
+        SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=json.dumps({"title": "T", "questions": [_question()] * 4}))],
+            stop_reason="end_turn",
+        )
     )
     generator = ClaudeQuizGenerator(client=fake_client, model="claude-haiku-5-5")
     quiz = await generator.generate(_SOURCE, 3)
     assert len(quiz.questions) == 3
-    assert fake_client.messages.create.call_count == 1
-    assert fake_client.messages.create.call_args.kwargs["model"] == "claude-haiku-5-5"
+    assert fake_client.messages.stream.call_count == 1
+    assert fake_client.messages.stream.call_args.kwargs["model"] == "claude-haiku-5-5"
+
+
+async def test_a_cut_off_quiz_is_an_error() -> None:
+    cut_off = SimpleNamespace(content=[SimpleNamespace(type="text", text='{"title": "T", "questions": [')], stop_reason="max_tokens")
+    generator = ClaudeQuizGenerator(client=streaming_client(cut_off), model="claude-haiku-5-5")
+    with pytest.raises(ValueError, match="ran out of room"):
+        await generator.generate(_SOURCE, 3)
 
 
 # --- web research (admins only) -----------------------------------------------
 
-from app.api.deps import get_resource_finder  # noqa: E402
+from app.api.deps import get_quiz_generator, get_resource_finder  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.resource_finder import (  # noqa: E402
     ClaudeResourceFinder,
@@ -435,3 +452,52 @@ async def test_finder_returns_nothing_when_the_answer_is_cut_off() -> None:
     finder = ClaudeResourceFinder(client=fake_client, model="claude-haiku-5-5", max_searches=3)
     result = await finder.find(category="C", title="T", subtopics=[])
     assert result.resources == [] and result.searches == 1
+
+
+# --- more practice on a long series ------------------------------------------------
+
+
+class _AskedRecorder:
+    """Writes numbered questions and keeps the earlier questions it was shown."""
+
+    model_name = "recording"
+
+    def __init__(self) -> None:
+        self.asked: list[list[str]] = []
+
+    async def generate(self, source, count: int, asked=()) -> GeneratedQuiz:
+        self.asked.append(list(asked))
+        round_number = len(self.asked)
+        return GeneratedQuiz(
+            title=f"Quiz {round_number}",
+            questions=[
+                GeneratedQuestion(f"Round {round_number} question {n}?", ["a", "b", "c", "d"], 0, "Because.", 0)
+                for n in range(count)
+            ],
+        )
+
+
+async def test_a_new_quiz_is_told_what_the_series_was_already_asked(client: AsyncClient, db_session: AsyncSession) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    lam = (await _capture(client, headers, "white"))["series"]["id"]
+    other = (await _capture(client, headers, "black", "Dynamic Programming"))["series"]["id"]
+    recorder = _AskedRecorder()
+    app.dependency_overrides[get_quiz_generator] = lambda: recorder
+
+    long_quiz = await _quiz(client, headers, lam, count=20)  # a long series can have a long quiz
+    assert len(long_quiz["questions"]) == 20
+    await _quiz(client, headers, other, count=3)
+    await _quiz(client, headers, lam, count=3)
+
+    assert recorder.asked[0] == []
+    assert recorder.asked[1] == []  # another series' questions are not this one's
+    assert recorder.asked[2] == [f"Round 1 question {n}?" for n in range(20)]
+
+
+def test_the_request_lists_the_latest_questions_already_asked() -> None:
+    assert "<already_asked>" not in format_source(_SOURCE, 5)
+    asked = [f"Question   number {n}?" for n in range(MAX_ASKED + 5)]
+    text = format_source(_SOURCE, 5, asked)
+    assert text.endswith("</already_asked>\n\nWrite 5 questions.")
+    assert "- Question number 5?" in text and "- Question number 4?" not in text  # the oldest fall off
+    assert text.count("\n- Question number") == MAX_ASKED

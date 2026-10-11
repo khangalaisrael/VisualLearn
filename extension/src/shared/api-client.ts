@@ -643,7 +643,8 @@ export function createQuiz(seriesId: string, request: QuizCreateRequest): Promis
     `/series/${seriesId}/quizzes`,
     jsonBody("POST", request),
     "Couldn't write a quiz",
-    request.research ? RESEARCH_QUIZ_ATTEMPT_TIMEOUT_MS : QUIZ_ATTEMPT_TIMEOUT_MS
+    // Up to twenty questions from the whole series: allow as long as a study aid.
+    STUDY_AID_ATTEMPT_TIMEOUT_MS
   );
 }
 

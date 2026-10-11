@@ -123,6 +123,14 @@ def _out(quiz: Quiz, stats: dict[uuid.UUID, tuple[int, int]]) -> QuizOut:
     )
 
 
+async def _already_asked(db: AsyncSession, series_id: uuid.UUID) -> list[str]:
+    """The questions of this series' earlier quizzes, oldest first, so a new quiz asks something else."""
+    earlier = (
+        await db.execute(select(Quiz.questions).where(Quiz.series_id == series_id).order_by(Quiz.created_at, Quiz.id))
+    ).scalars()
+    return [q["question"] for questions in earlier for q in questions if q.get("question")]
+
+
 @router.post(
     "/series/{series_id}/quizzes",
     response_model=QuizOut,
@@ -152,7 +160,7 @@ async def create_quiz(
         asyncio.create_task(_research(finder, series, source.subtopics)) if body.research and finder is not None else None
     )
     try:
-        generated = await generator.generate(source.text, body.count)
+        generated = await generator.generate(source.text, body.count, await _already_asked(db, series.id))
     except Exception as exc:
         if research_task is not None:
             research_task.cancel()
