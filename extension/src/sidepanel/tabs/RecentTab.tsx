@@ -27,13 +27,10 @@ import {
   filterLibrary,
   loadLibrary,
 } from "../recent/library";
-import { CloseIcon, SearchIcon, StarIcon } from "../recent/parts";
+import { CloseIcon, SearchIcon } from "../recent/parts";
 import { SeriesCard, SeriesCardSkeleton } from "../recent/SeriesCard";
 import { type SeriesActions, SeriesDetail } from "../recent/SeriesDetail";
 import type { RestoredChat } from "./AskTab";
-
-/** A value for the category filter that means "my favourites", whatever their category. */
-const FAVOURITES = "\u0000favourites";
 
 type ListState = { status: "loading" } | { status: "loaded"; library: Library } | { status: "error"; message: string };
 
@@ -72,18 +69,16 @@ export function RecentTab({
 
   const library = state.status === "loaded" ? state.library : null;
   const categories = useMemo(() => (library ? categoriesOf(library.series) : []), [library]);
-  const visible = useMemo(() => {
-    if (!library) return [];
-    return category === FAVOURITES
-      ? filterLibrary(library.series.filter((series) => series.starred), query, null)
-      : filterLibrary(library.series, query, category);
-  }, [library, query, category]);
+  const visible = useMemo(
+    () => (library ? filterLibrary(library.series, query, category) : []),
+    [library, query, category]
+  );
   const selected = library?.series.find((series) => series.id === selectedId) ?? null;
   const searching = query.trim() !== "";
 
   // A category can disappear (its last series renamed or deleted).
   useEffect(() => {
-    if (category !== null && category !== FAVOURITES && !categories.some((item) => item.name === category)) setCategory(null);
+    if (category !== null && !categories.some((item) => item.name === category)) setCategory(null);
   }, [categories, category]);
 
   /** Runs one change, then refreshes the list from the server. */
@@ -142,7 +137,6 @@ export function RecentTab({
     setCover: (series, capture) => void run(() => updateSeries(series.id, { cover_slide_id: capture.slideId })),
     moveToSeries: (capture, seriesId) => void run(() => moveSlide(capture.slideId, { series_id: seriesId })),
     moveToNewSeries: (capture, title, category) => void run(() => moveSlide(capture.slideId, { title, category })),
-    toggleStar: (series) => void run(() => updateSeries(series.id, { starred: !series.starred })),
   };
 
   const signIn = async () => {
@@ -233,43 +227,35 @@ export function RecentTab({
                 )}
               </div>
 
-              {/* Favourites need an account (stars are kept on the server); categories need more than one. */}
-              {(library.signedIn || categories.length > 1) && (
+              {categories.length > 1 && (
                 <div
                   className="-mx-4 flex flex-none gap-2 overflow-x-auto px-4 py-0.5 [scrollbar-width:none]"
                   role="group"
-                  aria-label="Which series to show"
+                  aria-label="Categories"
                 >
-                  {[
-                    { name: null as string | null, label: "All" },
-                    ...(library.signedIn ? [{ name: FAVOURITES as string | null, label: "Favourites" }] : []),
-                    ...(categories.length > 1 ? categories.map((c) => ({ name: c.name as string | null, label: c.name })) : []),
-                  ].map(({ name, label }) => (
-                    <button
-                      key={name ?? "all"}
-                      type="button"
-                      aria-pressed={category === name}
-                      onClick={() => setCategory(name)}
-                      className={`flex flex-none items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-[120ms] ${
-                        category === name
-                          ? "border-indigo-600 bg-indigo-600 text-white"
-                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      {name === FAVOURITES && <StarIcon filled={category === FAVOURITES} />}
-                      {label}
-                    </button>
-                  ))}
+                  {[{ name: null as string | null, label: "All" }, ...categories.map((c) => ({ name: c.name, label: c.name }))].map(
+                    ({ name, label }) => (
+                      <button
+                        key={label}
+                        type="button"
+                        aria-pressed={category === name}
+                        onClick={() => setCategory(name)}
+                        className={`flex-none rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-[120ms] ${
+                          category === name
+                            ? "border-indigo-600 bg-indigo-600 text-white"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  )}
                 </div>
               )}
 
               {visible.length === 0 ? (
                 <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-                  {searching
-                    ? `No series or slide matches "${query.trim()}".`
-                    : category === FAVOURITES
-                      ? "No favourites yet. Press the star on a series to keep it here."
-                      : "No series here."}
+                  No series or slide matches "{query.trim()}".
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3">
@@ -279,7 +265,6 @@ export function RecentTab({
                       hit={hit}
                       busy={busy}
                       onSelect={() => setSelectedId(hit.series.id)}
-                      onToggleStar={() => actions.toggleStar(hit.series)}
                       onOpenCapture={(capture) => void openCapture(capture)}
                     />
                   ))}

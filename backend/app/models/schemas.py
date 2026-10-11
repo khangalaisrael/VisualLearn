@@ -197,8 +197,6 @@ class SeriesSummary(BaseModel):
     category: str
     title: str
     cover_slide_id: str | None
-    # Marked as a favourite by its owner.
-    starred: bool = False
     last_activity_at: datetime
     captures: list[SeriesCapture]  # newest first
 
@@ -214,7 +212,6 @@ class SeriesUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     category: str | None = Field(default=None, min_length=1, max_length=80)
     cover_slide_id: str | None = None
-    starred: bool | None = None
 
 
 class MoveSlideRequest(BaseModel):
@@ -238,8 +235,6 @@ class NoteOut(BaseModel):
     category: str | None = None
     # Marked as a favourite by its owner.
     starred: bool = False
-    # Whether the series it is filed under is a favourite (the same star Recent shows).
-    series_starred: bool = False
     series_id: str | None
     slide_id: str | None
     created_at: datetime

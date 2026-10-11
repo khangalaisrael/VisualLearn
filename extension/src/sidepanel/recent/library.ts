@@ -36,8 +36,6 @@ export interface LibrarySeries {
   captures: LibraryCapture[];
   /** A real, server-side series: it can be renamed, re-covered and moved into. */
   sorted: boolean;
-  /** A favourite: listed before the others. */
-  starred: boolean;
 }
 
 export interface Library {
@@ -99,7 +97,6 @@ function groupLocal(records: CaptureRecord[]): LibrarySeries[] {
         lastActivity: record.capturedAt,
         captures: [capture],
         sorted: false,
-        starred: false,
       });
     }
   }
@@ -129,10 +126,7 @@ export async function loadLibrary(): Promise<Library> {
     lastActivity: new Date(item.last_activity_at).getTime(),
     captures: inOrder(item.captures.map((capture) => fromServer(capture, thumbnails))),
     sorted: true,
-    starred: item.starred,
   }));
-  // Favourites first; within each part the server's order (latest activity first) is kept.
-  series.sort((a, b) => Number(b.starred) - Number(a.starred));
   if (response.unsorted.length > 0) {
     const captures = inOrder(response.unsorted.map((capture) => fromServer(capture, thumbnails)));
     series.push({
@@ -143,7 +137,6 @@ export async function loadLibrary(): Promise<Library> {
       lastActivity: Math.max(...captures.map((capture) => capture.capturedAt)),
       captures,
       sorted: false,
-      starred: false,
     });
   }
   return { series, retentionDays: response.retention_days, signedIn: true };

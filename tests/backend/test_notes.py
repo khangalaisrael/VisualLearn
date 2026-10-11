@@ -65,11 +65,7 @@ async def test_a_saved_answer_is_filed_under_its_slides_series(client: AsyncClie
     note = created.json()
     assert (note["topic"], note["series_id"], note["source"]) == ("Lambda Calculus", captured["series"]["id"], "ai")
     assert note["category"] == "General"  # the series' category, to file the note under
-    assert note["series_starred"] is False
-    # Starring the series (as Recent does) shows on its notes too.
-    await client.patch(f"/api/v1/series/{captured['series']['id']}", json={"starred": True}, headers=headers)
-    assert (await _notes(client, headers))[0]["series_starred"] is True
-    await client.patch(f"/api/v1/series/{captured['series']['id']}", json={"starred": False}, headers=headers)
+    assert note["starred"] is False
     assert await _notes(client, headers) == [note]
 
 

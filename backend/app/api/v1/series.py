@@ -131,7 +131,6 @@ async def list_series(
                 category=series.category,
                 title=series.title,
                 cover_slide_id=str(series.cover_slide_id) if series.cover_slide_id else None,
-                starred=bool(series.starred),
                 last_activity_at=slide.created_at,
                 captures=[],
             )
@@ -158,8 +157,6 @@ async def update_series(
         series.title = " ".join(body.title.split()) or series.title
     if body.category is not None:
         series.category = " ".join(body.category.split()) or series.category
-    if body.starred is not None:
-        series.starred = body.starred
     if body.cover_slide_id is not None:
         cover = await _owned_slide(db, body.cover_slide_id, user_id)
         if cover.series_id != series.id:

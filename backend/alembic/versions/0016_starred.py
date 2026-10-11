@@ -1,6 +1,6 @@
-"""series.starred, notes.starred
+"""notes.starred
 
-A user can mark a series or a note as a favourite; favourites are listed first.
+A user can mark a note as a favourite; favourites are listed first.
 
 Revision ID: 0016
 Revises: 0015
@@ -19,10 +19,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("series", sa.Column("starred", sa.Boolean(), nullable=False, server_default=sa.false()))
     op.add_column("notes", sa.Column("starred", sa.Boolean(), nullable=False, server_default=sa.false()))
 
 
 def downgrade() -> None:
     op.drop_column("notes", "starred")
-    op.drop_column("series", "starred")

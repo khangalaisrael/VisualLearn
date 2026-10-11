@@ -414,23 +414,3 @@ async def test_chat_rejects_a_slide_from_another_presentation(client: AsyncClien
     # Sam names Sam's own presentation but Alex's slide.
     status, _ = await _ask(client, sam, {"presentation_id": mine["presentation_id"], "slide_id": theirs["slide_id"]})
     assert status == 404
-
-
-async def test_a_series_can_be_starred_by_its_owner(client: AsyncClient, db_session: AsyncSession) -> None:
-    alex = await _sign_in(db_session, "alex@example.com")
-    sam = await _sign_in(db_session, "sam@example.com")
-    lam = await _capture(client, alex, "white", LAMBDA)
-    await _capture(client, alex, "red", DP)
-    url = f"/api/v1/series/{lam['series']['id']}"
-    assert all(s["starred"] is False for s in (await _series(client, alex))["series"])
-
-    assert (await client.patch(url, json={"starred": True}, headers=sam)).status_code == 404
-    assert (await client.patch(url, json={"starred": True}, headers=alex)).status_code == 204
-    by_title = {s["title"]: s for s in (await _series(client, alex))["series"]}
-    assert (by_title[LAMBDA]["starred"], by_title[DP]["starred"]) == (True, False)
-
-    # Renaming leaves the star alone; it can be taken off again.
-    assert (await client.patch(url, json={"title": "Untyped Lambda Calculus"}, headers=alex)).status_code == 204
-    assert {s["title"]: s["starred"] for s in (await _series(client, alex))["series"]}["Untyped Lambda Calculus"] is True
-    assert (await client.patch(url, json={"starred": False}, headers=alex)).status_code == 204
-    assert all(s["starred"] is False for s in (await _series(client, alex))["series"])
