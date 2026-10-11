@@ -197,6 +197,8 @@ class SeriesSummary(BaseModel):
     category: str
     title: str
     cover_slide_id: str | None
+    # Marked as a favourite by its owner.
+    starred: bool = False
     last_activity_at: datetime
     captures: list[SeriesCapture]  # newest first
 
@@ -212,6 +214,7 @@ class SeriesUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     category: str | None = Field(default=None, min_length=1, max_length=80)
     cover_slide_id: str | None = None
+    starred: bool | None = None
 
 
 class MoveSlideRequest(BaseModel):
@@ -233,6 +236,8 @@ class NoteOut(BaseModel):
     topic: str | None
     # That series' category; null when the note has no series or the series is gone.
     category: str | None = None
+    # Marked as a favourite by its owner.
+    starred: bool = False
     series_id: str | None
     slide_id: str | None
     created_at: datetime
@@ -255,6 +260,7 @@ class NoteCreateRequest(BaseModel):
 class NoteUpdateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     body: str | None = Field(default=None, min_length=1, max_length=20_000)
+    starred: bool | None = None
 
 
 class QuizQuestion(BaseModel):

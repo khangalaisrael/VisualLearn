@@ -56,6 +56,7 @@ def _out(note: Note, series: Series | None) -> NoteOut:
         source="ai" if note.source == "ai" else "user",
         topic=series.title if series is not None else note.topic,
         category=series.category if series is not None else None,
+        starred=bool(note.starred),
         series_id=str(note.series_id) if note.series_id else None,
         slide_id=str(note.slide_id) if note.slide_id else None,
         created_at=note.created_at,
@@ -137,7 +138,11 @@ async def update_note(
         note.body = body.body
     if body.title is not None:
         note.title = _title(body.title, note.body)
-    note.updated_at = datetime.now(UTC)
+    if body.body is not None or body.title is not None:
+        # Starring a note is not editing it: "edited ..." stays as it was.
+        note.updated_at = datetime.now(UTC)
+    if body.starred is not None:
+        note.starred = body.starred
     await db.commit()
     await db.refresh(note)
     return _out(note, await _series_of(db, note))

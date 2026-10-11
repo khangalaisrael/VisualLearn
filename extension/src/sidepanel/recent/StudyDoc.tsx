@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { StudyAidOut } from "@shared/types";
 
 import { createNote } from "../../shared/api-client";
+import { downloadMarkdown } from "../../shared/download";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
 import { BackIcon } from "./parts";
@@ -44,9 +45,12 @@ export function StudyDoc({ aid, onBack }: { aid: StudyAidOut; onBack: () => void
         <MathText text={aid.markdown ?? ""} />
       </div>
 
-      <div className="flex items-center gap-3 border-t border-slate-200 pt-4">
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
         <Button variant="secondary" onClick={() => void saveToNotes()} disabled={save === "saving" || save === "saved"}>
           {save === "saved" ? "Saved to notes" : save === "saving" ? "Saving…" : "Save to notes"}
+        </Button>
+        <Button variant="secondary" onClick={() => downloadMarkdown(aid.title, aid.markdown ?? "")}>
+          Download
         </Button>
         {save === "failed" && (
           <p role="alert" className="text-xs text-red-700 dark:text-red-300">

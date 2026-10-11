@@ -26,7 +26,7 @@ from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import false, func
 
 from app.db.base import Base
 from app.db.types import GUID
@@ -159,6 +159,8 @@ class Series(Base):
     title: Mapped[str] = mapped_column(String(120))
     # A plain column, not a foreign key: slides already point at their series.
     cover_slide_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    # Marked as a favourite by its owner; favourites are listed first.
+    starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -204,6 +206,7 @@ class Note(Base):
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(8))  # "ai" (saved answer) | "user" (written by the student)
+    starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -46,6 +46,18 @@ export function ForwardIcon(): JSX.Element {
   );
 }
 
+/** A star: solid when the thing is a favourite, an outline when it is not. */
+export function StarIcon({ filled }: { filled: boolean }): JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" fill={filled ? "currentColor" : "none"} className={ICON} aria-hidden="true">
+      <path
+        d="m10 2.75 2.2 4.6 5.05.66-3.7 3.5.95 5-4.5-2.47-4.5 2.47.95-5-3.7-3.5 5.05-.66L10 2.75Z"
+        {...STROKE}
+      />
+    </svg>
+  );
+}
+
 export function MoreIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className={ICON} aria-hidden="true">

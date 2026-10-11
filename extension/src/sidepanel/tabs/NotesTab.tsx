@@ -11,10 +11,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { NoteOut } from "@shared/types";
 
 import { createNote, deleteNote, getAuthState, listNotes, signInWithGoogle, updateNote } from "../../shared/api-client";
+import { downloadMarkdown } from "../../shared/download";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
 import { countLabel, relativeTime } from "../recent/library";
-import { BackIcon, CloseIcon, ForwardIcon, SearchIcon } from "../recent/parts";
+import { BackIcon, CloseIcon, ForwardIcon, SearchIcon, StarIcon } from "../recent/parts";
 
 type ListState =
   | { status: "loading" }
@@ -27,6 +28,7 @@ interface Draft {
   id: string | null;
   /** The series a new note will be filed under, when it is written from a series' page. */
   seriesId: string | null;
+  starred: boolean;
   title: string;
   body: string;
   savedTitle: string;
@@ -43,6 +45,9 @@ function errorText(error: unknown): string {
 const BACK_LINK =
   "-ml-1 flex items-center gap-1 self-start rounded-sm px-1 py-1 text-sm font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-50 hover:text-slate-700";
 
+const NOTE_ACTION =
+  "rounded-sm px-2 py-1.5 text-xs font-medium transition-colors duration-[120ms] disabled:opacity-50";
+
 function NoteView({
   draft,
   editing,
@@ -55,6 +60,7 @@ function NoteView({
   onBack,
   onEdit,
   onCancel,
+  onToggleStar,
 }: {
   draft: Draft;
   editing: boolean;
@@ -68,6 +74,7 @@ function NoteView({
   onBack: () => void;
   onEdit: () => void;
   onCancel: () => void;
+  onToggleStar: () => void;
 }): JSX.Element {
   const back = (
     <button type="button" onClick={onBack} className={BACK_LINK}>
@@ -98,14 +105,35 @@ function NoteView({
           <MathText text={draft.savedBody} />
         </div>
         {problem}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onDelete}
-          className="-ml-2 self-start rounded-sm px-2 py-1 text-xs font-medium text-red-700 transition-colors duration-[120ms] hover:bg-red-50 disabled:opacity-50 dark:text-red-300"
-        >
-          Delete note
-        </button>
+        <div className="-ml-2 flex flex-wrap items-center gap-1 border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={draft.starred}
+            onClick={onToggleStar}
+            className={`${NOTE_ACTION} flex items-center gap-1 hover:bg-slate-100 ${
+              draft.starred ? "text-amber-700 dark:text-amber-300" : "text-slate-600"
+            }`}
+          >
+            <StarIcon filled={draft.starred} />
+            {draft.starred ? "Favourite" : "Add to favourites"}
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadMarkdown(draft.savedTitle, draft.savedBody)}
+            className={`${NOTE_ACTION} text-slate-600 hover:bg-slate-100`}
+          >
+            Download
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onDelete}
+            className={`${NOTE_ACTION} text-red-700 hover:bg-red-50 dark:text-red-300`}
+          >
+            Delete note
+          </button>
+        </div>
       </div>
     );
   }
@@ -165,8 +193,10 @@ interface NoteGroup {
   seriesId: string | null;
   title: string;
   category: string;
-  /** Most recently edited first. */
+  /** Favourites first, then most recently edited first. */
   notes: NoteOut[];
+  /** The note edited last, for the card's "edited ..." line. */
+  latest: NoteOut;
 }
 
 /** A group to show in the list. `noteMatches` is set when a search matched
@@ -195,8 +225,10 @@ function groupNotes(notes: NoteOut[]): NoteGroup[] {
       title: note.topic ?? "General",
       category: note.category ?? (note.topic ? "Its slides are no longer in Recent" : "Not tied to a series"),
       notes: [note],
+      latest: note,
     });
   }
+  for (const group of groups.values()) group.notes.sort((a, b) => Number(b.starred) - Number(a.starred));
   return [...groups.values()];
 }
 
@@ -232,8 +264,15 @@ function NoteRow({ note, framed, onOpen }: { note: NoteOut; framed: boolean; onO
         framed ? "rounded-md border border-slate-200 bg-white p-3 shadow-subtle" : "rounded-sm px-3 py-2"
       }`}
     >
-      <span className="truncate text-sm font-medium text-slate-800">
-        <MathText text={note.title} />
+      <span className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+        {note.starred && (
+          <span className="flex-none text-amber-600 dark:text-amber-300" title="Favourite">
+            <StarIcon filled />
+          </span>
+        )}
+        <span className="truncate">
+          <MathText text={note.title} />
+        </span>
       </span>
       <span className="text-xs text-slate-400">
         {note.source === "ai" ? "Saved answer" : "Your note"}, edited {edited(note)}
@@ -278,13 +317,21 @@ export function NotesTab(): JSX.Element {
   const open = (note: NoteOut) => {
     setEditorError(null);
     setEditing(false);
-    setDraft({ id: note.id, seriesId: note.series_id, title: note.title, body: note.body, savedTitle: note.title, savedBody: note.body });
+    setDraft({
+      id: note.id,
+      seriesId: note.series_id,
+      starred: note.starred,
+      title: note.title,
+      body: note.body,
+      savedTitle: note.title,
+      savedBody: note.body,
+    });
   };
 
   const startNote = (seriesId: string | null) => {
     setEditorError(null);
     setEditing(true);
-    setDraft({ id: null, seriesId, title: "", body: "", savedTitle: "", savedBody: "" });
+    setDraft({ id: null, seriesId, starred: false, title: "", body: "", savedTitle: "", savedBody: "" });
   };
 
   /** True when it is fine to throw away what is in the editor. */
@@ -326,12 +373,28 @@ export function NotesTab(): JSX.Element {
       setDraft({
         id: saved.id,
         seriesId: saved.series_id,
+        starred: saved.starred,
         title: saved.title,
         body: saved.body,
         savedTitle: saved.title,
         savedBody: saved.body,
       });
       setEditing(false);
+      await load();
+    } catch (error) {
+      setEditorError(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleStar = async () => {
+    if (!draft?.id) return;
+    setBusy(true);
+    setEditorError(null);
+    try {
+      const saved = await updateNote(draft.id, { starred: !draft.starred });
+      setDraft({ ...draft, starred: saved.starred });
       await load();
     } catch (error) {
       setEditorError(errorText(error));
@@ -380,6 +443,7 @@ export function NotesTab(): JSX.Element {
           onBack={leaveNote}
           onEdit={() => setEditing(true)}
           onCancel={cancelEdit}
+          onToggleStar={() => void toggleStar()}
         />
       </div>
     );
@@ -504,7 +568,7 @@ export function NotesTab(): JSX.Element {
                       <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{group.title}</span>
                       <span className="truncate text-xs text-slate-500">{group.category}</span>
                       <span className="text-xs text-slate-400">
-                        {countLabel(group.notes.length, "note")}, edited {edited(group.notes[0])}
+                        {countLabel(group.notes.length, "note")}, edited {edited(group.latest)}
                       </span>
                     </span>
                     <span className="flex-none text-slate-400">

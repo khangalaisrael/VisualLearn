@@ -146,3 +146,22 @@ async def test_the_note_limit_and_account_deletion(client: AsyncClient, db_sessi
 async def test_privacy_page_says_notes_are_kept(client: AsyncClient) -> None:
     page = (await client.get("/privacy")).text
     assert "kept until you delete them" in page
+
+
+async def test_a_note_can_be_starred_without_counting_as_an_edit(client: AsyncClient, db_session: AsyncSession) -> None:
+    alex = await _sign_in(db_session, "alex@example.com")
+    sam = await _sign_in(db_session, "sam@example.com")
+    note = (await client.post("/api/v1/notes", json={"title": "Keep", "body": "one"}, headers=alex)).json()
+    assert note["starred"] is False
+
+    starred = await client.patch(f"/api/v1/notes/{note['id']}", json={"starred": True}, headers=alex)
+    assert starred.status_code == 200
+    assert starred.json()["starred"] is True
+    assert starred.json()["updated_at"] == note["updated_at"]  # starring is not an edit
+    assert (await _notes(client, alex))[0]["starred"] is True
+
+    # Editing the text keeps the star; someone else cannot star it.
+    edited = await client.patch(f"/api/v1/notes/{note['id']}", json={"body": "two"}, headers=alex)
+    assert edited.json()["starred"] is True
+    assert (await client.patch(f"/api/v1/notes/{note['id']}", json={"starred": False}, headers=sam)).status_code == 404
+    assert (await client.patch(f"/api/v1/notes/{note['id']}", json={"starred": False}, headers=alex)).json()["starred"] is False

@@ -13,7 +13,7 @@ import type { QuizOut, StudyAidOut } from "@shared/types";
 import { useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 import { type LibraryCapture, type LibrarySeries, countLabel, relativeTime } from "./library";
-import { BackIcon, CloseIcon, ICON_BUTTON, MoreIcon, SlideRow } from "./parts";
+import { BackIcon, CloseIcon, ICON_BUTTON, MoreIcon, SlideRow, StarIcon } from "./parts";
 import { FlashcardsView } from "./FlashcardsView";
 import { QuizView } from "./QuizView";
 import { SeriesQuizzes } from "./SeriesQuizzes";
@@ -33,6 +33,7 @@ export interface SeriesActions {
   setCover: (series: LibrarySeries, capture: LibraryCapture) => void;
   moveToSeries: (capture: LibraryCapture, seriesId: string) => void;
   moveToNewSeries: (capture: LibraryCapture, title: string, category: string) => void;
+  toggleStar: (series: LibrarySeries) => void;
 }
 
 type Section = "slides" | "practice" | "quizzes" | "study";
@@ -231,6 +232,20 @@ export function SeriesDetail({
             {countLabel(series.captures.length, "slide")}, last opened {relativeTime(series.lastActivity).toLowerCase()}
           </p>
           <div className="-ml-2 mt-1 flex gap-1">
+            {series.sorted && (
+              <button
+                type="button"
+                disabled={busy}
+                aria-pressed={series.starred}
+                onClick={() => actions.toggleStar(series)}
+                className={`${LINK} flex items-center gap-1 hover:bg-slate-100 ${
+                  series.starred ? "text-amber-700 dark:text-amber-300" : "text-slate-600"
+                }`}
+              >
+                <StarIcon filled={series.starred} />
+                {series.starred ? "Favourite" : "Add to favourites"}
+              </button>
+            )}
             {series.sorted && (
               <button type="button" onClick={() => setRenaming(true)} className={`${LINK} text-slate-600 hover:bg-slate-100`}>
                 Rename

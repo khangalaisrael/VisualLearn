@@ -223,6 +223,8 @@ export interface SeriesSummary {
   category: string;
   title: string;
   cover_slide_id: string | null;
+  // Marked as a favourite by its owner.
+  starred: boolean;
   last_activity_at: string;
   captures: SeriesCapture[];
 }
@@ -238,6 +240,7 @@ export interface SeriesUpdateRequest {
   title?: string;
   category?: string;
   cover_slide_id?: string;
+  starred?: boolean;
 }
 
 /** An existing series (`series_id`), or a new one (`category` and `title`). */
@@ -256,6 +259,8 @@ export interface NoteOut {
   topic: string | null;
   // That series' category; null when the note has no series or the series is gone.
   category: string | null;
+  // Marked as a favourite by its owner.
+  starred: boolean;
   series_id: string | null;
   slide_id: string | null;
   created_at: string;
@@ -277,6 +282,7 @@ export interface NoteCreateRequest {
 export interface NoteUpdateRequest {
   title?: string;
   body?: string;
+  starred?: boolean;
 }
 
 export interface QuizQuestion {

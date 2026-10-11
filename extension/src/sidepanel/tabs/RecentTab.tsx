@@ -137,6 +137,7 @@ export function RecentTab({
     setCover: (series, capture) => void run(() => updateSeries(series.id, { cover_slide_id: capture.slideId })),
     moveToSeries: (capture, seriesId) => void run(() => moveSlide(capture.slideId, { series_id: seriesId })),
     moveToNewSeries: (capture, title, category) => void run(() => moveSlide(capture.slideId, { title, category })),
+    toggleStar: (series) => void run(() => updateSeries(series.id, { starred: !series.starred })),
   };
 
   const signIn = async () => {
@@ -265,6 +266,7 @@ export function RecentTab({
                       hit={hit}
                       busy={busy}
                       onSelect={() => setSelectedId(hit.series.id)}
+                      onToggleStar={() => actions.toggleStar(hit.series)}
                       onOpenCapture={(capture) => void openCapture(capture)}
                     />
                   ))}
