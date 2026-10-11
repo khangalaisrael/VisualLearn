@@ -279,6 +279,26 @@ function isWakingResponse(response: Response): boolean {
   return WAKE_STATUSES.has(response.status) || (response.ok && (response.headers.get("content-type") ?? "").includes("text/html"));
 }
 
+/**
+ * A session the backend no longer accepts (expired, or signed out elsewhere)
+ * is forgotten here, so the panel goes back to its signed-out state and offers
+ * sign-in, and the student reads what to do instead of the server's wording.
+ */
+async function forgetRejectedSession(response: Response): Promise<Response> {
+  if (response.status !== 401) {
+    return response;
+  }
+  const body = (await response.clone().json().catch(() => null)) as { detail?: string } | null;
+  if (body?.detail !== "Invalid or expired session token") {
+    return response;
+  }
+  await setAuthState({ sessionToken: null, email: null });
+  return new Response(JSON.stringify({ detail: "Your sign-in has expired. Sign in again to continue." }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 async function fetchWakingBackend(
   url: string,
   init: RequestInit,
@@ -286,7 +306,7 @@ async function fetchWakingBackend(
   attemptTimeoutMs: number = HEALTH_ATTEMPT_TIMEOUT_MS
 ): Promise<Response> {
   if (!canSleep(url)) {
-    return fetch(url, init);
+    return forgetRejectedSession(await fetch(url, init));
   }
   const deadline = Date.now() + WAKE_TIMEOUT_MS;
   let notified = false;
@@ -303,7 +323,7 @@ async function fetchWakingBackend(
       clearTimeout(timeoutId);
     }
     if (response && !isWakingResponse(response)) {
-      return response;
+      return forgetRejectedSession(response);
     }
     if (Date.now() >= deadline) {
       if (response) {
