@@ -49,7 +49,7 @@ _PAGE = """<!doctype html>
 <p class="muted">VisionLearn AI browser extension &middot; Last updated __UPDATED__</p>
 
 <div class="box">
-<p><strong>In short:</strong> VisionLearn only looks at your screen when you press <em>Capture</em>. It sends that screenshot to an AI service to read the slide, keeps the extracted text and your chat for __DAYS__ days, never sells or shares your data for advertising, and lets you delete everything yourself at any time.</p>
+<p><strong>In short:</strong> VisionLearn only looks at your screen when you press <em>Capture</em>. It sends that screenshot to an AI service to read the slide, keeps the extracted text and your chat for __DAYS__ days (notes you choose to save stay until you delete them), never sells or shares your data for advertising, and lets you delete everything yourself at any time.</p>
 </div>
 
 <h2>What VisionLearn does</h2>
@@ -80,6 +80,7 @@ _PAGE = """<!doctype html>
 <h2>How long we keep it</h2>
 <ul>
 <li>Chats and the slide content behind them: deleted <strong>__DAYS__ days</strong> after your last message in that chat. Captures made without a chat are deleted __DAYS__ days after capture.</li>
+<li>Notes you save or write: kept until you delete them or delete your account. They are not removed after __DAYS__ days, because a note is something you chose to keep.</li>
 <li>Sign-in sessions: expire after 30 days.</li>
 <li>Usage counters used to enforce the daily and monthly limits (including the IP address for people who are not signed in): 31 days.</li>
 <li>Usage records (action, token counts, estimated cost): kept without a time limit but <strong>disconnected from you</strong> when you delete your account. Waitlist entries are deleted with your account.</li>

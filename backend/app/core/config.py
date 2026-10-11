@@ -110,6 +110,9 @@ class Settings(BaseSettings):
     # never a long wait.
     sort_backfill_per_request: int = 5
 
+    # Notes are kept until deleted, so their number per account is bounded.
+    max_notes_per_user: int = 500
+
     # Chats (and the slide content behind them) are deleted this many days
     # after their last message — see services/retention.py.
     chat_retention_days: int = 30

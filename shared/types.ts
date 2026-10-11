@@ -242,6 +242,36 @@ export interface MoveSlideRequest {
   title?: string;
 }
 
+export interface NoteOut {
+  id: string;
+  title: string;
+  body: string;
+  source: "ai" | "user";
+  // The series the note is filed under (its name when the note was made, if the series is gone).
+  topic: string | null;
+  series_id: string | null;
+  slide_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteListResponse {
+  notes: NoteOut[];
+}
+
+export interface NoteCreateRequest {
+  title?: string;
+  body: string;
+  source: "ai" | "user";
+  series_id?: string;
+  slide_id?: string;
+}
+
+export interface NoteUpdateRequest {
+  title?: string;
+  body?: string;
+}
+
 export interface AdminDay {
   date: string;
   captures: number;

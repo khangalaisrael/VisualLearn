@@ -223,6 +223,38 @@ class MoveSlideRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
 
 
+class NoteOut(BaseModel):
+    id: str
+    title: str
+    body: str
+    source: Literal["ai", "user"]
+    # The series the note is filed under, by its current name; when that
+    # series is gone, the name it had when the note was made.
+    topic: str | None
+    series_id: str | None
+    slide_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NoteListResponse(BaseModel):
+    notes: list[NoteOut]  # most recently edited first
+
+
+class NoteCreateRequest(BaseModel):
+    title: str = Field(default="", max_length=200)
+    body: str = Field(min_length=1, max_length=20_000)
+    source: Literal["ai", "user"] = "user"
+    # Either may be given; a slide's series is used when only the slide is.
+    series_id: str | None = None
+    slide_id: str | None = None
+
+
+class NoteUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    body: str | None = Field(default=None, min_length=1, max_length=20_000)
+
+
 QueryMode = Literal["figure", "slide", "algorithm", "presentation", "general", "auto"]
 
 # docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. Only

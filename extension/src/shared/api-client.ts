@@ -16,6 +16,10 @@ import type {
   LectureListResponse,
   LimitKind,
   MoveSlideRequest,
+  NoteCreateRequest,
+  NoteListResponse,
+  NoteOut,
+  NoteUpdateRequest,
   SeriesListResponse,
   SeriesRef,
   SeriesUpdateRequest,
@@ -569,6 +573,23 @@ export function moveSlide(slideId: string, target: MoveSlideRequest): Promise<Se
 
 export function deleteSeries(seriesId: string): Promise<void> {
   return authedJson(`/series/${seriesId}`, { method: "DELETE" }, "Couldn't delete that series");
+}
+
+/** The signed-in user's notes, most recently edited first. */
+export function listNotes(): Promise<NoteListResponse> {
+  return authedJson("/notes", {}, "Couldn't load your notes");
+}
+
+export function createNote(note: NoteCreateRequest): Promise<NoteOut> {
+  return authedJson("/notes", jsonBody("POST", note), "Couldn't save that note");
+}
+
+export function updateNote(noteId: string, changes: NoteUpdateRequest): Promise<NoteOut> {
+  return authedJson(`/notes/${noteId}`, jsonBody("PATCH", changes), "Couldn't save your changes");
+}
+
+export function deleteNote(noteId: string): Promise<void> {
+  return authedJson(`/notes/${noteId}`, { method: "DELETE" }, "Couldn't delete that note");
 }
 
 /** Deletes the signed-in account and all its data on the server, then signs out locally. */

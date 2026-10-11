@@ -14,6 +14,7 @@ from app.models.orm import (
     CacheEntry,
     Conversation,
     Message,
+    Note,
     ObjectRecord,
     Presentation,
     ProWaitlistClick,
@@ -38,6 +39,7 @@ async def delete_account(db: AsyncSession, user_id: uuid.UUID) -> None:
     await db.execute(delete(Slide).where(Slide.presentation_id.in_(presentation_ids)))
     await db.execute(delete(Presentation).where(Presentation.id.in_(presentation_ids)))
     await db.execute(delete(Series).where(Series.user_id == user_id))
+    await db.execute(delete(Note).where(Note.user_id == user_id))
 
     await db.execute(delete(RateLimitEvent).where(RateLimitEvent.key == f"user:{user_id}"))
     await db.execute(delete(Session).where(Session.user_id == user_id))

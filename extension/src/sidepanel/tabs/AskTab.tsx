@@ -30,7 +30,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiError, streamChat } from "../../shared/api-client";
+import { ApiError, createNote, streamChat } from "../../shared/api-client";
 import { activeCaptureLimit, refreshUsage, useUsage } from "../../shared/usage-store";
 import type {
   BackendWakingMessage,
@@ -234,6 +234,8 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   // usage limit) puts that back instead of leaving a spinner or an error.
   const lastShownRef = useRef<LoadState | null>(null);
   const [chatWaking, setChatWaking] = useState(false);
+  // Answers saved to Notes in this panel session: message id -> "saving" | "saved" | "failed".
+  const [savedNotes, setSavedNotes] = useState<Record<string, "saving" | "saved" | "failed">>({});
   const conversationIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
@@ -474,6 +476,26 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
     [state, isStreaming, algorithmMode, explanationMode, figureSelection]
   );
 
+  /** Saves one answer as a note, titled with the question that prompted it. */
+  const saveAnswer = useCallback(
+    async (answer: ChatMessage, question: string) => {
+      if (state.status !== "loaded") return;
+      setSavedNotes((prev) => ({ ...prev, [answer.id]: "saving" }));
+      try {
+        await createNote({
+          title: question.slice(0, 200),
+          body: answer.content,
+          source: "ai",
+          slide_id: state.result.slide_id,
+        });
+        setSavedNotes((prev) => ({ ...prev, [answer.id]: "saved" }));
+      } catch {
+        setSavedNotes((prev) => ({ ...prev, [answer.id]: "failed" }));
+      }
+    },
+    [state]
+  );
+
   const sendChatMessage = useCallback(async () => {
     const question = chatInput.trim();
     if (!question) return;
@@ -645,7 +667,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {messages.map((message) => {
+              {messages.map((message, index) => {
                 if (message.role === "divider") {
                   return (
                     <li key={message.id} className="flex items-center gap-3 self-stretch text-xs text-slate-400">
@@ -686,6 +708,25 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
                     >
                       {isPendingAssistant ? <TypingIndicator /> : <MathText text={message.content} />}
                     </div>
+                    {message.role === "assistant" && !isPendingAssistant && !isStreaming && usage?.signed_in && (
+                      <button
+                        type="button"
+                        disabled={savedNotes[message.id] === "saving" || savedNotes[message.id] === "saved"}
+                        onClick={() => {
+                          const asked = messages.slice(0, index).reverse().find((m) => m.role === "user");
+                          void saveAnswer(message, asked?.content ?? "Saved answer");
+                        }}
+                        className="rounded-sm px-2 py-1 text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700 disabled:hover:bg-transparent"
+                      >
+                        {savedNotes[message.id] === "saved"
+                          ? "Saved to notes"
+                          : savedNotes[message.id] === "saving"
+                            ? "Saving…"
+                            : savedNotes[message.id] === "failed"
+                              ? "Couldn't save. Try again"
+                              : "Save to notes"}
+                      </button>
+                    )}
                     {followUpQuestion && (
                       <button
                         type="button"

@@ -1,19 +1,20 @@
 /**
  * Side panel shell. Chrome's own title bar already shows the product name,
- * so there is no in-app header. Ask is the default view; Recent and
- * Settings are reached from two icons in the corner. Ask stays mounted
+ * so there is no in-app header. Ask is the default view; Recent, Notes and
+ * Settings are reached from icons in the corner. Ask stays mounted
  * while another view is open so a chat in progress is not lost.
  */
 
 import { useEffect, useState } from "react";
 
 import { AskTab, type RestoredChat } from "./tabs/AskTab";
+import { NotesTab } from "./tabs/NotesTab";
 import { RecentTab } from "./tabs/RecentTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { UsageMeter } from "./components/UsageMeter";
 import { WelcomeScreen } from "./WelcomeScreen";
 
-type View = "ask" | "recent" | "settings";
+type View = "ask" | "recent" | "notes" | "settings";
 
 const HAS_SEEN_WELCOME_KEY = "hasSeenWelcome";
 
@@ -22,6 +23,20 @@ function RecentIcon(): JSX.Element {
     <svg viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]" aria-hidden="true">
       <circle cx="10" cy="10" r="7.25" stroke="currentColor" strokeWidth="1.5" />
       <path d="M10 6v4.25l2.75 1.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function NotesIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]" aria-hidden="true">
+      <path
+        d="M5.5 2.75h6.25L15.25 6.25v9.5a1.5 1.5 0 0 1-1.5 1.5h-8.25a1.5 1.5 0 0 1-1.5-1.5v-11.5a1.5 1.5 0 0 1 1.5-1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M7 9.5h6M7 12.75h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -112,6 +127,9 @@ export function App(): JSX.Element {
           <NavButton label="Recent" active={view === "recent"} onClick={() => toggle("recent")}>
             <RecentIcon />
           </NavButton>
+          <NavButton label="Notes" active={view === "notes"} onClick={() => toggle("notes")}>
+            <NotesIcon />
+          </NavButton>
           <NavButton label="Settings" active={view === "settings"} onClick={() => toggle("settings")}>
             <SettingsIcon />
           </NavButton>
@@ -129,6 +147,11 @@ export function App(): JSX.Element {
               setView("ask");
             }}
           />
+        </div>
+      )}
+      {view === "notes" && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <NotesTab />
         </div>
       )}
       {view === "settings" && (

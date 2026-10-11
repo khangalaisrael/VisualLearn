@@ -187,6 +187,27 @@ class Slide(Base):
     presentation: Mapped["Presentation"] = relationship(back_populates="slides")
 
 
+class Note(Base):
+    """A study note: an answer the student saved, or one they wrote. Kept
+    until they delete it (or their account); the 30-day retention does not
+    touch notes. `series_id` and `slide_id` are plain columns, not foreign
+    keys, so a note outlives the capture it came from, and `topic` remembers
+    the series' name for when the series itself is gone."""
+
+    __tablename__ = "notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
+    series_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    slide_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    topic: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(8))  # "ai" (saved answer) | "user" (written by the student)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CacheEntry(Base):
     """Durable backing store for the Redis analysis cache
     (app/services/cache_service.py) — see docs/DATA_MODEL.md `cache_entries`
