@@ -229,7 +229,7 @@ export function ChatTab(): JSX.Element {
               const followUp = pending || streaming ? null : extractFollowUpQuestion(message.content);
               const state = saved[message.id];
               return (
-                <li key={message.id} className="flex min-w-0 max-w-[90%] flex-col items-start gap-1 self-start">
+                <li key={message.id} className="flex min-w-0 max-w-full flex-col items-start gap-1 self-start">
                   <div className="max-w-full overflow-x-auto rounded-md border border-indigo-100 bg-indigo-50/40 px-3.5 py-3 text-sm leading-relaxed text-slate-700 shadow-subtle">
                     {pending ? <span className="text-slate-400">Thinking…</span> : <MathText text={message.content} />}
                   </div>

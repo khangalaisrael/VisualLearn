@@ -644,8 +644,10 @@ export function AskTab({
                   <li
                     key={message.id}
                     ref={message.id === latestUserMessageId ? latestUserMessageRef : undefined}
-                    className={`flex min-w-0 max-w-[90%] flex-col gap-1 ${
-                      message.role === "user" ? "self-end items-end" : "self-start items-start"
+                    // An answer is the thing being read, so it gets the whole width;
+                    // the student's own short messages sit to the right.
+                    className={`flex min-w-0 flex-col gap-1 ${
+                      message.role === "user" ? "max-w-[90%] self-end items-end" : "max-w-full self-start items-start"
                     }`}
                   >
                     <div className="flex items-center gap-1.5">

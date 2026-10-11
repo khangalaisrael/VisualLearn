@@ -7,7 +7,7 @@
  * bubbles. Chat answers can also contain ``` fenced code blocks (see
  * prompts/chat_figure.v5.md / chat_slide.v5.md), rendered via CodeBlock.
  *
- * Outside code, text also gets light formatting: **bold** spans,
+ * Outside code, text also gets light formatting: **bold** and *italic* spans,
  * `#`/`##`/`###` headings, `- `/`* ` bullet lists, `1.` numbered lists, and
  * line breaks. A heading, a list item or a bold span may contain math. This
  * is a small pass over lines, not a full markdown parser, kept in-repo
@@ -145,6 +145,26 @@ function KatexSpan({ latex, displayMode }: { latex: string; displayMode: boolean
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
+// *emphasis*: an asterisk that opens a word and one that closes a word, on the
+// same line. "2 * 3 * 4" and "a*b*c" are left alone: there the asterisks have
+// a space inside them or a letter or digit outside them.
+const ITALIC_PATTERN = /(^|[^*\w])\*(?=\S)([^*\n]*?\S)\*(?![*\w])/g;
+
+/** A stretch of plain text as nodes, with *emphasis* turned into italics. */
+function renderText(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let count = 0;
+  for (const match of text.matchAll(ITALIC_PATTERN)) {
+    const start = (match.index ?? 0) + match[1].length;
+    if (start > lastIndex) nodes.push(text.slice(lastIndex, start));
+    nodes.push(<em key={`${keyPrefix}-i${count++}`}>{match[2]}</em>);
+    lastIndex = (match.index ?? 0) + match[0].length;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
 /** The tokens of one line as nodes, with **bold** applied across text and formulas alike. */
 function renderInline(tokens: Token[], keyPrefix: string): ReactNode[] {
   const markers = tokens.reduce(
@@ -165,7 +185,7 @@ function renderInline(tokens: Token[], keyPrefix: string): ReactNode[] {
       continue;
     }
     if (!applyBold) {
-      nodes.push(token.text);
+      nodes.push(...renderText(token.text, `${keyPrefix}-t${key++}`));
       continue;
     }
     const parts = token.text.split("**");
@@ -178,7 +198,7 @@ function renderInline(tokens: Token[], keyPrefix: string): ReactNode[] {
           bold = null;
         }
       }
-      if (parts[index].length > 0) (bold ?? nodes).push(parts[index]);
+      if (parts[index].length > 0) (bold ?? nodes).push(...renderText(parts[index], `${keyPrefix}-t${key++}`));
     }
   }
   return nodes;
