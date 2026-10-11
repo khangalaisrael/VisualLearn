@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { NoteOut } from "@shared/types";
 
 import { createNote, deleteNote, getAuthState, listNotes, signInWithGoogle, updateNote } from "../../shared/api-client";
-import { downloadMarkdown } from "../../shared/download";
+import { openPrintView } from "../../shared/print";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
 import { countLabel, relativeTime } from "../recent/library";
@@ -120,10 +120,10 @@ function NoteView({
           </button>
           <button
             type="button"
-            onClick={() => downloadMarkdown(draft.savedTitle, draft.savedBody)}
+            onClick={() => void openPrintView(draft.savedTitle, draft.savedBody)}
             className={`${NOTE_ACTION} text-slate-600 hover:bg-slate-100`}
           >
-            Download
+            Save as PDF
           </button>
           <button
             type="button"
@@ -254,8 +254,23 @@ function edited(note: NoteOut): string {
   return relativeTime(new Date(note.updated_at).getTime()).toLowerCase();
 }
 
-/** One note as a row to press. `framed` gives it its own card; unframed it sits inside a group's card. */
-function NoteRow({ note, framed, onOpen }: { note: NoteOut; framed: boolean; onOpen: () => void }): JSX.Element {
+const CHIP = "flex flex-none items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-[120ms]";
+const CHIP_ON = "border-indigo-600 bg-indigo-600 text-white";
+const CHIP_OFF = "border-slate-200 text-slate-600 hover:bg-slate-50";
+
+/** One note as a row to press. `framed` gives it its own card; unframed it sits
+ * inside a group's card. `series` names where it is filed, for a list that mixes series. */
+function NoteRow({
+  note,
+  framed,
+  series,
+  onOpen,
+}: {
+  note: NoteOut;
+  framed: boolean;
+  series?: string;
+  onOpen: () => void;
+}): JSX.Element {
   return (
     <button
       type="button"
@@ -275,7 +290,9 @@ function NoteRow({ note, framed, onOpen }: { note: NoteOut; framed: boolean; onO
         </span>
       </span>
       <span className="text-xs text-slate-400">
-        {note.source === "ai" ? "Saved answer" : "Your note"}, edited {edited(note)}
+        {series ? `${series}, ` : ""}
+        {note.source === "ai" ? (series ? "saved answer" : "Saved answer") : series ? "your note" : "Your note"}, edited{" "}
+        {edited(note)}
       </span>
     </button>
   );
@@ -286,6 +303,8 @@ export function NotesTab(): JSX.Element {
   const [query, setQuery] = useState("");
   // The group whose page is open; null on the list of groups.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Show only favourite notes, from every series, in one list.
+  const [favouritesOnly, setFavouritesOnly] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   // A note opens to be read; a new note, or one being changed, is in the editor.
   const [editing, setEditing] = useState(false);
@@ -311,6 +330,13 @@ export function NotesTab(): JSX.Element {
 
   const groups = useMemo(() => (state.status === "loaded" ? groupNotes(state.notes) : []), [state]);
   const hits = useMemo(() => filterGroups(groups, query), [groups, query]);
+  const favourites = useMemo(() => {
+    if (state.status !== "loaded") return [];
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    return state.notes.filter(
+      (note) => note.starred && words.every((word) => `${note.topic ?? ""} ${note.title} ${note.body}`.toLowerCase().includes(word))
+    );
+  }, [state, query]);
   // A group disappears with its last note: its page then falls back to the list.
   const selected = groups.find((group) => group.key === selectedKey) ?? null;
 
@@ -551,7 +577,43 @@ export function NotesTab(): JSX.Element {
             )}
           </div>
 
-          {hits.length === 0 ? (
+          <div className="flex gap-2" role="group" aria-label="Which notes to show">
+            <button
+              type="button"
+              aria-pressed={!favouritesOnly}
+              onClick={() => setFavouritesOnly(false)}
+              className={`${CHIP} ${favouritesOnly ? CHIP_OFF : CHIP_ON}`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              aria-pressed={favouritesOnly}
+              onClick={() => setFavouritesOnly(true)}
+              className={`${CHIP} ${favouritesOnly ? CHIP_ON : CHIP_OFF}`}
+            >
+              <StarIcon filled={favouritesOnly} />
+              Favourites
+            </button>
+          </div>
+
+          {favouritesOnly ? (
+            favourites.length === 0 ? (
+              <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+                {query.trim()
+                  ? `No favourite note matches "${query.trim()}".`
+                  : "No favourite notes yet. Open a note and press Add to favourites to keep it here."}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {favourites.map((note) => (
+                  <li key={note.id}>
+                    <NoteRow note={note} framed series={note.topic ?? "General"} onOpen={() => open(note)} />
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : hits.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
               No note matches "{query.trim()}".
             </p>

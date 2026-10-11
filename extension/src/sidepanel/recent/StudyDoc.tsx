@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { StudyAidOut } from "@shared/types";
 
 import { createNote } from "../../shared/api-client";
-import { downloadMarkdown } from "../../shared/download";
+import { openPrintView } from "../../shared/print";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
 import { BackIcon } from "./parts";
@@ -49,8 +49,8 @@ export function StudyDoc({ aid, onBack }: { aid: StudyAidOut; onBack: () => void
         <Button variant="secondary" onClick={() => void saveToNotes()} disabled={save === "saving" || save === "saved"}>
           {save === "saved" ? "Saved to notes" : save === "saving" ? "Saving…" : "Save to notes"}
         </Button>
-        <Button variant="secondary" onClick={() => downloadMarkdown(aid.title, aid.markdown ?? "")}>
-          Download
+        <Button variant="secondary" onClick={() => void openPrintView(aid.title, aid.markdown ?? "")}>
+          Save as PDF
         </Button>
         {save === "failed" && (
           <p role="alert" className="text-xs text-red-700 dark:text-red-300">

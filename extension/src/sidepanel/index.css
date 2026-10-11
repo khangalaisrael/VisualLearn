@@ -48,6 +48,11 @@
   scrollbar-width: thin;
 }
 
+/* Paper margins for the print page (src/print/), the one page that is printed. */
+@page {
+  margin: 18mm 16mm;
+}
+
 @layer utilities {
   /* Thin, unobtrusive scrollbar for the panel's overflow-y-auto areas —
      the default OS scrollbar is wide and heavy in a 380px-wide sidebar. */

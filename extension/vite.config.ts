@@ -14,6 +14,12 @@ import manifest from "./manifest.json";
 // multi-entry Rollup config gets this subtly wrong).
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
+  build: {
+    rollupOptions: {
+      // Pages the manifest does not name have to be listed, or they are not built.
+      input: { print: resolve(__dirname, "src/print/index.html") },
+    },
+  },
   resolve: {
     alias: {
       "@shared": resolve(__dirname, "../shared"),
