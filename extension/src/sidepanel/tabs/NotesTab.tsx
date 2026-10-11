@@ -1,8 +1,9 @@
 /**
- * Notes: answers the student saved and notes they wrote, grouped by the
- * series they belong to. A note opens to be read, typeset the same way chat
- * answers are; Edit turns it into plain text to change or add to. Notes live
- * on the server and are kept until deleted.
+ * Notes: answers the student saved and notes they wrote, organised the way
+ * Recent is. Each series that has notes is a card with its name and category;
+ * pressing it opens that series' notes. A note opens to be read, typeset the
+ * same way chat answers are; Edit turns it into plain text to change or add
+ * to. Notes live on the server and are kept until deleted.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -12,8 +13,8 @@ import type { NoteOut } from "@shared/types";
 import { createNote, deleteNote, getAuthState, listNotes, signInWithGoogle, updateNote } from "../../shared/api-client";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
-import { relativeTime } from "../recent/library";
-import { BackIcon, CloseIcon, SearchIcon } from "../recent/parts";
+import { countLabel, relativeTime } from "../recent/library";
+import { BackIcon, CloseIcon, ForwardIcon, SearchIcon } from "../recent/parts";
 
 type ListState =
   | { status: "loading" }
@@ -24,6 +25,8 @@ type ListState =
 /** The note being edited; `id` is null for one that has not been saved yet. */
 interface Draft {
   id: string | null;
+  /** The series a new note will be filed under, when it is written from a series' page. */
+  seriesId: string | null;
   title: string;
   body: string;
   savedTitle: string;
@@ -32,7 +35,6 @@ interface Draft {
 
 const FIELD =
   "w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 transition-colors duration-[120ms] placeholder:text-slate-400 focus:border-indigo-400";
-const NO_TOPIC = "General";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -46,6 +48,7 @@ function NoteView({
   editing,
   busy,
   error,
+  backLabel,
   onChange,
   onSave,
   onDelete,
@@ -57,6 +60,8 @@ function NoteView({
   editing: boolean;
   busy: boolean;
   error: string | null;
+  /** Where Back goes: the series' notes, or the list of all notes. */
+  backLabel: string;
   onChange: (changes: Partial<Draft>) => void;
   onSave: () => void;
   onDelete: () => void;
@@ -67,7 +72,7 @@ function NoteView({
   const back = (
     <button type="button" onClick={onBack} className={BACK_LINK}>
       <BackIcon />
-      All notes
+      <span className="truncate">{backLabel}</span>
     </button>
   );
   const problem = error && (
@@ -153,9 +158,95 @@ function NoteView({
   );
 }
 
+/** The notes of one series, shown as one card in the list, the way Recent shows a series. */
+interface NoteGroup {
+  key: string;
+  /** The series new notes written here are filed under; null when there is none to file under. */
+  seriesId: string | null;
+  title: string;
+  category: string;
+  /** Most recently edited first. */
+  notes: NoteOut[];
+}
+
+/** A group to show in the list. `noteMatches` is set when a search matched
+ * particular notes rather than the group's own name: those are listed under it. */
+interface GroupHit {
+  group: NoteGroup;
+  noteMatches: NoteOut[] | null;
+}
+
+const GENERAL_KEY = "general";
+
+function groupNotes(notes: NoteOut[]): NoteGroup[] {
+  const groups = new Map<string, NoteGroup>();
+  // Notes arrive most recently edited first, so groups come out in that order too.
+  for (const note of notes) {
+    const key = note.series_id ?? (note.topic ? `topic:${note.topic}` : GENERAL_KEY);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.notes.push(note);
+      continue;
+    }
+    groups.set(key, {
+      key,
+      // A series that has since gone (its slides expired) can't take new notes.
+      seriesId: note.category !== null ? note.series_id : null,
+      title: note.topic ?? "General",
+      category: note.category ?? (note.topic ? "Its slides are no longer in Recent" : "Not tied to a series"),
+      notes: [note],
+    });
+  }
+  return [...groups.values()];
+}
+
+function filterGroups(groups: NoteGroup[], query: string): GroupHit[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return groups.map((group) => ({ group, noteMatches: null }));
+  const has = (text: string) => words.every((word) => text.toLowerCase().includes(word));
+
+  const hits: GroupHit[] = [];
+  for (const group of groups) {
+    const name = `${group.category} ${group.title}`;
+    if (has(name)) {
+      hits.push({ group, noteMatches: null });
+      continue;
+    }
+    const notes = group.notes.filter((note) => has(`${name} ${note.title} ${note.body}`));
+    if (notes.length > 0) hits.push({ group, noteMatches: notes });
+  }
+  return hits;
+}
+
+function edited(note: NoteOut): string {
+  return relativeTime(new Date(note.updated_at).getTime()).toLowerCase();
+}
+
+/** One note as a row to press. `framed` gives it its own card; unframed it sits inside a group's card. */
+function NoteRow({ note, framed, onOpen }: { note: NoteOut; framed: boolean; onOpen: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`flex w-full flex-col gap-0.5 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100 ${
+        framed ? "rounded-md border border-slate-200 bg-white p-3 shadow-subtle" : "rounded-sm px-3 py-2"
+      }`}
+    >
+      <span className="truncate text-sm font-medium text-slate-800">
+        <MathText text={note.title} />
+      </span>
+      <span className="text-xs text-slate-400">
+        {note.source === "ai" ? "Saved answer" : "Your note"}, edited {edited(note)}
+      </span>
+    </button>
+  );
+}
+
 export function NotesTab(): JSX.Element {
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [query, setQuery] = useState("");
+  // The group whose page is open; null on the list of groups.
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   // A note opens to be read; a new note, or one being changed, is in the editor.
   const [editing, setEditing] = useState(false);
@@ -179,24 +270,21 @@ export function NotesTab(): JSX.Element {
     void load();
   }, [load]);
 
-  const groups = useMemo(() => {
-    if (state.status !== "loaded") return [];
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    const byTopic = new Map<string, NoteOut[]>();
-    for (const note of state.notes) {
-      const topic = note.topic ?? NO_TOPIC;
-      const haystack = `${topic} ${note.title} ${note.body}`.toLowerCase();
-      if (!words.every((word) => haystack.includes(word))) continue;
-      byTopic.set(topic, [...(byTopic.get(topic) ?? []), note]);
-    }
-    // Notes arrive most recently edited first, so groups do too.
-    return [...byTopic].map(([topic, notes]) => ({ topic, notes }));
-  }, [state, query]);
+  const groups = useMemo(() => (state.status === "loaded" ? groupNotes(state.notes) : []), [state]);
+  const hits = useMemo(() => filterGroups(groups, query), [groups, query]);
+  // A group disappears with its last note: its page then falls back to the list.
+  const selected = groups.find((group) => group.key === selectedKey) ?? null;
 
   const open = (note: NoteOut) => {
     setEditorError(null);
     setEditing(false);
-    setDraft({ id: note.id, title: note.title, body: note.body, savedTitle: note.title, savedBody: note.body });
+    setDraft({ id: note.id, seriesId: note.series_id, title: note.title, body: note.body, savedTitle: note.title, savedBody: note.body });
+  };
+
+  const startNote = (seriesId: string | null) => {
+    setEditorError(null);
+    setEditing(true);
+    setDraft({ id: null, seriesId, title: "", body: "", savedTitle: "", savedBody: "" });
   };
 
   /** True when it is fine to throw away what is in the editor. */
@@ -228,9 +316,21 @@ export function NotesTab(): JSX.Element {
     try {
       const saved =
         draft.id === null
-          ? await createNote({ title: draft.title, body: draft.body, source: "user" })
+          ? await createNote({
+              title: draft.title,
+              body: draft.body,
+              source: "user",
+              ...(draft.seriesId ? { series_id: draft.seriesId } : {}),
+            })
           : await updateNote(draft.id, { title: draft.title, body: draft.body });
-      setDraft({ id: saved.id, title: saved.title, body: saved.body, savedTitle: saved.title, savedBody: saved.body });
+      setDraft({
+        id: saved.id,
+        seriesId: saved.series_id,
+        title: saved.title,
+        body: saved.body,
+        savedTitle: saved.title,
+        savedBody: saved.body,
+      });
       setEditing(false);
       await load();
     } catch (error) {
@@ -273,6 +373,7 @@ export function NotesTab(): JSX.Element {
           editing={editing}
           busy={busy}
           error={editorError}
+          backLabel={selected ? selected.title : "All notes"}
           onChange={(changes) => setDraft({ ...draft, ...changes })}
           onSave={() => void save()}
           onDelete={() => void remove()}
@@ -284,29 +385,48 @@ export function NotesTab(): JSX.Element {
     );
   }
 
+  if (selected) {
+    return (
+      <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+        <button type="button" onClick={() => setSelectedKey(null)} className={BACK_LINK}>
+          <BackIcon />
+          All notes
+        </button>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="text-xs font-medium text-indigo-600 dark:text-indigo-300">{selected.category}</p>
+            <h2 className="text-lg font-semibold leading-snug text-slate-800">{selected.title}</h2>
+            <p className="text-xs text-slate-400">{countLabel(selected.notes.length, "note")}</p>
+          </div>
+          <Button onClick={() => startNote(selected.seriesId)} className="flex-none">
+            New note
+          </Button>
+        </div>
+        <ul className="flex flex-col gap-2">
+          {selected.notes.map((note) => (
+            <li key={note.id}>
+              <NoteRow note={note} framed onOpen={() => open(note)} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
   return (
     <div className="scrollbar-thin flex flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-slate-800">Notes</h2>
-        {state.status === "loaded" && (
-          <Button
-            onClick={() => {
-              setEditorError(null);
-              setEditing(true);
-              setDraft({ id: null, title: "", body: "", savedTitle: "", savedBody: "" });
-            }}
-          >
-            New note
-          </Button>
-        )}
+        {state.status === "loaded" && <Button onClick={() => startNote(null)}>New note</Button>}
       </div>
 
       {state.status === "loading" && (
         <ul className="flex animate-pulse flex-col gap-3" aria-label="Loading your notes">
           {[0, 1, 2].map((row) => (
-            <li key={row} className="flex flex-col gap-2 rounded-md border border-slate-200 p-3" aria-hidden="true">
+            <li key={row} className="flex flex-col gap-2 rounded-md border border-slate-200 p-4" aria-hidden="true">
               <span className="h-3 w-2/3 rounded bg-slate-100" />
-              <span className="h-3 w-full rounded bg-slate-100" />
+              <span className="h-3 w-1/2 rounded bg-slate-100" />
+              <span className="h-3 w-1/3 rounded bg-slate-100" />
             </li>
           ))}
         </ul>
@@ -367,36 +487,43 @@ export function NotesTab(): JSX.Element {
             )}
           </div>
 
-          {groups.length === 0 && (
+          {hits.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
               No note matches "{query.trim()}".
             </p>
-          )}
-
-          {groups.map(({ topic, notes }) => (
-            <section key={topic} className="flex flex-col gap-2">
-              <h3 className="text-xs font-medium text-slate-500">{topic}</h3>
-              <ul className="flex flex-col gap-2">
-                {notes.map((note) => (
-                  <li key={note.id}>
-                    <button
-                      type="button"
-                      onClick={() => open(note)}
-                      className="flex w-full flex-col gap-1 rounded-md border border-slate-200 bg-white p-3 text-left shadow-subtle transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
-                    >
-                      <span className="truncate text-sm font-semibold text-slate-800">
-                        <MathText text={note.title} />
-                      </span>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {hits.map(({ group, noteMatches }) => (
+                <li key={group.key} className="rounded-md border border-slate-200 bg-white shadow-subtle">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedKey(group.key)}
+                    className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{group.title}</span>
+                      <span className="truncate text-xs text-slate-500">{group.category}</span>
                       <span className="text-xs text-slate-400">
-                        {note.source === "ai" ? "Saved answer" : "Your note"}, edited{" "}
-                        {relativeTime(new Date(note.updated_at).getTime()).toLowerCase()}
+                        {countLabel(group.notes.length, "note")}, edited {edited(group.notes[0])}
                       </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+                    </span>
+                    <span className="flex-none text-slate-400">
+                      <ForwardIcon />
+                    </span>
+                  </button>
+                  {noteMatches && (
+                    <ul className="flex flex-col border-t border-slate-100 p-1" aria-label={`Matching notes in ${group.title}`}>
+                      {noteMatches.map((note) => (
+                        <li key={note.id}>
+                          <NoteRow note={note} framed={false} onOpen={() => open(note)} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
 
           <p className="text-xs text-slate-400">Notes are kept until you delete them.</p>
         </>

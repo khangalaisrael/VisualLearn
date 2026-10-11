@@ -45,13 +45,17 @@ def _title(title: str, body: str) -> str:
     return first_line[:80] or _UNTITLED
 
 
-def _out(note: Note, topic: str | None) -> NoteOut:
+def _out(note: Note, series: Series | None) -> NoteOut:
+    """`series` is the note's series if it still exists: it gives the name and
+    category to file the note under. Without it, the name the series had when
+    the note was made is used, and there is no category."""
     return NoteOut(
         id=str(note.id),
         title=note.title,
         body=note.body,
         source="ai" if note.source == "ai" else "user",
-        topic=topic,
+        topic=series.title if series is not None else note.topic,
+        category=series.category if series is not None else None,
         series_id=str(note.series_id) if note.series_id else None,
         slide_id=str(note.slide_id) if note.slide_id else None,
         created_at=note.created_at,
@@ -66,9 +70,8 @@ async def _owned(db: AsyncSession, note_id: str, user_id: uuid.UUID) -> Note:
     return note
 
 
-async def _current_topic(db: AsyncSession, note: Note) -> str | None:
-    series = await db.get(Series, note.series_id) if note.series_id else None
-    return series.title if series is not None else note.topic
+async def _series_of(db: AsyncSession, note: Note) -> Series | None:
+    return await db.get(Series, note.series_id) if note.series_id else None
 
 
 @router.get("/notes", response_model=NoteListResponse)
@@ -80,13 +83,8 @@ async def list_notes(
     notes = list(
         (await db.execute(select(Note).where(Note.user_id == user_id).order_by(Note.updated_at.desc()))).scalars()
     )
-    titles = {
-        series_id: title
-        for series_id, title in (
-            await db.execute(select(Series.id, Series.title).where(Series.user_id == user_id))
-        ).all()
-    }
-    return NoteListResponse(notes=[_out(note, titles.get(note.series_id, note.topic)) for note in notes])
+    series = {s.id: s for s in (await db.execute(select(Series).where(Series.user_id == user_id))).scalars()}
+    return NoteListResponse(notes=[_out(note, series.get(note.series_id)) for note in notes])
 
 
 @router.post("/notes", response_model=NoteOut, status_code=201)
@@ -124,7 +122,7 @@ async def create_note(
     db.add(note)
     await db.commit()
     await db.refresh(note)
-    return _out(note, note.topic)
+    return _out(note, series)
 
 
 @router.patch("/notes/{note_id}", response_model=NoteOut)
@@ -142,7 +140,7 @@ async def update_note(
     note.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(note)
-    return _out(note, await _current_topic(db, note))
+    return _out(note, await _series_of(db, note))
 
 
 @router.delete("/notes/{note_id}", status_code=204)

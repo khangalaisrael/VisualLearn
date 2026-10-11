@@ -254,6 +254,8 @@ export interface NoteOut {
   source: "ai" | "user";
   // The series the note is filed under (its name when the note was made, if the series is gone).
   topic: string | null;
+  // That series' category; null when the note has no series or the series is gone.
+  category: string | null;
   series_id: string | null;
   slide_id: string | null;
   created_at: string;

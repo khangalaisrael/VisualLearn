@@ -64,6 +64,7 @@ async def test_a_saved_answer_is_filed_under_its_slides_series(client: AsyncClie
     assert created.status_code == 201, created.text
     note = created.json()
     assert (note["topic"], note["series_id"], note["source"]) == ("Lambda Calculus", captured["series"]["id"], "ai")
+    assert note["category"] == "General"  # the series' category, to file the note under
     assert await _notes(client, headers) == [note]
 
 
@@ -123,6 +124,7 @@ async def test_a_note_outlives_cleanup_and_its_capture(client: AsyncClient, db_s
     notes = await _notes(client, headers)
     assert [n["body"] for n in notes] == ["keep me"]
     assert notes[0]["topic"] == "Lambda Calculus"  # the series is gone; its name is remembered
+    assert notes[0]["category"] is None
 
 
 async def test_the_note_limit_and_account_deletion(client: AsyncClient, db_session: AsyncSession) -> None:

@@ -231,6 +231,8 @@ class NoteOut(BaseModel):
     # The series the note is filed under, by its current name; when that
     # series is gone, the name it had when the note was made.
     topic: str | None
+    # That series' category; null when the note has no series or the series is gone.
+    category: str | None = None
     series_id: str | None
     slide_id: str | None
     created_at: datetime
