@@ -70,6 +70,12 @@ interface ChatMessage {
 }
 
 const PRESET_QUESTIONS = ["Explain this slide", "Summarize", "Give an example", "Simplify"];
+// For a captured slide of practice questions: help with solving, not a summary.
+const PRACTICE_PRESET_QUESTIONS = [
+  "Give me a hint, not the answer",
+  "Walk me through question 1",
+  "Make me a similar question",
+];
 
 const EXPLANATION_MODES: { value: ExplanationMode; label: string }[] = [
   { value: "university", label: "University" },
@@ -648,7 +654,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
           )}
 
           <div className="flex flex-wrap gap-2">
-            {PRESET_QUESTIONS.map((question) => (
+            {(state.result.series?.kind === "practice" ? PRACTICE_PRESET_QUESTIONS : PRESET_QUESTIONS).map((question) => (
               <button
                 key={question}
                 type="button"

@@ -110,6 +110,9 @@ class Settings(BaseSettings):
     # never a long wait.
     sort_backfill_per_request: int = 5
 
+    # Quizzes a signed-in user may generate per day (each is one model call).
+    rate_limit_quizzes_per_day: int = 10
+
     # Notes are kept until deleted, so their number per account is bounded.
     max_notes_per_user: int = 500
 

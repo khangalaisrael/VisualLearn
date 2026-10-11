@@ -18,6 +18,8 @@ from app.models.orm import (
     Message,
     ObjectRecord,
     Presentation,
+    Quiz,
+    QuizAttempt,
     RateLimitEvent,
     Series,
     Session,
@@ -81,6 +83,11 @@ async def run_cleanup(db: AsyncSession) -> CleanupResult:
             ~exists().where(Conversation.presentation_id == Presentation.id),
         )
     )
+
+    # Quizzes expire like the slides they were written from (notes do not expire).
+    old_quizzes = select(Quiz.id).where(Quiz.created_at < cutoff)
+    await db.execute(delete(QuizAttempt).where(QuizAttempt.quiz_id.in_(old_quizzes)))
+    await db.execute(delete(Quiz).where(Quiz.created_at < cutoff))
 
     cache_entries = await db.execute(delete(CacheEntry).where(CacheEntry.created_at < cutoff))
     rate_limit_events = await db.execute(

@@ -208,6 +208,38 @@ class Note(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Quiz(Base):
+    """A multiple-choice quiz written from one series' slides
+    (services/quiz_generator.py). `questions` is a list of
+    {question, options, correct_index, explanation, slide_id}; `resources` a
+    list of {title, url, why} found by web research, usually empty. Expires
+    with the 30-day retention, like the slides it was made from."""
+
+    __tablename__ = "quizzes"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
+    # A plain column: the quiz is listed under its series but outlives a regrouping.
+    series_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    title: Mapped[str] = mapped_column(String(160))
+    questions: Mapped[list] = mapped_column(JSON)
+    resources: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class QuizAttempt(Base):
+    """One completed run through a quiz: the option chosen per question
+    (null = skipped) and how many were right."""
+
+    __tablename__ = "quiz_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    quiz_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("quizzes.id"), nullable=False)
+    answers: Mapped[list] = mapped_column(JSON)
+    score: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CacheEntry(Base):
     """Durable backing store for the Redis analysis cache
     (app/services/cache_service.py) — see docs/DATA_MODEL.md `cache_entries`

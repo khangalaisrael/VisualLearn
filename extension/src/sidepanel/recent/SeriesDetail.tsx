@@ -1,14 +1,20 @@
 /**
  * One selected series: its cover and name, its slides (lecture and practice
  * apart), and the corrections a student can make when the sorter got it
- * wrong: rename, pick another cover, move a slide elsewhere, delete.
+ * wrong: rename, pick another cover, move a slide elsewhere, delete. A
+ * sorted series also has quizzes (SeriesQuizzes.tsx, QuizView.tsx).
  */
 
 import { useState } from "react";
 
+import type { QuizOut } from "@shared/types";
+
+import { useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 import { type LibraryCapture, type LibrarySeries, countLabel, coverOf, relativeTime } from "./library";
 import { BackIcon, CaptureButton, CloseIcon, Cover, ICON_BUTTON, MoreIcon } from "./parts";
+import { QuizView } from "./QuizView";
+import { SeriesQuizzes } from "./SeriesQuizzes";
 
 const FIELD =
   "w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 transition-colors duration-[120ms] focus:border-indigo-400";
@@ -25,7 +31,7 @@ export interface SeriesActions {
   moveToNewSeries: (capture: LibraryCapture, title: string, category: string) => void;
 }
 
-type Section = "slides" | "practice";
+type Section = "slides" | "practice" | "quizzes";
 
 function RenameForm({
   series,
@@ -163,12 +169,25 @@ export function SeriesDetail({
   const [section, setSection] = useState<Section>("slides");
   const [renaming, setRenaming] = useState(false);
   const [toolsFor, setToolsFor] = useState<string | null>(null);
+  const [quiz, setQuiz] = useState<QuizOut | null>(null);
+  const usage = useUsage();
 
   const lectures = series.captures.filter((capture) => capture.kind !== "practice");
   const practice = series.captures.filter((capture) => capture.kind === "practice");
-  // With nothing but practice slides, there is no empty "Slides" list to land on.
-  const shown = practice.length > 0 && (section === "practice" || lectures.length === 0) ? practice : lectures;
+  const sections: [Section, string][] = [
+    ...(lectures.length > 0 ? [["slides", `Slides (${lectures.length})`] as [Section, string]] : []),
+    ...(practice.length > 0 ? [["practice", `Practice (${practice.length})`] as [Section, string]] : []),
+    // Quizzes are written on the server from a real series.
+    ...(series.sorted ? [["quizzes", "Quizzes"] as [Section, string]] : []),
+  ];
+  // The chosen section can vanish (its last slide moved away): fall back to the first.
+  const active = sections.some(([value]) => value === section) ? section : (sections[0]?.[0] ?? "slides");
+  const shown = active === "practice" ? practice : lectures;
   const others = allSeries.filter((other) => other.sorted && other.id !== series.id);
+
+  if (quiz) {
+    return <QuizView key={quiz.id} quiz={quiz} onBack={() => setQuiz(null)} />;
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -218,22 +237,17 @@ export function SeriesDetail({
         </div>
       )}
 
-      {practice.length > 0 && lectures.length > 0 && (
+      {sections.length > 1 && (
         <div className="flex gap-1 rounded-sm bg-slate-100 p-1" role="tablist" aria-label="What to show">
-          {(
-            [
-              ["slides", `Slides (${lectures.length})`],
-              ["practice", `Practice (${practice.length})`],
-            ] as const
-          ).map(([value, label]) => (
+          {sections.map(([value, label]) => (
             <button
               key={value}
               type="button"
               role="tab"
-              aria-selected={section === value}
+              aria-selected={active === value}
               onClick={() => setSection(value)}
-              className={`flex-1 rounded-[6px] px-3 py-1.5 text-xs font-medium transition-colors duration-[120ms] ${
-                section === value ? "bg-white text-slate-800 shadow-subtle" : "text-slate-500 hover:text-slate-700"
+              className={`flex-1 rounded-[6px] px-2 py-1.5 text-xs font-medium transition-colors duration-[120ms] ${
+                active === value ? "bg-white text-slate-800 shadow-subtle" : "text-slate-500 hover:text-slate-700"
               }`}
             >
               {label}
@@ -242,7 +256,11 @@ export function SeriesDetail({
         </div>
       )}
 
-      <ul className="flex flex-col gap-1">
+      {active === "quizzes" && (
+        <SeriesQuizzes seriesId={series.id} canResearch={usage?.is_admin ?? false} onOpen={setQuiz} />
+      )}
+
+      <ul className={active === "quizzes" ? "hidden" : "flex flex-col gap-1"}>
         {shown.map((capture) => (
           <li key={capture.slideId} className="flex flex-col gap-1">
             <div className="flex items-start gap-1">

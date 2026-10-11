@@ -29,7 +29,9 @@ from app.services.rate_limiter import (
     enforce_global_chat_cap,
     enforce_global_capture_cap,
     enforce_rate_limits,
+    quiz_limits,
 )
+from app.services.quiz_generator import ClaudeQuizGenerator, PlaceholderQuizGenerator, QuizGenerator
 from app.services.series_sorter import ClaudeSeriesSorter, PlaceholderSeriesSorter, SeriesSorter
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
 
@@ -135,6 +137,21 @@ _series_sorter = _build_series_sorter()
 async def get_series_sorter() -> SeriesSorter:
     """Tests override this (tests/backend/conftest.py) so they never call a provider."""
     return _series_sorter
+
+
+def _build_quiz_generator() -> QuizGenerator:
+    settings = get_settings()
+    if settings.anthropic_api_key:
+        return ClaudeQuizGenerator(api_key=settings.anthropic_api_key, model=settings.anthropic_chat_model)
+    return PlaceholderQuizGenerator()
+
+
+_quiz_generator = _build_quiz_generator()
+
+
+async def get_quiz_generator() -> QuizGenerator:
+    """Tests override this (tests/backend/conftest.py) so they never call a provider."""
+    return _quiz_generator
 
 
 def _check_requested_model(requested_model: str, *, default_is_openai: bool, default_is_claude: bool) -> None:
@@ -368,6 +385,28 @@ async def enforce_chat_rate_limit(
             limits=chat_limits(settings, clock.now(), signed_in=user is not None),
         )
         await enforce_global_chat_cap(repo, settings)
+    except RateLimitExceeded as exc:
+        await _record_limit_hit(db, user, exc)
+        raise
+
+
+async def enforce_quiz_rate_limit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> None:
+    """Quizzes belong to an account, so only signed-in requests reach the
+    count; a signed-out one is turned away by the route itself."""
+    ensure_access(user)
+    if user is None or is_admin(user):
+        return
+    try:
+        await enforce_rate_limits(
+            RateLimitEventRepository(db),
+            key=rate_limit_key(request, user.id),
+            action="quiz",
+            limits=quiz_limits(get_settings(), clock.now()),
+        )
     except RateLimitExceeded as exc:
         await _record_limit_hit(db, user, exc)
         raise

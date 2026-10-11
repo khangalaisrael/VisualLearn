@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import admin, auth, chat, conversations, health, notes, presentations, series, slides, usage
+from app.api.v1 import admin, auth, chat, conversations, health, notes, presentations, quizzes, series, slides, usage
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -15,3 +15,4 @@ api_router.include_router(admin.router)
 api_router.include_router(presentations.router)
 api_router.include_router(series.router)
 api_router.include_router(notes.router)
+api_router.include_router(quizzes.router)

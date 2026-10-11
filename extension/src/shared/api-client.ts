@@ -20,6 +20,10 @@ import type {
   NoteListResponse,
   NoteOut,
   NoteUpdateRequest,
+  QuizAttemptResponse,
+  QuizCreateRequest,
+  QuizListResponse,
+  QuizOut,
   SeriesListResponse,
   SeriesRef,
   SeriesUpdateRequest,
@@ -244,6 +248,10 @@ const WAKE_RETRY_INTERVAL_MS = 5_000;
 const HEALTH_ATTEMPT_TIMEOUT_MS = 12_000;
 const ANALYZE_ATTEMPT_TIMEOUT_MS = 60_000;
 const CHAT_ATTEMPT_TIMEOUT_MS = 30_000;
+// Writing a quiz is one long model call; with web research it also runs searches.
+// Too short a timeout here would abort a quiz mid-write and pay for it twice.
+const QUIZ_ATTEMPT_TIMEOUT_MS = 90_000;
+const RESEARCH_QUIZ_ATTEMPT_TIMEOUT_MS = 180_000;
 const WAKE_STATUSES = new Set([502, 503, 504]);
 
 // The Render service is also served from this custom domain (same free tier).
@@ -506,13 +514,18 @@ export async function* streamChat(
   }
 }
 
-async function authedJson<T>(path: string, init: RequestInit, failure: string): Promise<T> {
+async function authedJson<T>(
+  path: string,
+  init: RequestInit,
+  failure: string,
+  attemptTimeoutMs: number = CHAT_ATTEMPT_TIMEOUT_MS
+): Promise<T> {
   const { backendUrl, apiKey } = await getConfig();
   const response = await fetchWakingBackend(
     `${backendUrl}/api/v1${path}`,
     { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-API-Key": apiKey, ...(await authHeader()) } },
     undefined,
-    CHAT_ATTEMPT_TIMEOUT_MS
+    attemptTimeoutMs
   );
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: string } | null;
@@ -590,6 +603,29 @@ export function updateNote(noteId: string, changes: NoteUpdateRequest): Promise<
 
 export function deleteNote(noteId: string): Promise<void> {
   return authedJson(`/notes/${noteId}`, { method: "DELETE" }, "Couldn't delete that note");
+}
+
+/** Writes a new quiz from the series' slides (one model call, counted against a daily allowance). */
+export function createQuiz(seriesId: string, request: QuizCreateRequest): Promise<QuizOut> {
+  return authedJson(
+    `/series/${seriesId}/quizzes`,
+    jsonBody("POST", request),
+    "Couldn't write a quiz",
+    request.research ? RESEARCH_QUIZ_ATTEMPT_TIMEOUT_MS : QUIZ_ATTEMPT_TIMEOUT_MS
+  );
+}
+
+export function listQuizzes(seriesId: string): Promise<QuizListResponse> {
+  return authedJson(`/series/${seriesId}/quizzes`, {}, "Couldn't load quizzes");
+}
+
+export function getQuiz(quizId: string): Promise<QuizOut> {
+  return authedJson(`/quizzes/${quizId}`, {}, "Couldn't open that quiz");
+}
+
+/** Records a finished run: the chosen option per question, null for a skipped one. */
+export function recordQuizAttempt(quizId: string, answers: (number | null)[]): Promise<QuizAttemptResponse> {
+  return authedJson(`/quizzes/${quizId}/attempts`, jsonBody("POST", { answers }), "Couldn't save your result");
 }
 
 /** Deletes the signed-in account and all its data on the server, then signs out locally. */

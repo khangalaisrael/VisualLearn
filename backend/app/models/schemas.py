@@ -255,7 +255,58 @@ class NoteUpdateRequest(BaseModel):
     body: str | None = Field(default=None, min_length=1, max_length=20_000)
 
 
-QueryMode = Literal["figure", "slide", "algorithm", "presentation", "general", "auto"]
+class QuizQuestion(BaseModel):
+    question: str
+    options: list[str]
+    correct_index: int
+    explanation: str
+    # The slide the question draws on; null if none was named or it is gone.
+    slide_id: str | None = None
+
+
+class QuizResource(BaseModel):
+    title: str
+    url: str
+    # One line on what it is good for.
+    why: str
+
+
+class QuizSummary(BaseModel):
+    id: str
+    title: str
+    question_count: int
+    created_at: datetime
+    attempts: int
+    best_score: int | None
+
+
+class QuizOut(QuizSummary):
+    series_id: str
+    questions: list[QuizQuestion]
+    resources: list[QuizResource]
+
+
+class QuizListResponse(BaseModel):
+    quizzes: list[QuizSummary]  # newest first
+
+
+class QuizCreateRequest(BaseModel):
+    count: int = Field(default=5, ge=3, le=10)
+    # Also search the web for study resources on the topic. Admins only for now.
+    research: bool = False
+
+
+class QuizAttemptRequest(BaseModel):
+    # The chosen option per question, in order; null for a skipped one.
+    answers: list[int | None]
+
+
+class QuizAttemptResponse(BaseModel):
+    score: int
+    total: int
+
+
+QueryMode = Literal["figure", "slide", "algorithm", "tutor", "presentation", "general", "auto"]
 
 # docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. Only
 # consulted for query_mode == "algorithm" (see chat.py's
@@ -287,6 +338,11 @@ class ChatRequest(BaseModel):
     # Only used for query_mode == "algorithm" (docs/AlgorithmsMVP.md
     # Phase 5) — ignored otherwise, so other modes don't need to send it.
     explanation_mode: ExplanationMode = "university"
+    # Only for query_mode == "tutor": the quiz question being discussed and
+    # the option the student chose (null if they skipped it).
+    quiz_id: str | None = None
+    question_index: int | None = None
+    selected_index: int | None = None
 
 
 class ChatUsage(BaseModel):

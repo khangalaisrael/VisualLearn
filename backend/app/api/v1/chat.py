@@ -37,7 +37,7 @@ from app.api.deps import (
 )
 from app.core.prompt_loader import load_prompt
 from app.db.session import get_db
-from app.models.orm import ObjectRecord, Series, Slide
+from app.models.orm import ObjectRecord, Quiz, Series, Slide
 from app.models.schemas import ChatRequest, ExplanationMode, GraphStructure
 from app.repositories.conversations import ConversationRepository
 from app.repositories.messages import MessageRepository
@@ -57,8 +57,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(verify_api_key), Depends(enforce_chat_rate_limit)])
 
-_PROMPT_BY_MODE = {"figure": "chat_figure.v5", "slide": "chat_slide.v5", "algorithm": "chat_algorithm.v5"}
-_EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium"}
+_PROMPT_BY_MODE = {
+    "figure": "chat_figure.v5",
+    "slide": "chat_slide.v5",
+    "algorithm": "chat_algorithm.v5",
+    "tutor": "chat_tutor.v1",
+}
+_EFFORT_BY_MODE: dict[str, ChatEffort] = {"figure": "low", "slide": "medium", "algorithm": "medium", "tutor": "medium"}
 
 # docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. "university"
 # has no entry — it's what chat_algorithm.v4.md's baseline tone already is,
@@ -362,6 +367,53 @@ def _build_graph_trace_block(message: str, objects: list[ObjectRecord]) -> str:
     )
 
 
+async def _build_tutor_context(
+    db: AsyncSession, request: ChatRequest, current_user_id: uuid.UUID | None
+) -> tuple[str, list[str], Slide | None]:
+    """Grounds a tutoring chat on one quiz question: what was asked, what
+    the student chose, what is correct, and the slide it was drawn from (when
+    that slide still exists). The quiz must be the caller's own."""
+    if not request.quiz_id or request.question_index is None:
+        raise HTTPException(status_code=400, detail="Tutor mode requires quiz_id and question_index")
+    quiz = await db.get(Quiz, _parse_uuid(request.quiz_id, "quiz_id"))
+    if quiz is None or current_user_id is None or quiz.user_id != current_user_id:
+        raise HTTPException(status_code=404, detail="Unknown quiz_id")
+    if not 0 <= request.question_index < len(quiz.questions):
+        raise HTTPException(status_code=400, detail="question_index is out of range")
+    question = quiz.questions[request.question_index]
+    options: list[str] = question["options"]
+    correct: int = question["correct_index"]
+    chosen = request.selected_index
+    if chosen is not None and not 0 <= chosen < len(options):
+        raise HTTPException(status_code=400, detail="selected_index is out of range")
+
+    def letter(index: int) -> str:
+        return f"{chr(ord('A') + index)}. {options[index]}"
+
+    if chosen is None:
+        chose = "The student skipped this question."
+    else:
+        chose = f"The student chose: {letter(chosen)} ({'correct' if chosen == correct else 'incorrect'})"
+    lines = [
+        f"Question: {question['question']}",
+        "Options:\n" + "\n".join(letter(i) for i in range(len(options))),
+        chose,
+        f"Correct option: {letter(correct)}",
+        f"Quiz explanation: {question['explanation']}",
+    ]
+
+    slide = await db.get(Slide, uuid.UUID(question["slide_id"])) if question.get("slide_id") else None
+    referenced: list[str] = []
+    if slide is not None:
+        objects = await ObjectRepository(db).list_by_slide(slide.id)
+        referenced = [str(o.id) for o in objects]
+        objects_text = "\n\n".join(_format_object(o) for o in objects) or "(no objects extracted)"
+        lines.append(
+            f"Slide the question was drawn from:\nSlide summary: {slide.summary or '(none)'}\n\n{objects_text}"
+        )
+    return "<quiz_data>\n" + "\n\n".join(lines) + "\n</quiz_data>", referenced, slide
+
+
 async def _same_series(
     db: AsyncSession, first: uuid.UUID | None, second: uuid.UUID | None, user_id: uuid.UUID | None
 ) -> bool:
@@ -377,7 +429,11 @@ async def _same_series(
 
 
 async def _resolve_conversation(
-    db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID, current_user_id: uuid.UUID | None
+    db: AsyncSession,
+    request: ChatRequest,
+    presentation_id: uuid.UUID | None,
+    slide_id: uuid.UUID | None,
+    current_user_id: uuid.UUID | None,
 ) -> uuid.UUID:
     conversations = ConversationRepository(db)
     if request.conversation_id:
@@ -388,7 +444,6 @@ async def _resolve_conversation(
         # continuing it would leak them.
         if conversation is None or (conversation.user_id is not None and conversation.user_id != current_user_id):
             raise HTTPException(status_code=404, detail="Unknown conversation_id")
-        slide_id = _parse_uuid(request.slide_id, "slide_id") if request.slide_id else None
         if conversation.presentation_id != presentation_id:
             # A different page is fine when the student moved on to the next
             # slide of the same series: the chat follows them there.
@@ -403,7 +458,7 @@ async def _resolve_conversation(
         presentation_id=presentation_id,
         user_id=current_user_id,
         title=request.message.strip()[:80] or None,
-        slide_id=_parse_uuid(request.slide_id, "slide_id") if request.slide_id else None,
+        slide_id=slide_id,
     )
     return conversation.id
 
@@ -504,22 +559,31 @@ async def chat(
     if request.query_mode not in _PROMPT_BY_MODE:
         raise HTTPException(status_code=400, detail=f"query_mode '{request.query_mode}' is not yet supported")
 
-    if not request.presentation_id:
-        raise HTTPException(status_code=400, detail="presentation_id is required")
-    presentation_uuid = _parse_uuid(request.presentation_id, "presentation_id")
-    presentation = await PresentationRepository(db).get(presentation_uuid)
-    if presentation is None:
-        raise HTTPException(status_code=404, detail="Unknown presentation_id")
-    ensure_presentation_access(presentation, current_user_id)
-
-    if request.query_mode == "figure":
-        context_text, referenced_object_ids = await _build_figure_context(db, request, presentation_uuid)
-    elif request.query_mode == "algorithm":
-        context_text, referenced_object_ids = await _build_algorithm_context(db, request, presentation_uuid)
+    presentation_uuid: uuid.UUID | None
+    slide_uuid: uuid.UUID | None
+    if request.query_mode == "tutor":
+        # Grounded on a quiz the caller owns, not on a presentation they name.
+        context_text, referenced_object_ids, quiz_slide = await _build_tutor_context(db, request, current_user_id)
+        presentation_uuid = quiz_slide.presentation_id if quiz_slide is not None else None
+        slide_uuid = quiz_slide.id if quiz_slide is not None else None
     else:
-        context_text, referenced_object_ids = await _build_slide_context(db, request, presentation_uuid)
+        if not request.presentation_id:
+            raise HTTPException(status_code=400, detail="presentation_id is required")
+        presentation_uuid = _parse_uuid(request.presentation_id, "presentation_id")
+        presentation = await PresentationRepository(db).get(presentation_uuid)
+        if presentation is None:
+            raise HTTPException(status_code=404, detail="Unknown presentation_id")
+        ensure_presentation_access(presentation, current_user_id)
 
-    conversation_id = await _resolve_conversation(db, request, presentation_uuid, current_user_id)
+        if request.query_mode == "figure":
+            context_text, referenced_object_ids = await _build_figure_context(db, request, presentation_uuid)
+        elif request.query_mode == "algorithm":
+            context_text, referenced_object_ids = await _build_algorithm_context(db, request, presentation_uuid)
+        else:
+            context_text, referenced_object_ids = await _build_slide_context(db, request, presentation_uuid)
+        slide_uuid = _parse_uuid(request.slide_id, "slide_id") if request.slide_id else None
+
+    conversation_id = await _resolve_conversation(db, request, presentation_uuid, slide_uuid, current_user_id)
     await db.commit()
 
     base_prompt = load_prompt(_PROMPT_BY_MODE[request.query_mode])

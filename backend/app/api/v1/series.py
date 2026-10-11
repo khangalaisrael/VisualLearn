@@ -9,13 +9,13 @@ Another user's series or capture is a 404, same as an unknown id.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, get_series_sorter, verify_api_key
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.orm import Presentation, Series, Slide
+from app.models.orm import Presentation, Quiz, QuizAttempt, Series, Slide
 from app.models.schemas import (
     CaptureConversation,
     MoveSlideRequest,
@@ -202,5 +202,8 @@ async def delete_series(
     series = await _owned_series(db, series_id, user_id)
     slide_ids = list((await db.execute(select(Slide.id).where(Slide.series_id == series.id))).scalars())
     await delete_slides(db, slide_ids)
+    quiz_ids = select(Quiz.id).where(Quiz.series_id == series.id)
+    await db.execute(delete(QuizAttempt).where(QuizAttempt.quiz_id.in_(quiz_ids)))
+    await db.execute(delete(Quiz).where(Quiz.series_id == series.id))
     await prune_series(db, user_id)
     await db.commit()

@@ -58,7 +58,7 @@ export interface SlideAnalysisResponse {
   series: SeriesRef | null;
 }
 
-export type QueryMode = "figure" | "slide" | "algorithm" | "presentation" | "general" | "auto";
+export type QueryMode = "figure" | "slide" | "algorithm" | "tutor" | "presentation" | "general" | "auto";
 
 // docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. Only
 // consulted server-side for query_mode === "algorithm" — other modes
@@ -79,6 +79,11 @@ export interface ChatRequest {
   model?: string | null;
   // Only meaningful for query_mode === "algorithm"; omit for other modes.
   explanation_mode?: ExplanationMode;
+  // Only for query_mode === "tutor": the quiz question being discussed and
+  // the option the student chose (null if they skipped it).
+  quiz_id?: string;
+  question_index?: number;
+  selected_index?: number | null;
 }
 
 export interface ChatUsage {
@@ -270,6 +275,49 @@ export interface NoteCreateRequest {
 export interface NoteUpdateRequest {
   title?: string;
   body?: string;
+}
+
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
+  slide_id: string | null;
+}
+
+export interface QuizResource {
+  title: string;
+  url: string;
+  why: string;
+}
+
+export interface QuizSummary {
+  id: string;
+  title: string;
+  question_count: number;
+  created_at: string;
+  attempts: number;
+  best_score: number | null;
+}
+
+export interface QuizOut extends QuizSummary {
+  series_id: string;
+  questions: QuizQuestion[];
+  resources: QuizResource[];
+}
+
+export interface QuizListResponse {
+  quizzes: QuizSummary[];
+}
+
+export interface QuizCreateRequest {
+  count: number;
+  research: boolean;
+}
+
+export interface QuizAttemptResponse {
+  score: number;
+  total: number;
 }
 
 export interface AdminDay {
