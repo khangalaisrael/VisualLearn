@@ -57,6 +57,7 @@ def _out(note: Note, series: Series | None) -> NoteOut:
         topic=series.title if series is not None else note.topic,
         category=series.category if series is not None else None,
         starred=bool(note.starred),
+        series_starred=bool(series.starred) if series is not None else False,
         series_id=str(note.series_id) if note.series_id else None,
         slide_id=str(note.slide_id) if note.slide_id else None,
         created_at=note.created_at,

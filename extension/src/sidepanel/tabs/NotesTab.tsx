@@ -6,11 +6,19 @@
  * to. Notes live on the server and are kept until deleted.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import type { NoteOut } from "@shared/types";
 
-import { createNote, deleteNote, getAuthState, listNotes, signInWithGoogle, updateNote } from "../../shared/api-client";
+import {
+  createNote,
+  deleteNote,
+  getAuthState,
+  listNotes,
+  signInWithGoogle,
+  updateNote,
+  updateSeries,
+} from "../../shared/api-client";
 import { openPrintView } from "../../shared/print";
 import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
@@ -197,6 +205,8 @@ interface NoteGroup {
   notes: NoteOut[];
   /** The note edited last, for the card's "edited ..." line. */
   latest: NoteOut;
+  /** The series is a favourite: the same star as on its card in Recent. */
+  starred: boolean;
 }
 
 /** A group to show in the list. `noteMatches` is set when a search matched
@@ -226,10 +236,12 @@ function groupNotes(notes: NoteOut[]): NoteGroup[] {
       category: note.category ?? (note.topic ? "Its slides are no longer in Recent" : "Not tied to a series"),
       notes: [note],
       latest: note,
+      starred: note.category !== null && note.series_starred,
     });
   }
   for (const group of groups.values()) group.notes.sort((a, b) => Number(b.starred) - Number(a.starred));
-  return [...groups.values()];
+  // Favourite series first, as in Recent; otherwise most recently edited first.
+  return [...groups.values()].sort((a, b) => Number(b.starred) - Number(a.starred));
 }
 
 function filterGroups(groups: NoteGroup[], query: string): GroupHit[] {
@@ -258,43 +270,119 @@ const CHIP = "flex flex-none items-center gap-1 rounded-full border px-3 py-1 te
 const CHIP_ON = "border-indigo-600 bg-indigo-600 text-white";
 const CHIP_OFF = "border-slate-200 text-slate-600 hover:bg-slate-50";
 
-/** One note as a row to press. `framed` gives it its own card; unframed it sits
- * inside a group's card. `series` names where it is filed, for a list that mixes series. */
-function NoteRow({
-  note,
-  framed,
-  series,
-  onOpen,
+// The star sets its own colour (amber when on), as on a series card in Recent.
+const STAR_BUTTON =
+  "flex h-8 w-8 flex-none items-center justify-center rounded-sm transition-colors duration-[120ms] hover:bg-slate-100 disabled:opacity-50";
+const STAR_ON = "text-amber-600 dark:text-amber-300";
+const STAR_OFF = "text-slate-400 hover:text-slate-700";
+
+function StarToggle({
+  starred,
+  name,
+  disabled,
+  onToggle,
 }: {
-  note: NoteOut;
-  framed: boolean;
-  series?: string;
-  onOpen: () => void;
+  starred: boolean;
+  /** What is being starred, for the button's accessible name. */
+  name: string;
+  disabled: boolean;
+  onToggle: () => void;
 }): JSX.Element {
   return (
     <button
       type="button"
-      onClick={onOpen}
-      className={`flex w-full flex-col gap-0.5 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100 ${
-        framed ? "rounded-md border border-slate-200 bg-white p-3 shadow-subtle" : "rounded-sm px-3 py-2"
-      }`}
+      disabled={disabled}
+      onClick={onToggle}
+      aria-pressed={starred}
+      aria-label={starred ? `Remove ${name} from favourites` : `Add ${name} to favourites`}
+      title={starred ? "Remove from favourites" : "Add to favourites"}
+      className={`${STAR_BUTTON} ${starred ? STAR_ON : STAR_OFF}`}
     >
-      <span className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
-        {note.starred && (
-          <span className="flex-none text-amber-600 dark:text-amber-300" title="Favourite">
-            <StarIcon filled />
-          </span>
-        )}
-        <span className="truncate">
+      <StarIcon filled={starred} />
+    </button>
+  );
+}
+
+/** One note as a row: press it to open the note, press its star to make it a
+ * favourite. `framed` gives it its own card; unframed it sits inside a group's
+ * card. `series` names where it is filed, for a list that mixes series. */
+function NoteRow({
+  note,
+  framed,
+  series,
+  busy,
+  onOpen,
+  onToggleStar,
+}: {
+  note: NoteOut;
+  framed: boolean;
+  series?: string;
+  busy: boolean;
+  onOpen: () => void;
+  onToggleStar: () => void;
+}): JSX.Element {
+  return (
+    <div className={`flex items-center gap-1 pr-2 ${framed ? "rounded-md border border-slate-200 bg-white shadow-subtle" : ""}`}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`flex min-w-0 flex-1 flex-col gap-0.5 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100 ${
+          framed ? "rounded-md py-3 pl-3 pr-2" : "rounded-sm py-2 pl-3 pr-2"
+        }`}
+      >
+        <span className="truncate text-sm font-medium text-slate-800">
           <MathText text={note.title} />
         </span>
-      </span>
-      <span className="text-xs text-slate-400">
-        {series ? `${series}, ` : ""}
-        {note.source === "ai" ? (series ? "saved answer" : "Saved answer") : series ? "your note" : "Your note"}, edited{" "}
-        {edited(note)}
-      </span>
-    </button>
+        <span className="text-xs text-slate-400">
+          {series ? `${series}, ` : ""}
+          {note.source === "ai" ? (series ? "saved answer" : "Saved answer") : series ? "your note" : "Your note"}, edited{" "}
+          {edited(note)}
+        </span>
+      </button>
+      <StarToggle starred={note.starred} name="this note" disabled={busy} onToggle={onToggleStar} />
+    </div>
+  );
+}
+
+/** One series' notes as a card, like a series card in Recent: press to open, star to favourite. */
+function GroupCard({
+  group,
+  busy,
+  onSelect,
+  onToggleStar,
+  children,
+}: {
+  group: NoteGroup;
+  busy: boolean;
+  onSelect: () => void;
+  onToggleStar: () => void;
+  /** Notes a search matched, listed under the card. */
+  children?: ReactNode;
+}): JSX.Element {
+  return (
+    <li className="rounded-md border border-slate-200 bg-white shadow-subtle">
+      <div className="flex items-center gap-1 pr-2">
+        <button
+          type="button"
+          onClick={onSelect}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md py-3 pl-4 pr-2 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
+        >
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{group.title}</span>
+            <span className="truncate text-xs text-slate-500">{group.category}</span>
+            <span className="text-xs text-slate-400">
+              {countLabel(group.notes.length, "note")}, edited {edited(group.latest)}
+            </span>
+          </span>
+          <span className="flex-none text-slate-400">
+            <ForwardIcon />
+          </span>
+        </button>
+        {/* Only notes filed under a series that still exists have a series to star. */}
+        {group.seriesId && <StarToggle starred={group.starred} name={group.title} disabled={busy} onToggle={onToggleStar} />}
+      </div>
+      {children}
+    </li>
   );
 }
 
@@ -330,6 +418,8 @@ export function NotesTab(): JSX.Element {
 
   const groups = useMemo(() => (state.status === "loaded" ? groupNotes(state.notes) : []), [state]);
   const hits = useMemo(() => filterGroups(groups, query), [groups, query]);
+  // In the Favourites view: starred series (as cards) and starred notes (as rows).
+  const starredGroups = useMemo(() => hits.filter((hit) => hit.group.starred).map((hit) => hit.group), [hits]);
   const favourites = useMemo(() => {
     if (state.status !== "loaded") return [];
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -429,6 +519,23 @@ export function NotesTab(): JSX.Element {
     }
   };
 
+  /** Stars straight from a list. The list is refreshed from the server afterwards. */
+  const starFromList = async (change: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await change();
+      await load();
+    } catch (error) {
+      setState({ status: "error", message: errorText(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleNoteStar = (note: NoteOut) => void starFromList(() => updateNote(note.id, { starred: !note.starred }));
+  const toggleGroupStar = (group: NoteGroup) => {
+    if (group.seriesId) void starFromList(() => updateSeries(group.seriesId as string, { starred: !group.starred }));
+  };
+
   const remove = async () => {
     if (!draft?.id || !window.confirm("Delete this note for good?")) return;
     setBusy(true);
@@ -495,7 +602,7 @@ export function NotesTab(): JSX.Element {
         <ul className="flex flex-col gap-2">
           {selected.notes.map((note) => (
             <li key={note.id}>
-              <NoteRow note={note} framed onOpen={() => open(note)} />
+              <NoteRow note={note} framed busy={busy} onOpen={() => open(note)} onToggleStar={() => toggleNoteStar(note)} />
             </li>
           ))}
         </ul>
@@ -598,20 +705,44 @@ export function NotesTab(): JSX.Element {
           </div>
 
           {favouritesOnly ? (
-            favourites.length === 0 ? (
+            favourites.length === 0 && starredGroups.length === 0 ? (
               <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
                 {query.trim()
-                  ? `No favourite note matches "${query.trim()}".`
-                  : "No favourite notes yet. Open a note and press Add to favourites to keep it here."}
+                  ? `No favourite matches "${query.trim()}".`
+                  : "No favourites yet. Press the star on a series or a note to keep it here."}
               </p>
             ) : (
-              <ul className="flex flex-col gap-2">
-                {favourites.map((note) => (
-                  <li key={note.id}>
-                    <NoteRow note={note} framed series={note.topic ?? "General"} onOpen={() => open(note)} />
-                  </li>
-                ))}
-              </ul>
+              <>
+                {starredGroups.length > 0 && (
+                  <ul className="flex flex-col gap-3" aria-label="Favourite series">
+                    {starredGroups.map((group) => (
+                      <GroupCard
+                        key={group.key}
+                        group={group}
+                        busy={busy}
+                        onSelect={() => setSelectedKey(group.key)}
+                        onToggleStar={() => toggleGroupStar(group)}
+                      />
+                    ))}
+                  </ul>
+                )}
+                {favourites.length > 0 && (
+                  <ul className="flex flex-col gap-2" aria-label="Favourite notes">
+                    {favourites.map((note) => (
+                      <li key={note.id}>
+                        <NoteRow
+                          note={note}
+                          framed
+                          series={note.topic ?? "General"}
+                          busy={busy}
+                          onOpen={() => open(note)}
+                          onToggleStar={() => toggleNoteStar(note)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )
           ) : hits.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
@@ -620,33 +751,29 @@ export function NotesTab(): JSX.Element {
           ) : (
             <ul className="flex flex-col gap-3">
               {hits.map(({ group, noteMatches }) => (
-                <li key={group.key} className="rounded-md border border-slate-200 bg-white shadow-subtle">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedKey(group.key)}
-                    className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
-                  >
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{group.title}</span>
-                      <span className="truncate text-xs text-slate-500">{group.category}</span>
-                      <span className="text-xs text-slate-400">
-                        {countLabel(group.notes.length, "note")}, edited {edited(group.latest)}
-                      </span>
-                    </span>
-                    <span className="flex-none text-slate-400">
-                      <ForwardIcon />
-                    </span>
-                  </button>
+                <GroupCard
+                  key={group.key}
+                  group={group}
+                  busy={busy}
+                  onSelect={() => setSelectedKey(group.key)}
+                  onToggleStar={() => toggleGroupStar(group)}
+                >
                   {noteMatches && (
                     <ul className="flex flex-col border-t border-slate-100 p-1" aria-label={`Matching notes in ${group.title}`}>
                       {noteMatches.map((note) => (
                         <li key={note.id}>
-                          <NoteRow note={note} framed={false} onOpen={() => open(note)} />
+                          <NoteRow
+                            note={note}
+                            framed={false}
+                            busy={busy}
+                            onOpen={() => open(note)}
+                            onToggleStar={() => toggleNoteStar(note)}
+                          />
                         </li>
                       ))}
                     </ul>
                   )}
-                </li>
+                </GroupCard>
               ))}
             </ul>
           )}

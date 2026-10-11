@@ -261,6 +261,8 @@ export interface NoteOut {
   category: string | null;
   // Marked as a favourite by its owner.
   starred: boolean;
+  // Whether the series it is filed under is a favourite (the same star Recent shows).
+  series_starred: boolean;
   series_id: string | null;
   slide_id: string | null;
   created_at: string;

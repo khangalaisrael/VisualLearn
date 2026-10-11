@@ -238,6 +238,8 @@ class NoteOut(BaseModel):
     category: str | None = None
     # Marked as a favourite by its owner.
     starred: bool = False
+    # Whether the series it is filed under is a favourite (the same star Recent shows).
+    series_starred: bool = False
     series_id: str | None
     slide_id: str | None
     created_at: datetime
