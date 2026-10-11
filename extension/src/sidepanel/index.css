@@ -34,15 +34,18 @@
     caret-color: theme("colors.indigo.500");
   }
 
-  /* KaTeX never breaks a display equation across lines. One wider than the
-     panel scrolls on its own line instead of widening the whole view (which
-     clipped the text around it). */
-  .katex-display {
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-block: 0.2em;
-    scrollbar-width: thin;
-  }
+}
+
+/* KaTeX never breaks a display equation across lines. One wider than the
+   panel scrolls on its own line, so the text around it stays put.
+   Deliberately outside @layer: Tailwind drops layered rules whose class it
+   cannot find in the source, and this class only exists in KaTeX's output
+   (inside the layer, the rule was silently missing from the build). */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.2em;
+  scrollbar-width: thin;
 }
 
 @layer utilities {
