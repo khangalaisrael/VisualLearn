@@ -1,8 +1,8 @@
 /**
  * Notes: answers the student saved and notes they wrote, grouped by the
- * series they belong to. A note opens in an editor where it can be changed
- * or added to, with a preview that typesets math and code the same way chat
- * answers are. Notes live on the server and are kept until deleted.
+ * series they belong to. A note opens to be read, typeset the same way chat
+ * answers are; Edit turns it into plain text to change or add to. Notes live
+ * on the server and are kept until deleted.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -38,33 +38,73 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const PREVIEW_CHARS = 240;
+const BACK_LINK =
+  "-ml-1 flex items-center gap-1 self-start rounded-sm px-1 py-1 text-sm font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-50 hover:text-slate-700";
 
-/** The start of a note for the list, cut so no math expression is left half open. */
-function previewOf(body: string): string {
-  const start = body.trim().slice(0, PREVIEW_CHARS);
-  const dollars = start.split("$").length - 1;
-  return dollars % 2 === 1 ? start.slice(0, start.lastIndexOf("$")) : start;
-}
-
-function NoteEditor({
+function NoteView({
   draft,
+  editing,
   busy,
   error,
   onChange,
   onSave,
   onDelete,
   onBack,
+  onEdit,
+  onCancel,
 }: {
   draft: Draft;
+  editing: boolean;
   busy: boolean;
   error: string | null;
   onChange: (changes: Partial<Draft>) => void;
   onSave: () => void;
   onDelete: () => void;
   onBack: () => void;
+  onEdit: () => void;
+  onCancel: () => void;
 }): JSX.Element {
-  const [preview, setPreview] = useState(false);
+  const back = (
+    <button type="button" onClick={onBack} className={BACK_LINK}>
+      <BackIcon />
+      All notes
+    </button>
+  );
+  const problem = error && (
+    <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
+      {error}
+    </p>
+  );
+
+  if (!editing) {
+    return (
+      <div className="flex flex-1 flex-col gap-4">
+        {back}
+        <div className="flex items-start justify-between gap-3">
+          {/* A title taken from a question can carry math, like the note itself. */}
+          <h2 className="min-w-0 text-lg font-semibold leading-snug text-slate-800">
+            <MathText text={draft.savedTitle} />
+          </h2>
+          <Button variant="secondary" onClick={onEdit} className="flex-none">
+            Edit
+          </Button>
+        </div>
+        <div className="overflow-x-auto text-sm leading-relaxed text-slate-700">
+          <MathText text={draft.savedBody} />
+        </div>
+        {problem}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onDelete}
+          className="-ml-2 self-start rounded-sm px-2 py-1 text-xs font-medium text-red-700 transition-colors duration-[120ms] hover:bg-red-50 disabled:opacity-50 dark:text-red-300"
+        >
+          Delete note
+        </button>
+      </div>
+    );
+  }
+
   const dirty = draft.title !== draft.savedTitle || draft.body !== draft.savedBody;
   return (
     <form
@@ -74,15 +114,7 @@ function NoteEditor({
         onSave();
       }}
     >
-      <button
-        type="button"
-        onClick={onBack}
-        className="-ml-1 flex items-center gap-1 self-start rounded-sm px-1 py-1 text-sm font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-50 hover:text-slate-700"
-      >
-        <BackIcon />
-        All notes
-      </button>
-
+      {back}
       <label className="flex flex-col gap-2 text-xs font-medium text-slate-600">
         Title
         <input
@@ -93,68 +125,28 @@ function NoteEditor({
           onChange={(event) => onChange({ title: event.target.value })}
         />
       </label>
-
-      <div className="flex flex-1 flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <label htmlFor="note-body" className="text-xs font-medium text-slate-600">
-            Note
-          </label>
-          <div className="flex gap-1 rounded-sm bg-slate-100 p-1" role="tablist" aria-label="Write or preview">
-            {[false, true].map((value) => (
-              <button
-                key={String(value)}
-                type="button"
-                role="tab"
-                aria-selected={preview === value}
-                onClick={() => setPreview(value)}
-                className={`rounded-[6px] px-3 py-1 text-xs font-medium transition-colors duration-[120ms] ${
-                  preview === value ? "bg-white text-slate-800 shadow-subtle" : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {value ? "Preview" : "Write"}
-              </button>
-            ))}
-          </div>
-        </div>
-        {preview ? (
-          <div className="min-h-[280px] flex-1 rounded-sm border border-slate-200 px-3 py-2 text-sm leading-relaxed text-slate-700">
-            {draft.body.trim() ? <MathText text={draft.body} /> : <p className="text-slate-400">Nothing to preview yet.</p>}
-          </div>
-        ) : (
-          <textarea
-            id="note-body"
-            className={`${FIELD} min-h-[280px] flex-1 resize-none font-mono text-[13px] leading-relaxed`}
-            value={draft.body}
-            maxLength={20_000}
-            placeholder="Write your note. Add to a saved answer in your own words."
-            onChange={(event) => onChange({ body: event.target.value })}
-          />
-        )}
-        <p className="text-xs text-slate-400">
-          Math between $ signs, **bold**, # headings and ``` code blocks are typeset in Preview.
-        </p>
-      </div>
-
-      {error && (
-        <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
-          {error}
-        </p>
-      )}
-
+      <label className="flex flex-1 flex-col gap-2 text-xs font-medium text-slate-600">
+        Note
+        <textarea
+          id="note-body"
+          className={`${FIELD} min-h-[320px] flex-1 resize-none font-mono text-[13px] font-normal leading-relaxed`}
+          value={draft.body}
+          maxLength={20_000}
+          placeholder="Write your note. Add to a saved answer in your own words."
+          onChange={(event) => onChange({ body: event.target.value })}
+        />
+      </label>
+      <p className="text-xs text-slate-400">
+        Math between $ signs, **bold**, # headings and ``` code blocks are typeset once you save.
+      </p>
+      {problem}
       <div className="flex items-center gap-2">
-        <Button type="submit" disabled={busy || !dirty || !draft.body.trim()}>
-          {busy ? "Saving…" : dirty || draft.id === null ? "Save" : "Saved"}
+        <Button type="submit" disabled={busy || !draft.body.trim() || (!dirty && draft.id !== null)}>
+          {busy ? "Saving…" : "Save"}
         </Button>
-        {draft.id !== null && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onDelete}
-            className="rounded-sm px-3 py-2 text-sm font-medium text-red-700 transition-colors duration-[120ms] hover:bg-red-50 disabled:opacity-50 dark:text-red-300"
-          >
-            Delete
-          </button>
-        )}
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
       </div>
     </form>
   );
@@ -164,6 +156,8 @@ export function NotesTab(): JSX.Element {
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
+  // A note opens to be read; a new note, or one being changed, is in the editor.
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
 
@@ -200,13 +194,30 @@ export function NotesTab(): JSX.Element {
 
   const open = (note: NoteOut) => {
     setEditorError(null);
+    setEditing(false);
     setDraft({ id: note.id, title: note.title, body: note.body, savedTitle: note.title, savedBody: note.body });
   };
 
-  const leaveEditor = () => {
-    const dirty = draft !== null && (draft.title !== draft.savedTitle || draft.body !== draft.savedBody);
-    if (dirty && !window.confirm("Leave without saving your changes?")) return;
-    setDraft(null);
+  /** True when it is fine to throw away what is in the editor. */
+  const mayDiscard = () => {
+    const dirty =
+      editing && draft !== null && (draft.title !== draft.savedTitle || draft.body !== draft.savedBody);
+    return !dirty || window.confirm("Leave without saving your changes?");
+  };
+
+  const leaveNote = () => {
+    if (mayDiscard()) setDraft(null);
+  };
+
+  /** Cancel in the editor: back to reading the saved note, or out of a note that was never saved. */
+  const cancelEdit = () => {
+    if (!draft || !mayDiscard()) return;
+    if (draft.id === null) {
+      setDraft(null);
+      return;
+    }
+    setDraft({ ...draft, title: draft.savedTitle, body: draft.savedBody });
+    setEditing(false);
   };
 
   const save = async () => {
@@ -219,6 +230,7 @@ export function NotesTab(): JSX.Element {
           ? await createNote({ title: draft.title, body: draft.body, source: "user" })
           : await updateNote(draft.id, { title: draft.title, body: draft.body });
       setDraft({ id: saved.id, title: saved.title, body: saved.body, savedTitle: saved.title, savedBody: saved.body });
+      setEditing(false);
       await load();
     } catch (error) {
       setEditorError(errorText(error));
@@ -255,14 +267,17 @@ export function NotesTab(): JSX.Element {
   if (draft) {
     return (
       <div className="scrollbar-thin flex flex-1 flex-col overflow-y-auto p-4">
-        <NoteEditor
+        <NoteView
           draft={draft}
+          editing={editing}
           busy={busy}
           error={editorError}
           onChange={(changes) => setDraft({ ...draft, ...changes })}
           onSave={() => void save()}
           onDelete={() => void remove()}
-          onBack={leaveEditor}
+          onBack={leaveNote}
+          onEdit={() => setEditing(true)}
+          onCancel={cancelEdit}
         />
       </div>
     );
@@ -276,6 +291,7 @@ export function NotesTab(): JSX.Element {
           <Button
             onClick={() => {
               setEditorError(null);
+              setEditing(true);
               setDraft({ id: null, title: "", body: "", savedTitle: "", savedBody: "" });
             }}
           >
@@ -367,10 +383,8 @@ export function NotesTab(): JSX.Element {
                       onClick={() => open(note)}
                       className="flex w-full flex-col gap-1 rounded-md border border-slate-200 bg-white p-3 text-left shadow-subtle transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
                     >
-                      <span className="line-clamp-1 text-sm font-semibold text-slate-800">{note.title}</span>
-                      {/* Typeset like the note itself, two lines of it. */}
-                      <span className="block max-h-10 overflow-hidden text-sm leading-5 text-slate-600">
-                        <MathText text={previewOf(note.body)} />
+                      <span className="truncate text-sm font-semibold text-slate-800">
+                        <MathText text={note.title} />
                       </span>
                       <span className="text-xs text-slate-400">
                         {note.source === "ai" ? "Saved answer" : "Your note"}, edited{" "}

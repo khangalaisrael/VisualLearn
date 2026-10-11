@@ -22,6 +22,8 @@ export interface LibraryCapture {
   latestConversationId: string | null;
   thumbnail: Blob | null;
   pageTitle: string;
+  /** Its place in the series, counted from 1 in the order the slides were captured. */
+  position: number;
 }
 
 export interface LibrarySeries {
@@ -30,7 +32,7 @@ export interface LibrarySeries {
   title: string;
   coverSlideId: string | null;
   lastActivity: number;
-  /** Newest first. */
+  /** In the order they were captured, like a playlist. */
   captures: LibraryCapture[];
   /** A real, server-side series: it can be renamed, re-covered and moved into. */
   sorted: boolean;
@@ -46,7 +48,14 @@ export interface Library {
 export const UNSORTED_ID = "unsorted";
 const LOCAL_CATEGORY = "On this device";
 
-function fromServer(capture: SeriesCapture, thumbnails: Map<string, Blob | null>): LibraryCapture {
+/** Puts a series' slides in capture order and numbers them. */
+function inOrder(captures: Omit<LibraryCapture, "position">[]): LibraryCapture[] {
+  return [...captures]
+    .sort((a, b) => a.capturedAt - b.capturedAt)
+    .map((capture, index) => ({ ...capture, position: index + 1 }));
+}
+
+function fromServer(capture: SeriesCapture, thumbnails: Map<string, Blob | null>): Omit<LibraryCapture, "position"> {
   return {
     slideId: capture.slide_id,
     summary: capture.summary,
@@ -65,6 +74,7 @@ function groupLocal(records: CaptureRecord[]): LibrarySeries[] {
   const groups = new Map<string, LibrarySeries>();
   for (const record of records) {
     const capture: LibraryCapture = {
+      position: 0, // numbered below, once the group is complete
       slideId: record.slide_id,
       summary: record.summary,
       subtopic: null,
@@ -90,7 +100,9 @@ function groupLocal(records: CaptureRecord[]): LibrarySeries[] {
       });
     }
   }
-  return [...groups.values()].sort((a, b) => b.lastActivity - a.lastActivity);
+  return [...groups.values()]
+    .map((group) => ({ ...group, captures: inOrder(group.captures) }))
+    .sort((a, b) => b.lastActivity - a.lastActivity);
 }
 
 export async function loadLibrary(): Promise<Library> {
@@ -112,17 +124,17 @@ export async function loadLibrary(): Promise<Library> {
     title: item.title,
     coverSlideId: item.cover_slide_id,
     lastActivity: new Date(item.last_activity_at).getTime(),
-    captures: item.captures.map((capture) => fromServer(capture, thumbnails)),
+    captures: inOrder(item.captures.map((capture) => fromServer(capture, thumbnails))),
     sorted: true,
   }));
   if (response.unsorted.length > 0) {
-    const captures = response.unsorted.map((capture) => fromServer(capture, thumbnails));
+    const captures = inOrder(response.unsorted.map((capture) => fromServer(capture, thumbnails)));
     series.push({
       id: UNSORTED_ID,
       category: "Not sorted yet",
       title: "Waiting to be sorted",
       coverSlideId: null,
-      lastActivity: captures[0].capturedAt,
+      lastActivity: Math.max(...captures.map((capture) => capture.capturedAt)),
       captures,
       sorted: false,
     });
@@ -130,7 +142,7 @@ export async function loadLibrary(): Promise<Library> {
   return { series, retentionDays: response.retention_days, signedIn: true };
 }
 
-/** The chosen cover's picture, or else the newest capture that has one on this device. */
+/** The chosen cover's picture, or else the first slide that has one on this device. */
 export function coverOf(series: LibrarySeries): Blob | null {
   const chosen = series.captures.find((capture) => capture.slideId === series.coverSlideId)?.thumbnail;
   return chosen ?? series.captures.find((capture) => capture.thumbnail)?.thumbnail ?? null;

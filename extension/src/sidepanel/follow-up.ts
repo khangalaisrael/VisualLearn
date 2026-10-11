@@ -53,11 +53,17 @@ function mathMask(text: string): boolean[] {
   return inside;
 }
 
-/** A usable question: not empty, not enormous, and with no formula left half open. */
+/** A usable question: not empty, not enormous, with no formula left half open
+ * and no LaTeX command sitting outside a formula (it would show as "\\Omega"). */
 function clean(question: string): string | null {
   const trimmed = question.trim();
   if (trimmed.length < 4 || trimmed.length > MAX_QUESTION_CHARS) return null;
-  return mathMask(trimmed)[trimmed.length] ? null : trimmed;
+  const inside = mathMask(trimmed);
+  if (inside[trimmed.length]) return null;
+  for (const command of trimmed.matchAll(/\\[a-zA-Z]+/g)) {
+    if (!inside[command.index ?? 0]) return null;
+  }
+  return trimmed;
 }
 
 /** Drops a lead-in clause ("A good next question might be: ..."): everything

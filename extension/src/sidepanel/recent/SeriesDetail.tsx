@@ -12,7 +12,7 @@ import type { QuizOut } from "@shared/types";
 import { useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
 import { type LibraryCapture, type LibrarySeries, countLabel, coverOf, relativeTime } from "./library";
-import { BackIcon, CaptureButton, CloseIcon, Cover, ICON_BUTTON, MoreIcon } from "./parts";
+import { BackIcon, CloseIcon, Cover, ICON_BUTTON, MoreIcon, SlideRow } from "./parts";
 import { QuizView } from "./QuizView";
 import { SeriesQuizzes } from "./SeriesQuizzes";
 
@@ -263,14 +263,14 @@ export function SeriesDetail({
       <ul className={active === "quizzes" ? "hidden" : "flex flex-col gap-1"}>
         {shown.map((capture) => (
           <li key={capture.slideId} className="flex flex-col gap-1">
-            <div className="flex items-start gap-1">
-              <CaptureButton capture={capture} disabled={busy} onOpen={() => actions.openCapture(capture)} />
+            <div className="flex items-center gap-1">
+              <SlideRow capture={capture} disabled={busy} onOpen={() => actions.openCapture(capture)} />
               <button
                 type="button"
                 aria-label={toolsFor === capture.slideId ? "Close slide options" : "Slide options"}
                 aria-expanded={toolsFor === capture.slideId}
                 onClick={() => setToolsFor(toolsFor === capture.slideId ? null : capture.slideId)}
-                className={`${ICON_BUTTON} mt-1`}
+                className={ICON_BUTTON}
               >
                 {toolsFor === capture.slideId ? <CloseIcon /> : <MoreIcon />}
               </button>

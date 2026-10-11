@@ -73,15 +73,26 @@ export const ICON_BUTTON =
  * the title set in type, so a series synced from another device still has a
  * recognisable cover instead of an empty box.
  */
-export function Cover({ blob, title, className = "" }: { blob: Blob | null; title: string; className?: string }): JSX.Element {
+export function Cover({
+  blob,
+  title,
+  className = "",
+  small = false,
+}: {
+  blob: Blob | null;
+  title: string;
+  className?: string;
+  /** Too small to set the title in: without a picture it is a plain tinted block. */
+  small?: boolean;
+}): JSX.Element {
   const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
   useEffect(() => () => (url ? URL.revokeObjectURL(url) : undefined), [url]);
-  const frame = `aspect-video flex-none overflow-hidden rounded-sm border border-slate-200 ${className}`;
+  const frame = `aspect-video flex-none overflow-hidden border border-slate-200 ${small ? "rounded" : "rounded-sm"} ${className}`;
   return url ? (
     <img src={url} alt="" className={`${frame} object-cover`} />
   ) : (
-    <div className={`${frame} flex items-center bg-slate-100 p-2`} aria-hidden="true">
-      <span className="line-clamp-2 text-[11px] font-semibold leading-tight text-slate-500">{title}</span>
+    <div className={`${frame} flex items-center bg-slate-100 ${small ? "" : "p-2"}`} aria-hidden="true">
+      {!small && <span className="line-clamp-2 text-[11px] font-semibold leading-tight text-slate-500">{title}</span>}
     </div>
   );
 }
@@ -94,8 +105,11 @@ export function PracticeTag(): JSX.Element {
   );
 }
 
-/** One capture: picture, what it covers, when. The whole row opens it. */
-export function CaptureButton({
+/**
+ * One slide of a series as a playlist row: its number, a small picture, a
+ * one-line title and one line of detail. The whole row opens the slide.
+ */
+export function SlideRow({
   capture,
   disabled,
   onOpen,
@@ -109,19 +123,19 @@ export function CaptureButton({
       type="button"
       disabled={disabled}
       onClick={onOpen}
-      className="flex min-w-0 flex-1 gap-3 rounded-sm p-2 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50"
+      className="flex min-w-0 flex-1 items-center gap-2.5 rounded-sm px-1.5 py-1.5 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50"
     >
-      <Cover blob={capture.thumbnail} title={capture.subtopic ?? capture.pageTitle} className="w-[72px]" />
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        {capture.subtopic && <span className="truncate text-sm font-medium text-slate-800">{capture.subtopic}</span>}
-        <span className={`text-slate-600 ${capture.subtopic ? "line-clamp-1 text-xs" : "line-clamp-2 text-sm"}`}>
-          {capture.summary || "Captured slide"}
+      <span className="w-5 flex-none text-center text-xs tabular-nums text-slate-400">{capture.position}</span>
+      <Cover blob={capture.thumbnail} title="" className="w-14" small />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-sm font-medium text-slate-800">
+          {capture.subtopic ?? (capture.summary || "Captured slide")}
         </span>
-        <span className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-          {relativeTime(capture.capturedAt)}
+        <span className="flex items-center gap-2 text-xs text-slate-400">
+          <span className="truncate">{relativeTime(capture.capturedAt)}</span>
           {capture.kind === "practice" && <PracticeTag />}
           {capture.followUps > 0 && (
-            <span className="text-indigo-600 dark:text-indigo-300">
+            <span className="flex-none text-indigo-600 dark:text-indigo-300">
               {capture.followUps} {capture.followUps === 1 ? "follow-up" : "follow-ups"}
             </span>
           )}

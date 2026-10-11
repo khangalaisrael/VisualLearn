@@ -4,7 +4,7 @@
  */
 
 import { type LibraryCapture, type LibrarySeries, countLabel, coverOf, relativeTime } from "./library";
-import { CaptureButton, ChevronIcon, Cover, ICON_BUTTON } from "./parts";
+import { ChevronIcon, Cover, ICON_BUTTON, SlideRow } from "./parts";
 
 export function SeriesCard({
   series,
@@ -63,7 +63,7 @@ export function SeriesCard({
         <ul id={listId} className="flex flex-col border-t border-slate-100 p-1">
           {series.captures.map((capture) => (
             <li key={capture.slideId} className="flex">
-              <CaptureButton capture={capture} disabled={busy} onOpen={() => onOpenCapture(capture)} />
+              <SlideRow capture={capture} disabled={busy} onOpen={() => onOpenCapture(capture)} />
             </li>
           ))}
         </ul>
