@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -36,7 +37,7 @@ from app.api.deps import (
 )
 from app.core.prompt_loader import load_prompt
 from app.db.session import get_db
-from app.models.orm import ObjectRecord
+from app.models.orm import ObjectRecord, Series, Slide
 from app.models.schemas import ChatRequest, ExplanationMode, GraphStructure
 from app.repositories.conversations import ConversationRepository
 from app.repositories.messages import MessageRepository
@@ -140,36 +141,87 @@ def _format_object(obj: ObjectRecord) -> str:
     return "\n".join(lines)
 
 
-async def _build_figure_context(db: AsyncSession, request: ChatRequest) -> tuple[str, list[str]]:
+async def _get_slide(db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID, mode: str) -> Slide:
+    """The slide being asked about. It must belong to the presentation the
+    caller was just authorised for: otherwise naming your own presentation
+    with someone else's slide id would put their slide in the model's context."""
+    if not request.slide_id:
+        raise HTTPException(status_code=400, detail=f"{mode} mode requires slide_id")
+    slide = await SlideRepository(db).get(_parse_uuid(request.slide_id, "slide_id"))
+    if slide is None or slide.presentation_id != presentation_id:
+        raise HTTPException(status_code=404, detail="Unknown slide_id")
+    return slide
+
+
+_SERIES_CONTEXT_SLIDES = 5
+_PREVIOUS_SLIDE_TEXT_CHARS = 800
+
+
+async def _build_series_block(db: AsyncSession, slide: Slide) -> str:
+    """What the student captured earlier in the same series, so a question
+    like "how does this follow from the last slide?" has something to stand
+    on. Summaries only, plus the text of the slide just before this one."""
+    if slide.series_id is None:
+        return ""
+    series = await db.get(Series, slide.series_id)
+    earlier = list(
+        (
+            await db.execute(
+                select(Slide)
+                .where(Slide.series_id == slide.series_id, Slide.id != slide.id, Slide.created_at <= slide.created_at)
+                .order_by(Slide.created_at.desc())
+                .limit(_SERIES_CONTEXT_SLIDES)
+            )
+        ).scalars()
+    )
+    if series is None or not earlier:
+        return ""
+
+    lines = [f"- {f'[{s.subtopic}] ' if s.subtopic else ''}{s.summary or '(no summary)'}" for s in reversed(earlier)]
+    previous_objects = await ObjectRepository(db).list_by_slide(earlier[0].id)
+    previous_text = " ".join(o.extracted_text or o.latex or "" for o in previous_objects).strip()
+    previous_block = (
+        f"\n\nText of the slide captured just before this one:\n{previous_text[:_PREVIOUS_SLIDE_TEXT_CHARS]}"
+        if previous_text
+        else ""
+    )
+    return (
+        f"\n\nThis slide is part of the student's series \"{series.title}\" ({series.category}). Earlier slides "
+        "they captured in it, oldest first (background for continuity; the slide being asked about is the "
+        "one above). Earlier turns of this conversation may have been about those slides, when one of them "
+        "was the current slide; that is expected, so do not remark on it or correct it:\n"
+        + "\n".join(lines)
+        + previous_block
+    )
+
+
+async def _build_figure_context(
+    db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID
+) -> tuple[str, list[str]]:
     if not request.object_id or not request.slide_id:
         raise HTTPException(status_code=400, detail="Figure mode requires object_id and slide_id")
 
+    slide = await _get_slide(db, request, presentation_id, "Figure")
     object_id = _parse_uuid(request.object_id, "object_id")
     obj = await ObjectRepository(db).get(object_id)
-    if obj is None:
+    if obj is None or obj.slide_id != slide.id:
         raise HTTPException(status_code=404, detail="Unknown object_id")
-
-    slide_id = _parse_uuid(request.slide_id, "slide_id")
-    slide = await SlideRepository(db).get(slide_id)
-    if slide is None:
-        raise HTTPException(status_code=404, detail="Unknown slide_id")
 
     context = f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\nSelected figure:\n{_format_object(obj)}\n</slide_data>"
     return context, [str(obj.id)]
 
 
-async def _build_slide_context(db: AsyncSession, request: ChatRequest) -> tuple[str, list[str]]:
-    if not request.slide_id:
-        raise HTTPException(status_code=400, detail="Slide mode requires slide_id")
-
-    slide_id = _parse_uuid(request.slide_id, "slide_id")
-    slide = await SlideRepository(db).get(slide_id)
-    if slide is None:
-        raise HTTPException(status_code=404, detail="Unknown slide_id")
-
-    objects = await ObjectRepository(db).list_by_slide(slide_id)
+async def _build_slide_context(
+    db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID
+) -> tuple[str, list[str]]:
+    slide = await _get_slide(db, request, presentation_id, "Slide")
+    objects = await ObjectRepository(db).list_by_slide(slide.id)
     objects_text = "\n\n".join(_format_object(o) for o in objects) or "(no objects extracted)"
-    context = f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\nObjects on this slide:\n{objects_text}\n</slide_data>"
+    series_block = await _build_series_block(db, slide)
+    context = (
+        f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\n"
+        f"Objects on this slide:\n{objects_text}{series_block}\n</slide_data>"
+    )
     return context, [str(o.id) for o in objects]
 
 
@@ -186,22 +238,17 @@ def _format_recurrence_analysis(analysis: RecurrenceAnalysis) -> str:
     return "\n".join(lines)
 
 
-async def _build_algorithm_context(db: AsyncSession, request: ChatRequest) -> tuple[str, list[str]]:
+async def _build_algorithm_context(
+    db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID
+) -> tuple[str, list[str]]:
     """Same grounding as "slide" mode, plus a deterministically verified
     Master Theorem analysis (backend/app/services/recurrence_solver.py) for
     any recurrence found among the slide's objects — closes the
     verification gap flagged in docs/AlgorithmsMVP.md Phase 1, since the
     chat model's own complexity math is never the only source of truth for
     the recurrences this checker can handle."""
-    if not request.slide_id:
-        raise HTTPException(status_code=400, detail="Algorithm mode requires slide_id")
-
-    slide_id = _parse_uuid(request.slide_id, "slide_id")
-    slide = await SlideRepository(db).get(slide_id)
-    if slide is None:
-        raise HTTPException(status_code=404, detail="Unknown slide_id")
-
-    objects = await ObjectRepository(db).list_by_slide(slide_id)
+    slide = await _get_slide(db, request, presentation_id, "Algorithm")
+    objects = await ObjectRepository(db).list_by_slide(slide.id)
     objects_text = "\n\n".join(_format_object(o) for o in objects) or "(no objects extracted)"
 
     analyses: list[RecurrenceAnalysis] = []
@@ -239,7 +286,8 @@ async def _build_algorithm_context(db: AsyncSession, request: ChatRequest) -> tu
 
     context = (
         f"<slide_data>\nSlide summary: {slide.summary or '(none)'}\n\n"
-        f"Objects on this slide:\n{objects_text}{recurrence_block}{trace_block}{graph_trace_block}\n</slide_data>"
+        f"Objects on this slide:\n{objects_text}{recurrence_block}{trace_block}{graph_trace_block}"
+        f"{await _build_series_block(db, slide)}\n</slide_data>"
     )
     return context, [str(o.id) for o in objects]
 
@@ -314,6 +362,20 @@ def _build_graph_trace_block(message: str, objects: list[ObjectRecord]) -> str:
     )
 
 
+async def _same_series(
+    db: AsyncSession, first: uuid.UUID | None, second: uuid.UUID | None, user_id: uuid.UUID | None
+) -> bool:
+    """Both slides are in one series, and it belongs to this user."""
+    if first is None or second is None or user_id is None:
+        return False
+    slides = SlideRepository(db)
+    a, b = await slides.get(first), await slides.get(second)
+    if a is None or b is None or a.series_id is None or a.series_id != b.series_id:
+        return False
+    series = await db.get(Series, a.series_id)
+    return series is not None and series.user_id == user_id
+
+
 async def _resolve_conversation(
     db: AsyncSession, request: ChatRequest, presentation_id: uuid.UUID, current_user_id: uuid.UUID | None
 ) -> uuid.UUID:
@@ -321,15 +383,20 @@ async def _resolve_conversation(
     if request.conversation_id:
         conversation_uuid = _parse_uuid(request.conversation_id, "conversation_id")
         conversation = await conversations.get(conversation_uuid)
-        # A chat from another presentation or another account is reported
-        # as unknown: its messages become model context, so continuing it
-        # would leak them.
-        if (
-            conversation is None
-            or conversation.presentation_id != presentation_id
-            or (conversation.user_id is not None and conversation.user_id != current_user_id)
-        ):
+        # A chat from another account, or about something unrelated, is
+        # reported as unknown: its messages become model context, so
+        # continuing it would leak them.
+        if conversation is None or (conversation.user_id is not None and conversation.user_id != current_user_id):
             raise HTTPException(status_code=404, detail="Unknown conversation_id")
+        slide_id = _parse_uuid(request.slide_id, "slide_id") if request.slide_id else None
+        if conversation.presentation_id != presentation_id:
+            # A different page is fine when the student moved on to the next
+            # slide of the same series: the chat follows them there.
+            if not await _same_series(db, conversation.slide_id, slide_id, current_user_id):
+                raise HTTPException(status_code=404, detail="Unknown conversation_id")
+            conversation.presentation_id = presentation_id
+        if slide_id is not None:
+            conversation.slide_id = slide_id
         conversation.last_activity_at = datetime.now(UTC)
         return conversation.id
     conversation = await conversations.create(
@@ -446,11 +513,11 @@ async def chat(
     ensure_presentation_access(presentation, current_user_id)
 
     if request.query_mode == "figure":
-        context_text, referenced_object_ids = await _build_figure_context(db, request)
+        context_text, referenced_object_ids = await _build_figure_context(db, request, presentation_uuid)
     elif request.query_mode == "algorithm":
-        context_text, referenced_object_ids = await _build_algorithm_context(db, request)
+        context_text, referenced_object_ids = await _build_algorithm_context(db, request, presentation_uuid)
     else:
-        context_text, referenced_object_ids = await _build_slide_context(db, request)
+        context_text, referenced_object_ids = await _build_slide_context(db, request, presentation_uuid)
 
     conversation_id = await _resolve_conversation(db, request, presentation_uuid, current_user_id)
     await db.commit()

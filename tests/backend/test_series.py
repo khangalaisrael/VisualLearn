@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
+from conftest import FakeChatService
 from PIL import Image
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -332,3 +333,79 @@ async def test_sorter_falls_back_when_the_model_returns_blank_names() -> None:
     sorter, _ = _sorter({"series_number": None, "category": " ", "title": "", "subtopic": "", "kind": "lecture"})
     decision = await sorter.sort(_SLIDE, [])
     assert (decision.category, decision.title) == ("General", "CSC3002 week 4")
+
+
+# --- chat across the slides of a series ---------------------------------------
+
+
+async def _ask(
+    client: AsyncClient, headers: dict[str, str], captured: dict, conversation_id: str | None = None
+) -> tuple[int, str | None]:
+    response = await client.post(
+        "/api/v1/chat",
+        json={
+            "conversation_id": conversation_id,
+            "presentation_id": captured["presentation_id"],
+            "query_mode": "slide",
+            "slide_id": captured["slide_id"],
+            "object_id": None,
+            "message": "Explain this",
+        },
+        headers=headers,
+    )
+    if response.status_code != 200:
+        return response.status_code, None
+    return 200, response.text.split('"conversation_id": "')[1].split('"')[0]
+
+
+async def test_a_chat_follows_the_student_to_the_next_slide_of_the_series(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+
+    headers = await _sign_in(db_session, "a@example.com")
+    first = await _capture(client, headers, "white", LAMBDA, url="https://example.com/week-1")
+    second = await _capture(client, headers, "black", LAMBDA, url="https://example.com/week-2")
+    assert first["presentation_id"] != second["presentation_id"]
+    # SQLite timestamps tie within a second; make "first" clearly the older one.
+    await db_session.execute(
+        update(Slide).where(Slide.id == uuid.UUID(first["slide_id"])).values(created_at=datetime.now(UTC) - timedelta(hours=1))
+    )
+    await db_session.commit()
+
+    _, conversation_id = await _ask(client, headers, first)
+    status, continued = await _ask(client, headers, second, conversation_id)
+    assert (status, continued) == (200, conversation_id)
+
+    conversation = (await db_session.execute(select(Conversation))).scalar_one()
+    assert str(conversation.slide_id) == second["slide_id"]
+    assert str(conversation.presentation_id) == second["presentation_id"]
+
+    # The first slide had nothing before it; the second is told about the first.
+    first_prompt, second_prompt = FakeChatService.captured_system_prompts
+    assert "Earlier slides" not in first_prompt
+    assert f'series "{LAMBDA}" (General)' in second_prompt
+    assert "Text of the slide captured just before this one" in second_prompt
+
+
+async def test_a_chat_does_not_follow_to_another_series_or_another_user(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    alex = await _sign_in(db_session, "alex@example.com")
+    sam = await _sign_in(db_session, "sam@example.com")
+    lam = await _capture(client, alex, "white", LAMBDA)
+    dp = await _capture(client, alex, "red", DP)
+    sams = await _capture(client, sam, "black", LAMBDA)
+    _, conversation_id = await _ask(client, alex, lam)
+
+    assert (await _ask(client, alex, dp, conversation_id))[0] == 404  # another topic
+    assert (await _ask(client, sam, sams, conversation_id))[0] == 404  # another account
+
+
+async def test_chat_rejects_a_slide_from_another_presentation(client: AsyncClient, db_session: AsyncSession) -> None:
+    alex = await _sign_in(db_session, "alex@example.com")
+    sam = await _sign_in(db_session, "sam@example.com")
+    mine = await _capture(client, sam, "white", LAMBDA)
+    theirs = await _capture(client, alex, "black", DP)
+    # Sam names Sam's own presentation but Alex's slide.
+    status, _ = await _ask(client, sam, {"presentation_id": mine["presentation_id"], "slide_id": theirs["slide_id"]})
+    assert status == 404

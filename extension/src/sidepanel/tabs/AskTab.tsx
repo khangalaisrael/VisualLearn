@@ -62,7 +62,9 @@ type LoadState =
 
 interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  /** "divider" marks where a new slide of the same series was captured mid-chat;
+   * its content is that slide's subtopic. It is never sent to the server. */
+  role: "user" | "assistant" | "divider";
   content: string;
   timestamp: number;
 }
@@ -173,7 +175,7 @@ function WakingNotice(): JSX.Element {
   );
 }
 
-function Avatar({ role }: { role: ChatMessage["role"] }): JSX.Element {
+function Avatar({ role }: { role: "user" | "assistant" }): JSX.Element {
   return role === "user" ? (
     <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-600 text-[11px] font-medium text-white">
       You
@@ -284,10 +286,34 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
         // Started elsewhere (the keyboard shortcut): show the same progress.
         setState((prev) => (prev.status === "loading" ? prev : { status: "loading" }));
       } else if (message.type === "SLIDE_ANALYZED") {
-        setState({ status: "loaded", result: message.result });
-        setMessages([]);
+        const { result } = message;
+        // What was on screen before this capture began (the panel is on
+        // "Analyzing…" by now, so `state` no longer says).
+        const shown = lastShownRef.current?.status === "loaded" ? lastShownRef.current.result : null;
+        const sameSlide = shown?.slide_id === result.slide_id;
+        // The next slide of the series being discussed: the chat carries on
+        // (the server lets the conversation follow, and tells the model what
+        // came before). Anything else starts a fresh chat, as before.
+        const continues = !sameSlide && result.series !== null && result.series.id === shown?.series?.id;
+        setState({ status: "loaded", result });
         setFigureSelection(null);
-        conversationIdRef.current = null;
+        if (continues) {
+          setMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const divider: ChatMessage = {
+              id: crypto.randomUUID(),
+              role: "divider",
+              content: result.series?.subtopic ?? "",
+              timestamp: Date.now(),
+            };
+            // Slides captured one after another with no question in between
+            // leave a single marker, for the newest of them.
+            return [...(prev[prev.length - 1].role === "divider" ? prev.slice(0, -1) : prev), divider];
+          });
+        } else if (!sameSlide) {
+          setMessages([]);
+          conversationIdRef.current = null;
+        }
         void refreshUsage();
       } else if (message.type === "SLIDE_ANALYSIS_FAILED") {
         if (message.limitKind) {
@@ -484,10 +510,14 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
         {statusText}
       </p>
       <div className="flex flex-none items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-base font-semibold text-slate-800">This slide</h2>
-          <p className="text-sm text-slate-400">
-            {state.status === "loaded" ? "Captured — ask a question below" : "Capture to see what's on screen"}
+          <p className="truncate text-sm text-slate-400">
+            {state.status !== "loaded"
+              ? "Capture to see what's on screen"
+              : state.result.series
+                ? `${state.result.series.title} · ${state.result.series.category}`
+                : "Captured. Ask a question below"}
           </p>
         </div>
         <button
@@ -616,6 +646,17 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
           ) : (
             <ul className="flex flex-col gap-3">
               {messages.map((message) => {
+                if (message.role === "divider") {
+                  return (
+                    <li key={message.id} className="flex items-center gap-3 self-stretch text-xs text-slate-400">
+                      <span className="h-px flex-1 bg-slate-200" />
+                      <span className="max-w-[70%] truncate">
+                        New slide{message.content ? `: ${message.content}` : ""}
+                      </span>
+                      <span className="h-px flex-1 bg-slate-200" />
+                    </li>
+                  );
+                }
                 const isPendingAssistant = !message.content && isStreaming && message.role === "assistant";
                 const followUpQuestion =
                   message.role === "assistant" && !isPendingAssistant

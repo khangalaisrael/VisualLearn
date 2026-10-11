@@ -118,25 +118,37 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// Captures run one at a time, in the order they were asked for. Two quick
+// captures (the shortcut pressed twice while paging through slides) would
+// otherwise be sorted at the same moment, each unaware of the series the
+// other is about to create.
+let captureQueue: Promise<void> = Promise.resolve();
+
+function enqueueCapture(message: CaptureRequestMessage, tabId: number): void {
+  captureQueue = captureQueue.then(() => handleCaptureRequest(message, tabId));
+}
+
 async function handleCaptureRequest(message: CaptureRequestMessage, tabId: number): Promise<void> {
   const started: CaptureStartedMessage = { type: "CAPTURE_STARTED" };
   chrome.runtime.sendMessage(started).catch(() => undefined);
 
-  const lecture = await readLecture(tabId);
-  const owner = ((await getAuthState()).email ?? "").toLowerCase();
-  const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
-  const imageBlob = await (await fetch(dataUrl)).blob();
-  const imageHash = await sha256Hex(await imageBlob.arrayBuffer());
-
-  const previous = lastResultByTab.get(tabId);
-  if (previous?.hash === imageHash) {
-    // Unchanged screen: answer from memory (no upload, no quota used). It
-    // used to return silently, leaving the panel on "Analyzing…" forever.
-    deliverResult(previous.result, tabId);
-    return;
-  }
-
+  // Everything is inside the try: a screenshot Chrome refuses to take (a
+  // chrome:// page, a tab mid-navigation) must reach the panel as an error,
+  // not leave it on "Analyzing…".
   try {
+    const lecture = await readLecture(tabId);
+    const owner = ((await getAuthState()).email ?? "").toLowerCase();
+    const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
+    const imageBlob = await (await fetch(dataUrl)).blob();
+    const imageHash = await sha256Hex(await imageBlob.arrayBuffer());
+
+    const previous = lastResultByTab.get(tabId);
+    if (previous?.hash === imageHash) {
+      // Unchanged screen: answer from memory (no upload, no quota used).
+      deliverResult(previous.result, tabId);
+      return;
+    }
+
     const bitmap = await createImageBitmap(imageBlob);
     let upload: Blob;
     let thumbnail: Blob | null;
@@ -241,7 +253,7 @@ chrome.commands.onCommand.addListener((command, tab) => {
   if (tab.windowId !== undefined) {
     chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
   }
-  void handleCaptureRequest({ type: "CAPTURE_REQUEST", presentationId: null, slideNumber: 1 }, tab.id);
+  enqueueCapture({ type: "CAPTURE_REQUEST", presentationId: null, slideNumber: 1 }, tab.id);
 });
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage, sender) => {
@@ -258,11 +270,11 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, sender) => {
   // side panel's manual "Capture Now" button do not, so resolve the active
   // tab in that case instead.
   if (sender.tab?.id !== undefined) {
-    void handleCaptureRequest(message, sender.tab.id);
+    enqueueCapture(message, sender.tab.id);
   } else {
     void resolveActiveTabId().then((tabId) => {
       if (tabId !== undefined) {
-        void handleCaptureRequest(message, tabId);
+        enqueueCapture(message, tabId);
       }
     });
   }
