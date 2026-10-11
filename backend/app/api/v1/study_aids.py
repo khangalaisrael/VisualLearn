@@ -99,7 +99,8 @@ async def create_study_aid(
 ) -> StudyAidOut:
     user_id = _require_user(current_user_id)
     series = await _owned_series(db, series_id, user_id)
-    source = await read_series(db, series)
+    # The whole series, however long: a guide that left slides out would mislead.
+    source = await read_series(db, series, max_slides=None)
     if source is None:
         raise HTTPException(status_code=422, detail="This series has no slides to write from.")
 

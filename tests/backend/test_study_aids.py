@@ -21,11 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_study_aid_generator
 from app.core.config import get_settings
 from app.main import app
-from app.models.orm import StudyAid, UsageEvent, User
+from app.models.orm import Series, Slide, StudyAid, UsageEvent, User
 from app.models.orm import Session as SessionRow
-from app.services.series_source import SeriesText
+from app.services.series_source import MAX_SLIDES, SeriesText, read_series
 from app.services.study_aid_generator import (
     MAX_CARDS,
+    Card,
     ClaudeStudyAidGenerator,
     GeneratedAid,
     card_count,
@@ -271,3 +272,55 @@ async def test_a_cut_off_answer_is_an_error_not_half_a_guide() -> None:
     fake_client.messages.create.return_value = _response("## The big pic", stop_reason="max_tokens")
     with pytest.raises(ValueError):
         await ClaudeStudyAidGenerator(client=fake_client, model="claude-haiku-5-5").generate("cheatsheet", _SOURCE)
+
+
+# --- a long series ------------------------------------------------------------------
+
+
+class _Recording:
+    """Keeps the slides it was asked to write from."""
+
+    model_name = "recording"
+
+    def __init__(self) -> None:
+        self.sources: list[SeriesText] = []
+
+    async def generate(self, kind: str, source: SeriesText) -> GeneratedAid:
+        self.sources.append(source)
+        return GeneratedAid(title="t", markdown="## x") if kind != "flashcards" else GeneratedAid(title="t", cards=[Card("q", "a")])
+
+
+async def test_a_study_aid_is_written_from_every_slide_of_a_long_series(
+    client: AsyncClient, db_session: AsyncSession, aid_limit: None
+) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    series_id = await _series(client, headers)
+    first = (await db_session.execute(select(Slide))).scalar_one()
+    count = MAX_SLIDES + 8
+    for n in range(1, count):
+        db_session.add(
+            Slide(
+                presentation_id=first.presentation_id,
+                slide_number=n + 1,
+                image_hash=f"{n:064d}",
+                status="analyzed",
+                summary=f"Summary {n}",
+                series_id=first.series_id,
+                content_kind="lecture",
+                created_at=datetime.now(UTC) + timedelta(seconds=n),
+            )
+        )
+    await db_session.commit()
+
+    recorder = _Recording()
+    app.dependency_overrides[get_study_aid_generator] = lambda: recorder
+    for kind in ("guide", "cheatsheet", "flashcards"):
+        await _make(client, headers, series_id, kind)
+    assert [len(source.slides) for source in recorder.sources] == [count, count, count]
+    assert recorder.sources[0].slides[-1].startswith(f"Summary {count - 1}")  # in capture order
+
+    # A quiz keeps reading the newest dozen.
+    series = await db_session.get(Series, uuid.UUID(series_id))
+    quiz_source = await read_series(db_session, series)
+    assert quiz_source is not None and len(quiz_source.text.slides) == MAX_SLIDES
+    assert quiz_source.text.slides[-1].startswith(f"Summary {count - 1}")

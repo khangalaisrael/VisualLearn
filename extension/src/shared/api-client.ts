@@ -256,6 +256,8 @@ const CHAT_ATTEMPT_TIMEOUT_MS = 30_000;
 // Too short a timeout here would abort a quiz mid-write and pay for it twice.
 const QUIZ_ATTEMPT_TIMEOUT_MS = 90_000;
 const RESEARCH_QUIZ_ATTEMPT_TIMEOUT_MS = 180_000;
+// A study aid is written from the whole series, so a long series takes longer.
+const STUDY_AID_ATTEMPT_TIMEOUT_MS = 240_000;
 const WAKE_STATUSES = new Set([502, 503, 504]);
 
 // The Render service is also served from this custom domain (same free tier).
@@ -664,7 +666,7 @@ export function createStudyAid(seriesId: string, kind: StudyAidKind): Promise<St
     `/series/${seriesId}/study-aids`,
     jsonBody("POST", { kind }),
     "Couldn't write that",
-    QUIZ_ATTEMPT_TIMEOUT_MS
+    STUDY_AID_ATTEMPT_TIMEOUT_MS
   );
 }
 

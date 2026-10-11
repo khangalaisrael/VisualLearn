@@ -20,8 +20,10 @@ AidKind = Literal["guide", "cheatsheet", "flashcards"]
 MAX_CARDS = 20
 _MIN_CARDS = 8
 _CARDS_PER_SLIDE = 4
-# Thinking counts against max_tokens; a guide is about 1,500 tokens of text.
-_MAX_TOKENS = 12_000
+# Thinking counts against max_tokens. A guide to a short series is about
+# 1,500 tokens of text, and it grows with the series. Above roughly 21,000
+# the SDK requires a streamed request.
+_MAX_TOKENS = 20_000
 
 _PROMPTS: dict[AidKind, str] = {
     "guide": "study_guide.v1",
