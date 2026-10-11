@@ -1,59 +1,49 @@
 /**
- * One series in the list, like a playlist: its name opens the series page;
- * the arrow unfolds its slides in place. The header carries no picture, only
- * the slides under it do.
+ * One series in the list. Pressing it opens the series page, where its
+ * slides, quizzes and study aids are. Nothing unfolds in place. Only a search
+ * that matched particular slides lists those slides under the series, each
+ * pressable on its own.
  */
 
-import { type LibraryCapture, type LibrarySeries, countLabel, relativeTime } from "./library";
-import { ChevronIcon, ICON_BUTTON, SlideRow } from "./parts";
+import { type LibraryCapture, type SeriesHit, countLabel, relativeTime } from "./library";
+import { ForwardIcon, SlideRow } from "./parts";
 
 export function SeriesCard({
-  series,
-  open,
+  hit,
   busy,
-  onToggle,
   onSelect,
   onOpenCapture,
 }: {
-  series: LibrarySeries;
-  open: boolean;
+  hit: SeriesHit;
   busy: boolean;
-  onToggle: () => void;
   onSelect: () => void;
   onOpenCapture: (capture: LibraryCapture) => void;
 }): JSX.Element {
+  const { series, slideMatches } = hit;
   const practice = series.captures.filter((capture) => capture.kind === "practice").length;
-  const listId = `series-captures-${series.id}`;
   return (
     <li className="rounded-md border border-slate-200 bg-white shadow-subtle">
-      <div className="flex items-center gap-1 p-2">
-        <button
-          type="button"
-          onClick={onSelect}
-          className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-2 py-1.5 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
-        >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
+      >
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{series.title}</span>
           <span className="truncate text-xs text-slate-500">{series.category}</span>
           <span className="text-xs text-slate-400">
             {countLabel(series.captures.length, "slide")}
             {practice > 0 && `, ${practice} practice`}, {relativeTime(series.lastActivity).toLowerCase()}
           </span>
-        </button>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          aria-controls={listId}
-          aria-label={`${open ? "Hide" : "Show"} the slides in ${series.title}`}
-          className={ICON_BUTTON}
-        >
-          <ChevronIcon open={open} />
-        </button>
-      </div>
+        </span>
+        <span className="flex-none text-slate-400">
+          <ForwardIcon />
+        </span>
+      </button>
 
-      {open && (
-        <ul id={listId} className="flex flex-col border-t border-slate-100 p-1">
-          {series.captures.map((capture) => (
+      {slideMatches && (
+        <ul className="flex flex-col border-t border-slate-100 p-1" aria-label={`Matching slides in ${series.title}`}>
+          {slideMatches.map((capture) => (
             <li key={capture.slideId} className="flex">
               <SlideRow capture={capture} disabled={busy} onOpen={() => onOpenCapture(capture)} />
             </li>

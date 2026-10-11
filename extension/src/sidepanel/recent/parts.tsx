@@ -37,6 +37,15 @@ export function BackIcon(): JSX.Element {
   );
 }
 
+/** Points onward: pressing this row opens something. */
+export function ForwardIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={ICON} aria-hidden="true">
+      <path d="M8 5.5 12.5 10 8 14.5" {...STROKE} />
+    </svg>
+  );
+}
+
 export function MoreIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className={ICON} aria-hidden="true">
@@ -126,7 +135,7 @@ export function SlideRow({
       className="flex min-w-0 flex-1 items-center gap-2.5 rounded-sm px-1.5 py-1.5 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50"
     >
       <span className="w-5 flex-none text-center text-xs tabular-nums text-slate-400">{capture.position}</span>
-      <Cover blob={capture.thumbnail} title="" className="w-14" small />
+      {capture.thumbnail && <Cover blob={capture.thumbnail} title="" className="w-14" small />}
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium text-slate-800">
           {capture.subtopic ?? (capture.summary || "Captured slide")}

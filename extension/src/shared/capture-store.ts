@@ -59,7 +59,16 @@ async function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) =>
   }
 }
 
-export function saveCapture(record: CaptureRecord): Promise<unknown> {
+/** Saves a capture. Capturing the same slide again replaces its record, but
+ * never swaps a picture it already has for none (a capture whose thumbnail
+ * could not be made). */
+export async function saveCapture(record: CaptureRecord): Promise<unknown> {
+  if (record.thumbnail === null) {
+    const existing = await run<CaptureRecord | undefined>("readonly", (store) => store.get(record.slide_id)).catch(
+      () => undefined
+    );
+    if (existing?.thumbnail) record = { ...record, thumbnail: existing.thumbnail };
+  }
   return run("readwrite", (store) => store.put(record));
 }
 

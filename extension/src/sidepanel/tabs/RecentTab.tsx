@@ -1,7 +1,7 @@
 /**
  * Recent: the user's captures as a searchable library of series (see
- * recent/library.ts for where the data comes from). A series unfolds in
- * place, or opens as its own page (recent/SeriesDetail.tsx). How long things
+ * recent/library.ts for where the data comes from). Pressing a series opens
+ * its page (recent/SeriesDetail.tsx). How long things
  * are kept comes from the server, never hardcoded here.
  */
 
@@ -49,7 +49,6 @@ export function RecentTab({
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(initialSeriesId);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -139,13 +138,6 @@ export function RecentTab({
     moveToSeries: (capture, seriesId) => void run(() => moveSlide(capture.slideId, { series_id: seriesId })),
     moveToNewSeries: (capture, title, category) => void run(() => moveSlide(capture.slideId, { title, category })),
   };
-
-  const toggle = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
 
   const signIn = async () => {
     try {
@@ -267,15 +259,12 @@ export function RecentTab({
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3">
-                  {visible.map((series) => (
+                  {visible.map((hit) => (
                     <SeriesCard
-                      key={series.id}
-                      series={series}
-                      // While searching, matches are shown without another click.
-                      open={searching || expanded.has(series.id)}
+                      key={hit.series.id}
+                      hit={hit}
                       busy={busy}
-                      onToggle={() => toggle(series.id)}
-                      onSelect={() => setSelectedId(series.id)}
+                      onSelect={() => setSelectedId(hit.series.id)}
                       onOpenCapture={(capture) => void openCapture(capture)}
                     />
                   ))}

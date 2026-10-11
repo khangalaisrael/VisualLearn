@@ -159,27 +159,35 @@ function matches(text: string, words: string[]): boolean {
   return words.every((word) => lowered.includes(word));
 }
 
+/** A series to show in the list. `slideMatches` is set when a search matched
+ * particular slides rather than the series' own name: those slides are then
+ * listed under it. */
+export interface SeriesHit {
+  series: LibrarySeries;
+  slideMatches: LibraryCapture[] | null;
+}
+
 /**
  * Series in `category` (null = all) that match every word of `query`. A
- * series whose own name matches keeps all its captures; otherwise it is kept
- * with only the captures that match, so a search for one slide finds it.
+ * series whose own name matches is shown as it is; otherwise it is shown with
+ * the slides that match, so a search for one slide finds it.
  */
-export function filterLibrary(series: LibrarySeries[], query: string, category: string | null): LibrarySeries[] {
+export function filterLibrary(series: LibrarySeries[], query: string, category: string | null): SeriesHit[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const inCategory = category === null ? series : series.filter((item) => item.category === category);
-  if (words.length === 0) return inCategory;
+  if (words.length === 0) return inCategory.map((item) => ({ series: item, slideMatches: null }));
 
-  const found: LibrarySeries[] = [];
+  const found: SeriesHit[] = [];
   for (const item of inCategory) {
     const name = `${item.category} ${item.title}`;
     if (matches(name, words)) {
-      found.push(item);
+      found.push({ series: item, slideMatches: null });
       continue;
     }
-    const captures = item.captures.filter((capture) =>
+    const slides = item.captures.filter((capture) =>
       matches(`${name} ${capture.subtopic ?? ""} ${capture.summary} ${capture.pageTitle}`, words)
     );
-    if (captures.length > 0) found.push({ ...item, captures });
+    if (slides.length > 0) found.push({ series: item, slideMatches: slides });
   }
   return found;
 }
