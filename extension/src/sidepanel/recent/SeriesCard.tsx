@@ -1,10 +1,11 @@
 /**
- * One series in the list, like a playlist: a stacked cover and its name open
- * the series page; the arrow unfolds its captures in place.
+ * One series in the list, like a playlist: its name opens the series page;
+ * the arrow unfolds its slides in place. The header carries no picture, only
+ * the slides under it do.
  */
 
-import { type LibraryCapture, type LibrarySeries, countLabel, coverOf, relativeTime } from "./library";
-import { ChevronIcon, Cover, ICON_BUTTON, SlideRow } from "./parts";
+import { type LibraryCapture, type LibrarySeries, countLabel, relativeTime } from "./library";
+import { ChevronIcon, ICON_BUTTON, SlideRow } from "./parts";
 
 export function SeriesCard({
   series,
@@ -29,22 +30,13 @@ export function SeriesCard({
         <button
           type="button"
           onClick={onSelect}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-sm p-1 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
+          className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-2 py-1.5 text-left transition-colors duration-[120ms] hover:bg-slate-50 active:bg-slate-100"
         >
-          {/* Two slivers above the cover: there is more than one slide in here. */}
-          <span className="flex w-[104px] flex-none flex-col" aria-hidden="true">
-            <span className="mx-3 h-[3px] rounded-t-sm bg-slate-200" />
-            <span className="mx-1.5 h-[3px] rounded-t-sm bg-slate-300" />
-            <Cover blob={coverOf(series)} title={series.title} className="w-full" />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{series.title}</span>
-            <span className="truncate text-xs text-slate-500">{series.category}</span>
-            <span className="text-xs text-slate-400">
-              {countLabel(series.captures.length, "slide")}
-              {practice > 0 && `, ${practice} practice`}
-            </span>
-            <span className="text-xs text-slate-400">{relativeTime(series.lastActivity)}</span>
+          <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{series.title}</span>
+          <span className="truncate text-xs text-slate-500">{series.category}</span>
+          <span className="text-xs text-slate-400">
+            {countLabel(series.captures.length, "slide")}
+            {practice > 0 && `, ${practice} practice`}, {relativeTime(series.lastActivity).toLowerCase()}
           </span>
         </button>
         <button
@@ -74,13 +66,10 @@ export function SeriesCard({
 
 export function SeriesCardSkeleton(): JSX.Element {
   return (
-    <li className="flex animate-pulse items-center gap-3 rounded-md border border-slate-200 p-3" aria-hidden="true">
-      <span className="aspect-video w-[104px] flex-none rounded-sm bg-slate-100" />
-      <span className="flex flex-1 flex-col gap-2">
-        <span className="h-3 w-3/4 rounded bg-slate-100" />
-        <span className="h-3 w-1/2 rounded bg-slate-100" />
-        <span className="h-3 w-1/3 rounded bg-slate-100" />
-      </span>
+    <li className="flex animate-pulse flex-col gap-2 rounded-md border border-slate-200 p-4" aria-hidden="true">
+      <span className="h-3 w-2/3 rounded bg-slate-100" />
+      <span className="h-3 w-1/2 rounded bg-slate-100" />
+      <span className="h-3 w-1/3 rounded bg-slate-100" />
     </li>
   );
 }
