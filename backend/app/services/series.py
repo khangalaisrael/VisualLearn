@@ -9,21 +9,35 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.orm import ObjectRecord, Series, Slide
+from app.models.orm import ObjectRecord, Presentation, Series, Slide
 from app.models.schemas import SeriesRef
 from app.repositories.usage_events import UsageEventRepository
-from app.services.series_sorter import MAX_EXISTING_SERIES, ExistingSeries, SeriesSorter, SlideDigest
+from app.services.series_sorter import (
+    MAX_EXISTING_SERIES,
+    ExistingSeries,
+    PreviousCapture,
+    SeriesSorter,
+    SlideDigest,
+)
 from app.services.usage import estimate_cost_usd, start_accumulator
 
 logger = logging.getLogger(__name__)
 
 _MAX_HEADINGS = 4
+# How many of a series' subtopics the sorter is shown.
+_MAX_SUBTOPICS = 5
+# A capture older than this no longer says where the next one belongs.
+_PREVIOUS_CAPTURE_MINUTES = 90
+# The sorter may widen a series' title only while the series is this new:
+# it was named after its first slide, before the rest of the lecture was
+# seen. Later the name is the student's to keep or change.
+_RETITLE_WINDOW = timedelta(hours=3)
 
 
 def digest_slide(slide: Slide, objects: Sequence[ObjectRecord], page_title: str) -> SlideDigest:
@@ -50,6 +64,60 @@ async def list_series(db: AsyncSession, user_id: uuid.UUID) -> list[Series]:
     return list(result.scalars())
 
 
+async def _subtopics_by_series(db: AsyncSession, series_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[str, ...]]:
+    """A few distinct subtopics per series, newest first."""
+    if not series_ids:
+        return {}
+    rows = await db.execute(
+        select(Slide.series_id, Slide.subtopic)
+        .where(Slide.series_id.in_(series_ids), Slide.subtopic.is_not(None))
+        .order_by(Slide.created_at.desc())
+    )
+    found: dict[uuid.UUID, list[str]] = {}
+    for series_id, subtopic in rows:
+        kept = found.setdefault(series_id, [])
+        if len(kept) < _MAX_SUBTOPICS and subtopic not in kept:
+            kept.append(subtopic)
+    return {series_id: tuple(kept) for series_id, kept in found.items()}
+
+
+def _as_utc(moment: datetime) -> datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+async def _previous_capture(
+    db: AsyncSession, user_id: uuid.UUID, slide: Slide, shown: list[Series]
+) -> PreviousCapture | None:
+    """The user's last sorted capture before this slide, if it was recent."""
+    made_at = _as_utc(slide.created_at) if slide.created_at is not None else datetime.now(UTC)
+    row = (
+        await db.execute(
+            select(Slide)
+            .join(Presentation, Presentation.id == Slide.presentation_id)
+            .where(
+                Presentation.user_id == user_id,
+                Slide.id != slide.id,
+                Slide.series_id.is_not(None),
+                Slide.created_at <= made_at,
+            )
+            .order_by(Slide.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    minutes = int((made_at - _as_utc(row.created_at)).total_seconds() // 60)
+    index = next((i for i, series in enumerate(shown) if series.id == row.series_id), None)
+    if index is None or minutes > _PREVIOUS_CAPTURE_MINUTES:
+        return None
+    return PreviousCapture(
+        existing_index=index,
+        subtopic=row.subtopic or "",
+        minutes_ago=max(minutes, 0),
+        same_page=row.presentation_id == slide.presentation_id,
+    )
+
+
 async def find_or_create_series(db: AsyncSession, user_id: uuid.UUID, category: str, title: str) -> Series:
     """A new series whose name matches an existing one (ignoring case) joins it."""
     for series in await list_series(db, user_id):
@@ -70,6 +138,19 @@ def place_slide(slide: Slide, series: Series, *, subtopic: str | None, kind: str
         series.cover_slide_id = slide.id
 
 
+def _widen_title(series: Series, title: str | None, all_series: list[Series]) -> None:
+    if not title or series.created_at is None or datetime.now(UTC) - _as_utc(series.created_at) > _RETITLE_WINDOW:
+        return
+    taken = any(
+        other.id != series.id
+        and other.title.lower() == title.lower()
+        and other.category.lower() == series.category.lower()
+        for other in all_series
+    )
+    if not taken:
+        series.title = title
+
+
 async def assign_series(
     db: AsyncSession,
     sorter: SeriesSorter,
@@ -83,10 +164,16 @@ async def assign_series(
     shown = all_series[:MAX_EXISTING_SERIES]
     usage = start_accumulator()
     try:
+        subtopics = await _subtopics_by_series(db, [s.id for s in shown])
+        previous = await _previous_capture(db, user_id, slide, shown)
         decision = await asyncio.wait_for(
             sorter.sort(
                 digest_slide(slide, objects, page_title),
-                [ExistingSeries(category=s.category, title=s.title) for s in shown],
+                [
+                    ExistingSeries(category=s.category, title=s.title, subtopics=subtopics.get(s.id, ()))
+                    for s in shown
+                ],
+                previous,
             ),
             timeout=get_settings().sort_timeout_seconds,
         )
@@ -96,6 +183,7 @@ async def assign_series(
 
     if decision.existing_index is not None:
         series = shown[decision.existing_index]
+        _widen_title(series, decision.retitle, all_series)
     else:
         series = await find_or_create_series(db, user_id, decision.category, decision.title)
     place_slide(slide, series, subtopic=decision.subtopic, kind=decision.kind)

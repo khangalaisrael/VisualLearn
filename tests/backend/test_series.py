@@ -21,7 +21,14 @@ from app.api.deps import get_series_sorter
 from app.main import app
 from app.models.orm import Conversation, Series, Slide, UsageEvent, User
 from app.models.orm import Session as SessionRow
-from app.services.series_sorter import ClaudeSeriesSorter, ExistingSeries, SlideDigest, SortDecision
+from app.services.series_sorter import (
+    ClaudeSeriesSorter,
+    ExistingSeries,
+    PreviousCapture,
+    SlideDigest,
+    SortDecision,
+    _format_request,
+)
 
 API_KEY = {"X-API-Key": "test-api-key"}
 LAMBDA = "Lambda Calculus"
@@ -66,7 +73,7 @@ async def _series(client: AsyncClient, headers: dict[str, str]) -> dict:
 class _FailingSorter:
     model_name = "failing"
 
-    async def sort(self, slide: SlideDigest, existing: list[ExistingSeries]) -> SortDecision:
+    async def sort(self, slide: SlideDigest, existing: list[ExistingSeries], previous=None) -> SortDecision:
         raise RuntimeError("provider down")
 
 
@@ -414,3 +421,137 @@ async def test_chat_rejects_a_slide_from_another_presentation(client: AsyncClien
     # Sam names Sam's own presentation but Alex's slide.
     status, _ = await _ask(client, sam, {"presentation_id": mine["presentation_id"], "slide_id": theirs["slide_id"]})
     assert status == 404
+
+
+# --- what the sorter is told about the captures around this one -----------------
+
+
+class _RecordingSorter:
+    """Files everything in one series and keeps what it was shown."""
+
+    model_name = "recording"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[ExistingSeries], PreviousCapture | None]] = []
+
+    async def sort(self, slide: SlideDigest, existing: list[ExistingSeries], previous=None) -> SortDecision:
+        self.calls.append((existing, previous))
+        return SortDecision(
+            existing_index=0 if existing else None,
+            category="Functional Programming",
+            title=LAMBDA,
+            subtopic=f"Part {len(self.calls)}",
+            kind="lecture",
+        )
+
+
+async def test_the_sorter_is_told_where_the_previous_capture_went(client: AsyncClient, db_session: AsyncSession) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    sorter = _RecordingSorter()
+    app.dependency_overrides[get_series_sorter] = lambda: sorter
+    first = await _capture(client, headers, "white", "Week 4", url="https://example.com/week-4")
+    # Captures made in the same second would tie on SQLite's timestamps.
+    await db_session.execute(
+        update(Slide).where(Slide.id == uuid.UUID(first["slide_id"])).values(created_at=datetime.now(UTC) - timedelta(minutes=3, seconds=30))
+    )
+    await db_session.commit()
+    await _capture(client, headers, "black", "Week 4", url="https://example.com/week-4")
+    await _capture(client, headers, "red", "Week 5", url="https://example.com/week-5")
+
+    assert sorter.calls[0] == ([], None)  # nothing came before the first capture
+    existing, previous = sorter.calls[1]
+    assert existing == [ExistingSeries("Functional Programming", LAMBDA, ("Part 1",))]
+    assert previous == PreviousCapture(existing_index=0, subtopic="Part 1", minutes_ago=3, same_page=True)
+    existing, previous = sorter.calls[2]
+    assert set(existing[0].subtopics) == {"Part 1", "Part 2"}
+    assert previous is not None and previous.same_page is False and previous.subtopic == "Part 2"
+
+
+async def test_an_old_or_foreign_capture_is_not_the_previous_one(client: AsyncClient, db_session: AsyncSession) -> None:
+    alex = await _sign_in(db_session, "alex@example.com")
+    sam = await _sign_in(db_session, "sam@example.com")
+    sorter = _RecordingSorter()
+    app.dependency_overrides[get_series_sorter] = lambda: sorter
+    old = await _capture(client, alex, "white", "Week 4")
+    await db_session.execute(
+        update(Slide).where(Slide.id == uuid.UUID(old["slide_id"])).values(created_at=datetime.now(UTC) - timedelta(hours=5))
+    )
+    await db_session.commit()
+    await _capture(client, alex, "black", "Week 4")
+    await _capture(client, sam, "red", "Week 4")
+
+    assert sorter.calls[1][1] is None  # five hours on, the student may be on something else
+    assert sorter.calls[2] == ([], None)  # another account's captures are never shown
+
+
+def test_the_request_names_subtopics_and_the_previous_capture() -> None:
+    existing = [ExistingSeries("Functional Programming", LAMBDA, ("Beta Reduction", "Syntax")), ExistingSeries("Algorithms", "Sorting")]
+    text = _format_request(_SLIDE, existing, PreviousCapture(existing_index=0, subtopic="Beta Reduction", minutes_ago=2, same_page=True))
+    assert "1. Functional Programming | Lambda Calculus (so far: Beta Reduction; Syntax)" in text
+    assert "2. Algorithms | Sorting" in text and "Sorting (so far" not in text
+    assert 'Captured 2 min ago from the same page as this slide, about "Beta Reduction". It was filed in series 1.' in text
+    assert "<previous_capture>" not in _format_request(_SLIDE, existing)
+
+
+# --- a series named after its first slide can be given a wider title -----------------
+
+
+async def test_sorter_passes_on_a_wider_title_only_when_it_differs() -> None:
+    base = {"series_number": 1, "category": "FP", "title": "Lambda Calculus", "subtopic": "Lazy Evaluation", "kind": "lecture"}
+    sorter, _ = _sorter({**base, "broader_title": "  Functional   Programming "})
+    assert (await sorter.sort(_SLIDE, _EXISTING)).retitle == "Functional Programming"
+    for unchanged in ("", "lambda calculus"):
+        sorter, _ = _sorter({**base, "broader_title": unchanged})
+        assert (await sorter.sort(_SLIDE, _EXISTING)).retitle is None
+    # A new series is named by its title; there is nothing to widen.
+    sorter, _ = _sorter({**base, "series_number": None, "broader_title": "Anything"})
+    assert (await sorter.sort(_SLIDE, _EXISTING)).retitle is None
+
+
+class _WideningSorter:
+    """Starts a narrowly named series, then asks for a wider title on every later slide."""
+
+    model_name = "widening"
+
+    def __init__(self, wider: str) -> None:
+        self.wider = wider
+
+    async def sort(self, slide: SlideDigest, existing: list[ExistingSeries], previous=None) -> SortDecision:
+        index = next((i for i, series in enumerate(existing) if series.category == "Algorithms"), None)
+        return SortDecision(
+            existing_index=index,
+            category="Algorithms",
+            title="Big-O Notation",
+            subtopic="Hash Tables",
+            kind="lecture",
+            retitle=self.wider if index is not None else None,
+        )
+
+
+async def test_a_new_series_takes_a_wider_title_but_an_older_one_keeps_its_name(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    app.dependency_overrides[get_series_sorter] = lambda: _WideningSorter("Data Structures")
+    first = await _capture(client, headers, "white", "DSA course")
+    assert first["series"]["title"] == "Big-O Notation"
+    second = await _capture(client, headers, "black", "DSA course")
+    assert second["series"] == {**first["series"], "title": "Data Structures", "subtopic": "Hash Tables"}
+
+    # A day later the name is the student's: the sorter no longer changes it.
+    await db_session.execute(update(Series).values(created_at=datetime.now(UTC) - timedelta(days=1)))
+    await db_session.commit()
+    app.dependency_overrides[get_series_sorter] = lambda: _WideningSorter("Computer Science")
+    third = await _capture(client, headers, "red", "DSA course")
+    assert third["series"]["title"] == "Data Structures"
+
+
+async def test_a_wider_title_never_duplicates_another_series(client: AsyncClient, db_session: AsyncSession) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    user_id = (await db_session.execute(select(User.id))).scalar_one()
+    db_session.add(Series(user_id=user_id, category="algorithms", title="data structures"))
+    await db_session.commit()
+    app.dependency_overrides[get_series_sorter] = lambda: _WideningSorter("Data Structures")
+    await _capture(client, headers, "white", "DSA course")
+    second = await _capture(client, headers, "black", "DSA course")
+    assert second["series"]["title"] == "Big-O Notation"
