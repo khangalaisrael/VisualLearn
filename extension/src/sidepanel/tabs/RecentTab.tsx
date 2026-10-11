@@ -13,6 +13,7 @@ import {
   getConversation,
   getSlide,
   moveSlide,
+  resortSeries,
   signInWithGoogle,
   updateSeries,
 } from "../../shared/api-client";
@@ -52,6 +53,8 @@ export function RecentTab({
   const [selectedId, setSelectedId] = useState<string | null>(initialSeriesId);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // While existing slides are being sorted again: how far it has got.
+  const [resort, setResort] = useState<{ processed: number; total: number } | null>(null);
 
   /** `quiet` refreshes after a change without flashing the loading state. */
   const load = useCallback(async (quiet = false) => {
@@ -115,6 +118,22 @@ export function RecentTab({
   };
 
   const signedIn = library?.signedIn ?? false;
+
+  /** Sorts every slide again, oldest first, a few per request, so a lecture
+   * that was split into several series comes back together. */
+  const sortAgain = () =>
+    void run(async () => {
+      try {
+        let step = { processed: 0, total: 0, done: false };
+        setResort(step);
+        while (!step.done) {
+          step = await resortSeries(step.processed);
+          setResort(step);
+        }
+      } finally {
+        setResort(null);
+      }
+    });
   const actions: SeriesActions = {
     openCapture: (capture) => void openCapture(capture),
     deleteCapture: (capture) =>
@@ -271,6 +290,30 @@ export function RecentTab({
                 </ul>
               )}
             </>
+          )}
+
+          {signedIn && library && library.series.length > 0 && (
+            <p className="text-xs text-slate-500" role={resort ? "status" : undefined}>
+              {resort ? (
+                resort.total > 0 ? (
+                  `Sorting your slides again: ${resort.processed} of ${resort.total}…`
+                ) : (
+                  "Sorting your slides again…"
+                )
+              ) : (
+                <>
+                  Slides in the wrong series?{" "}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={sortAgain}
+                    className="rounded-sm font-medium text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-300"
+                  >
+                    Sort them again
+                  </button>
+                </>
+              )}
+            </p>
           )}
 
           {library && (

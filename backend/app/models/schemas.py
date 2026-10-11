@@ -214,6 +214,20 @@ class SeriesUpdateRequest(BaseModel):
     cover_slide_id: str | None = None
 
 
+class ResortRequest(BaseModel):
+    """Sort the captures the user already has again, a few per request.
+    `offset` is where the previous request stopped (0 to start)."""
+
+    offset: int = Field(default=0, ge=0)
+
+
+class ResortResponse(BaseModel):
+    # How many captures the pass has been through, out of `total`.
+    processed: int
+    total: int
+    done: bool
+
+
 class MoveSlideRequest(BaseModel):
     """Move a capture to an existing series (`series_id`) or to a new one
     (`category` and `title`)."""

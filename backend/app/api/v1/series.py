@@ -19,6 +19,8 @@ from app.models.orm import Presentation, Quiz, QuizAttempt, Series, Slide, Study
 from app.models.schemas import (
     CaptureConversation,
     MoveSlideRequest,
+    ResortRequest,
+    ResortResponse,
     SeriesCapture,
     SeriesListResponse,
     SeriesRef,
@@ -29,7 +31,14 @@ from app.repositories.objects import ObjectRepository
 from app.services.captures import SUMMARY_PREVIEW_CHARS, conversations_by_slide
 from app.services.presentations import delete_slides
 from app.services.retention import retention_cutoff
-from app.services.series import assign_series, find_or_create_series, place_slide, prune_series, series_ref
+from app.services.series import (
+    assign_series,
+    find_or_create_series,
+    place_slide,
+    prune_series,
+    resort_slides,
+    series_ref,
+)
 from app.services.series_sorter import SeriesSorter
 
 router = APIRouter(tags=["series"], dependencies=[Depends(verify_api_key)])
@@ -163,6 +172,27 @@ async def update_series(
             raise HTTPException(status_code=422, detail="The cover must be a capture in this series")
         series.cover_slide_id = cover.id
     await db.commit()
+
+
+# Each capture is one sorter call of a second or two.
+_RESORT_BATCH = 6
+
+
+@router.post("/series/resort", response_model=ResortResponse)
+async def resort_series(
+    body: ResortRequest,
+    db: AsyncSession = Depends(get_db),
+    sorter: SeriesSorter = Depends(get_series_sorter),
+    current_user_id: uuid.UUID | None = Depends(get_current_user_id),
+) -> ResortResponse:
+    """Sorts the user's existing captures again, oldest first. The panel
+    calls it repeatedly, passing back `processed`, until `done`."""
+    user_id = _require_user(current_user_id)
+    processed, total = await resort_slides(
+        db, sorter, user_id=user_id, since=retention_cutoff(), offset=body.offset, limit=_RESORT_BATCH
+    )
+    await db.commit()
+    return ResortResponse(processed=processed, total=total, done=processed >= total)
 
 
 @router.post("/slides/{slide_id}/move", response_model=SeriesRef)

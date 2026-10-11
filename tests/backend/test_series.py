@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_series_sorter
 from app.main import app
-from app.models.orm import Conversation, Series, Slide, UsageEvent, User
+from app.models.orm import Conversation, Note, Quiz, Series, Slide, StudyAid, UsageEvent, User
 from app.models.orm import Session as SessionRow
 from app.services.series_sorter import (
     ClaudeSeriesSorter,
@@ -555,3 +555,111 @@ async def test_a_wider_title_never_duplicates_another_series(client: AsyncClient
     await _capture(client, headers, "white", "DSA course")
     second = await _capture(client, headers, "black", "DSA course")
     assert second["series"]["title"] == "Big-O Notation"
+
+
+# --- sorting existing captures again ---------------------------------------------
+
+
+class _OneLectureSorter:
+    """Keeps a capture with the one before it, as the real sorter does for one lecture."""
+
+    model_name = "one-lecture"
+
+    async def sort(self, slide: SlideDigest, existing: list[ExistingSeries], previous=None) -> SortDecision:
+        return SortDecision(
+            existing_index=previous.existing_index if previous is not None else None,
+            category="Algorithms",
+            title="Data Structures",
+            subtopic=slide.page_title,
+            kind="lecture",
+        )
+
+
+async def _spread_out(db_session: AsyncSession, captures: list[dict]) -> None:
+    """Captures made in the same second would tie on SQLite's timestamps."""
+    for position, capture in enumerate(captures):
+        await db_session.execute(
+            update(Slide)
+            .where(Slide.id == uuid.UUID(capture["slide_id"]))
+            .values(created_at=datetime.now(UTC) - timedelta(minutes=30 - 2 * position))
+        )
+    await db_session.commit()
+
+
+async def _resort(client: AsyncClient, headers: dict[str, str]) -> list[dict]:
+    """Runs the pass the way the panel does: again from `processed` until done."""
+    steps, offset = [], 0
+    while True:
+        response = await client.post("/api/v1/series/resort", json={"offset": offset}, headers=headers)
+        assert response.status_code == 200, response.text
+        steps.append(response.json())
+        if steps[-1]["done"]:
+            return steps
+        offset = steps[-1]["processed"]
+
+
+async def test_sorting_again_brings_a_split_lecture_together(client: AsyncClient, db_session: AsyncSession) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    # The placeholder sorter makes a series per page title: one lecture, split in three.
+    titles = ["Big-O Notation", "Hash Tables", "Heaps"]
+    captures = [await _capture(client, headers, color, title) for color, title in zip(["white", "black", "red"], titles)]
+    await _spread_out(db_session, captures)
+    assert len({c["series"]["id"] for c in captures}) == 3
+
+    user_id = (await db_session.execute(select(User.id))).scalar_one()
+    last = uuid.UUID(captures[2]["series"]["id"])
+    db_session.add_all(
+        [
+            Note(user_id=user_id, series_id=last, slide_id=None, topic="Heaps", title="My note", body="x", source="user"),
+            Quiz(user_id=user_id, series_id=last, title="Heaps quiz", questions=[], resources=[]),
+            StudyAid(user_id=user_id, series_id=last, kind="guide", title="Heaps guide", content={"markdown": "x"}, progress=[]),
+        ]
+    )
+    await db_session.commit()
+
+    app.dependency_overrides[get_series_sorter] = lambda: _OneLectureSorter()
+    steps = await _resort(client, headers)
+    assert steps == [{"processed": 3, "total": 3, "done": True}]
+
+    body = await _series(client, headers)
+    assert [s["title"] for s in body["series"]] == ["Data Structures"]
+    assert [c["subtopic"] for c in body["series"][0]["captures"]][::-1] == titles
+    assert body["unsorted"] == []
+    # The emptied series are gone, and what was made for them moved along.
+    kept = uuid.UUID(body["series"][0]["id"])
+    assert (await db_session.execute(select(Series.id))).scalars().all() == [kept]
+    for model in (Note, Quiz, StudyAid):
+        assert (await db_session.execute(select(model.series_id))).scalars().all() == [kept]
+
+
+async def test_sorting_again_goes_a_few_captures_at_a_time(client: AsyncClient, db_session: AsyncSession) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    colors = ["white", "black", "red", "blue", "green", "yellow", "orange", "purple"]
+    captures = [await _capture(client, headers, color, f"Slide {n}") for n, color in enumerate(colors)]
+    await _spread_out(db_session, captures)
+
+    app.dependency_overrides[get_series_sorter] = lambda: _OneLectureSorter()
+    steps = await _resort(client, headers)
+    assert steps == [{"processed": 6, "total": 8, "done": False}, {"processed": 8, "total": 8, "done": True}]
+    assert len((await _series(client, headers))["series"]) == 1
+
+
+async def test_sorting_again_is_per_account_and_survives_a_failing_sorter(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    alex = await _sign_in(db_session, "alex@example.com")
+    sam = await _sign_in(db_session, "sam@example.com")
+    mine = [await _capture(client, alex, "white", "Big-O Notation"), await _capture(client, alex, "black", "Heaps")]
+    theirs = await _capture(client, sam, "red", "Friction")
+    await _spread_out(db_session, mine)
+
+    assert (await client.post("/api/v1/series/resort", json={}, headers=API_KEY)).status_code == 401
+
+    app.dependency_overrides[get_series_sorter] = lambda: _FailingSorter()
+    assert (await _resort(client, alex))[-1]["done"] is True
+    assert len((await _series(client, alex))["series"]) == 2  # nothing moved, nothing lost
+
+    app.dependency_overrides[get_series_sorter] = lambda: _OneLectureSorter()
+    await _resort(client, alex)
+    assert len((await _series(client, alex))["series"]) == 1
+    assert [s["id"] for s in (await _series(client, sam))["series"]] == [theirs["series"]["id"]]

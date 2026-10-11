@@ -16,6 +16,7 @@ import type {
   LectureListResponse,
   LimitKind,
   MoveSlideRequest,
+  ResortResponse,
   NoteCreateRequest,
   NoteListResponse,
   NoteOut,
@@ -600,6 +601,12 @@ function jsonBody(method: string, body: unknown): RequestInit {
 /** Renames a series, changes its category, or picks its cover capture. */
 export function updateSeries(seriesId: string, changes: SeriesUpdateRequest): Promise<void> {
   return authedJson(`/series/${seriesId}`, jsonBody("PATCH", changes), "Couldn't update that series");
+}
+
+/** Sorts the captures the user already has again, a few per call: call it
+ * again with the `processed` it returned until `done`. */
+export function resortSeries(offset: number): Promise<ResortResponse> {
+  return authedJson("/series/resort", jsonBody("POST", { offset }), "Couldn't sort your slides", QUIZ_ATTEMPT_TIMEOUT_MS);
 }
 
 /** Corrects the sorter: moves one capture to another (or a new) series. */

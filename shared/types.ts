@@ -241,6 +241,14 @@ export interface SeriesUpdateRequest {
 }
 
 /** An existing series (`series_id`), or a new one (`category` and `title`). */
+// POST /series/resort: sorts existing captures again, a few per request.
+export interface ResortResponse {
+  // How many captures the pass has been through, out of `total`.
+  processed: number;
+  total: number;
+  done: boolean;
+}
+
 export interface MoveSlideRequest {
   series_id?: string;
   category?: string;
