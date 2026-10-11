@@ -227,8 +227,12 @@ export function SettingsTab(): JSX.Element {
         />
         {connection.status === "ok" && "Connected"}
         {connection.status === "checking" && "Checking connection…"}
-        {connection.status === "error" && "Can't reach the server right now — try again shortly."}
+        {connection.status === "error" && "Can't reach the server right now. Try again shortly."}
       </div>
+
+      <p className="px-1 text-xs text-slate-400">
+        VisionLearn {chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}
+      </p>
     </div>
   );
 }

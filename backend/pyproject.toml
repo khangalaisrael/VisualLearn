@@ -1,6 +1,6 @@
 [project]
 name = "visionlearn-backend"
-version = "0.1.0"
+version = "2.0.0"
 description = "VisionLearn AI backend (FastAPI) — see docs/ARCHITECTURE.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -35,8 +35,8 @@ export function WelcomeScreen({ onDone }: { onDone: () => void }): JSX.Element {
       <div className="flex flex-col gap-2">
         <h1 className="text-lg font-semibold tracking-tight text-slate-900">Welcome to VisionLearn AI</h1>
         <p className="max-w-[280px] text-sm leading-relaxed text-slate-600">
-          Capture any lecture slide and ask questions grounded in exactly what's on screen — equations, diagrams,
-          and all.
+          Capture a lecture slide and ask about exactly what's on it. Your slides sort themselves by topic, ready
+          to quiz you and keep your notes.
         </p>
       </div>
 
@@ -56,7 +56,7 @@ export function WelcomeScreen({ onDone }: { onDone: () => void }): JSX.Element {
       {signIn.status === "error" && <p className="max-w-[280px] text-xs text-red-600 dark:text-red-400">{signIn.message}</p>}
 
       <p className="max-w-[280px] text-xs text-slate-400">
-        Signing in is optional — everything works without it, and you can sign in later from Settings.
+        You can capture and ask without signing in. Sorting, quizzes and notes need an account; sign in any time from Settings.
       </p>
     </div>
   );

@@ -127,8 +127,8 @@ export function TutorChat({
               {message.content}
             </li>
           ) : (
-            <li key={message.id} className="flex flex-col items-start gap-1">
-              <div className="rounded-md border border-indigo-100 bg-indigo-50/40 px-3.5 py-3 text-sm leading-relaxed text-slate-700 shadow-subtle">
+            <li key={message.id} className="flex min-w-0 flex-col items-start gap-1">
+              <div className="max-w-full overflow-x-auto rounded-md border border-indigo-100 bg-indigo-50/40 px-3.5 py-3 text-sm leading-relaxed text-slate-700 shadow-subtle">
                 {message.content ? <MathText text={message.content} /> : <span className="text-slate-400">Thinking…</span>}
               </div>
               {message.content && !streaming && (

@@ -38,12 +38,19 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function RecentTab({ onOpen }: { onOpen: (chat: RestoredChat) => void }): JSX.Element {
+export function RecentTab({
+  onOpen,
+  initialSeriesId = null,
+}: {
+  onOpen: (chat: RestoredChat) => void;
+  /** Open this series' page straight away (from the Ask start screen). */
+  initialSeriesId?: string | null;
+}): JSX.Element {
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSeriesId);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 

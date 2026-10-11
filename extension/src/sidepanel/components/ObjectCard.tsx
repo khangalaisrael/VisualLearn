@@ -89,8 +89,13 @@ function TableView({ rows }: { rows: string[][] }): JSX.Element {
 
 // Extracted prose often carries inline LaTeX (e.g. "$T(n) = \Theta(n \log n)$"). Only text that
 // clearly contains math goes through the renderer, so a slide that merely says
-// "costs $5 and $10" isn't mistaken for a formula.
-const LATEX_HINT = /\$\$|\\\(|\\\[|\\[a-zA-Z]{2,}|\$[^$\n]*[\^_{}\\][^$\n]*\$/;
+// "costs $5 and $10" isn't mistaken for a formula. A lone variable ("$N$",
+// "$x$") counts as math: a single letter between dollar signs is never a price.
+const LATEX_HINT = /\$\$|\\\(|\\\[|\\[a-zA-Z]{2,}|\$[^$\n]*[\^_{}\\][^$\n]*\$|\$[A-Za-z]\$/;
+
+// Below this, the reading may be wrong and the student is told so. Above it,
+// a percentage would only be noise.
+const LOW_CONFIDENCE = 0.7;
 
 function RichText({ text, className }: { text: string; className: string }): JSX.Element {
   return LATEX_HINT.test(text) ? (
@@ -113,9 +118,11 @@ export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
         >
           {object.type}
         </span>
-        <span className="font-mono text-xs tabular-nums text-slate-400">
-          {Math.round(object.confidence * 100)}% confidence
-        </span>
+        {object.confidence < LOW_CONFIDENCE && (
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+            May be misread
+          </span>
+        )}
       </div>
 
       {object.type === "equation" && object.latex && (

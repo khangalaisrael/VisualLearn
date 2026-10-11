@@ -47,6 +47,9 @@ import { MathText } from "../components/MathText";
 import type { ConversationDetail, ExplanationMode } from "@shared/types";
 import { ObjectCard } from "../components/ObjectCard";
 import { ObjectCardSkeleton } from "../components/ObjectCardSkeleton";
+import { extractFollowUpQuestion } from "../follow-up";
+import { StartScreen, WhatsNewCard } from "../components/StartScreen";
+import { ChevronIcon, CloseIcon, FollowUpIcon } from "../recent/parts";
 
 const PENDING_FIGURE_SELECTION_KEY = "pendingFigureSelection";
 
@@ -84,64 +87,6 @@ const EXPLANATION_MODES: { value: ExplanationMode; label: string }[] = [
   { value: "exam", label: "Exam" },
   { value: "socratic", label: "Socratic" },
 ];
-
-/** Extracts a follow-up question from the tail of a "5. Suggested
- * follow-up — ..." style section: a quoted "...?" if present, else the
- * text up to the first "?" (trimmed after the last ":" if any). */
-function extractFromTail(tail: string): string | null {
-  const quoted = /["“]([^"”]+?)["”]/.exec(tail);
-  if (quoted) return quoted[1].trim();
-
-  const qMarkIndex = tail.indexOf("?");
-  if (qMarkIndex === -1) return null;
-  const upToQuestion = tail.slice(0, qMarkIndex + 1);
-  const colonIndex = upToQuestion.lastIndexOf(":");
-  return (colonIndex !== -1 ? upToQuestion.slice(colonIndex + 1) : upToQuestion).trim();
-}
-
-/**
- * Best-effort pull of a follow-up question out of the model's answer so
- * it can be offered as a one-click button instead of the student
- * re-typing it. `chat_slide.v3.md`/`chat_figure.v3.md` ask for a fixed
- * "5. **Suggested follow-up**" section, but free-text answers don't
- * always comply (short/casual answers especially) — different wording,
- * no bold, no numbering, or no heading at all. Three-step fallback, each
- * strictly weaker than the last, so a button still shows up whenever the
- * answer plausibly contains a follow-up question:
- *   1. The exact heading the prompt asks for.
- *   2. Any looser "(suggest|follow-up|next question)... :" style lead-in,
- *      anywhere in the text, not just as a numbered heading.
- *   3. The last quoted "...?" or the last "?"-terminated sentence in the
- *      whole message, if nothing else matched — the model asked *some*
- *      question even if it didn't label it as a suggestion.
- * Returns null only when none of these find anything, rather than
- * guessing wrong.
- */
-function extractFollowUpQuestion(text: string): string | null {
-  const strictHeading = /5\.\s*\*\*Suggested follow-up\*\*\s*[—:-]?\s*([\s\S]*)$/i.exec(text);
-  if (strictHeading) {
-    const found = extractFromTail(strictHeading[1].trim());
-    if (found) return found;
-  }
-
-  const looseHeading = /(?:suggested\s+)?follow-?up[^:]{0,40}:\s*([\s\S]*)$/i.exec(text);
-  if (looseHeading) {
-    const found = extractFromTail(looseHeading[1].trim());
-    if (found) return found;
-  }
-
-  const lastQuoted = [...text.matchAll(/["“]([^"”]{4,}?\?)["”]/g)].pop();
-  if (lastQuoted) return lastQuoted[1].trim();
-
-  const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim());
-  const lastQuestion = [...sentences].reverse().find((s) => s.endsWith("?"));
-  if (!lastQuestion) return null;
-
-  // Trim a leading lead-in clause ("A good next question might be: ...")
-  // that the sentence-split fallback can't otherwise strip.
-  const colonIndex = lastQuestion.lastIndexOf(":");
-  return colonIndex !== -1 ? lastQuestion.slice(colonIndex + 1).trim() : lastQuestion;
-}
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -193,29 +138,6 @@ function Avatar({ role }: { role: "user" | "assistant" }): JSX.Element {
   );
 }
 
-function EmptyState(): JSX.Element {
-  const steps = ["Open a lecture slide in this tab", "Press Capture", "Ask anything about what's on it"];
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-5 px-4 py-8 text-center">
-      <img src="/icons/icon-128.png" alt="" className="h-14 w-14 rounded-md shadow-subtle" />
-      <div className="flex flex-col gap-1">
-        <p className="text-base font-semibold text-slate-800">Understand any slide</p>
-        <p className="text-sm text-slate-500">Equations, diagrams and code, explained from what's on screen.</p>
-      </div>
-      <ol className="flex w-full max-w-[280px] flex-col gap-2 text-left">
-        {steps.map((step, index) => (
-          <li key={step} className="flex items-center gap-3 rounded-md bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
-            <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-              {index + 1}
-            </span>
-            {step}
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
 /** A chat reopened from Recent: its slide, messages and id, so the next
  * question continues the same conversation. */
 export interface RestoredChat {
@@ -225,7 +147,23 @@ export interface RestoredChat {
   messages: ConversationDetail["messages"];
 }
 
-export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Element {
+export function AskTab({
+  restore,
+  active,
+  whatsNew,
+  onDismissWhatsNew,
+  onOpenRecent,
+  onOpenSeries,
+}: {
+  restore: RestoredChat | null;
+  /** This view is the one on screen (it stays mounted behind the others). */
+  active: boolean;
+  /** Show the one-time note about what changed in this release. */
+  whatsNew: boolean;
+  onDismissWhatsNew: () => void;
+  onOpenRecent: () => void;
+  onOpenSeries: (seriesId: string) => void;
+}): JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "idle" });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -250,6 +188,9 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
   const [algorithmMode, setAlgorithmMode] = useState(false);
   const [explanationMode, setExplanationMode] = useState<ExplanationMode>("university");
   const [figureSelection, setFigureSelection] = useState<FigureSelection | null>(null);
+  // The list of what was read from the slide is there to check, not to scroll
+  // past on the way to the chat, so it starts folded.
+  const [showObjects, setShowObjects] = useState(false);
   // Mirrors `state`'s loaded slide_id (or null) without applyFigureSelection
   // needing `state` itself as a dependency — keeps it referentially stable
   // so the message-listener effects below don't tear down and re-register
@@ -565,7 +506,13 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
 
         {captureLimit && <LimitCard limit={captureLimit} />}
 
-        {state.status === "idle" && !captureLimit && !blockedByInvite && <EmptyState />}
+        {state.status === "idle" && !blockedByInvite && whatsNew && (
+          <WhatsNewCard onOpenRecent={onOpenRecent} onDismiss={onDismissWhatsNew} />
+        )}
+
+        {state.status === "idle" && !captureLimit && !blockedByInvite && (
+          <StartScreen active={active} onOpenSeries={onOpenSeries} />
+        )}
 
         {state.status === "loading" && state.waking && <WakingNotice />}
 
@@ -585,15 +532,32 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
 
       {state.status === "loaded" && (
         <div className="flex flex-col gap-3">
-          <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{state.result.summary}</p>
-          {state.result.objects.length === 0 && (
-            <p className="text-sm text-slate-400">No objects detected on this slide.</p>
+          <p className="rounded-md bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">{state.result.summary}</p>
+          {state.result.objects.length === 0 ? (
+            <p className="text-sm text-slate-400">Nothing readable was found on this slide.</p>
+          ) : (
+            <>
+              <button
+                type="button"
+                aria-expanded={showObjects}
+                aria-controls="slide-objects"
+                onClick={() => setShowObjects((open) => !open)}
+                className="-mx-1 flex items-center justify-between gap-2 rounded-sm px-1 py-1 text-left text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-50 hover:text-slate-700"
+              >
+                <span className="tabular-nums">
+                  {showObjects ? "Hide" : "Show"} what was read from the slide ({state.result.objects.length})
+                </span>
+                <ChevronIcon open={showObjects} />
+              </button>
+              {showObjects && (
+                <ul id="slide-objects" className="flex flex-col gap-3">
+                  {state.result.objects.map((object) => (
+                    <ObjectCard key={object.id} object={object} />
+                  ))}
+                </ul>
+              )}
+            </>
           )}
-          <ul className="flex flex-col gap-3">
-            {state.result.objects.map((object) => (
-              <ObjectCard key={object.id} object={object} />
-            ))}
-          </ul>
         </div>
       )}
 
@@ -624,10 +588,10 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
               <button
                 type="button"
                 onClick={() => setFigureSelection(null)}
-                className="ml-auto text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-200"
+                className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-200"
                 aria-label="Clear figure selection, go back to asking about the whole slide"
               >
-                ✕
+                <CloseIcon />
               </button>
             </div>
           )}
@@ -653,23 +617,9 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            {(state.result.series?.kind === "practice" ? PRACTICE_PRESET_QUESTIONS : PRESET_QUESTIONS).map((question) => (
-              <button
-                key={question}
-                type="button"
-                disabled={isStreaming}
-                onClick={() => void askQuestion(question)}
-                className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {question}
-              </button>
-            ))}
-          </div>
-
           {messages.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-400">
-              Ask a question about this slide to get started.
+              Ask anything about this slide, or start with a suggestion below.
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
@@ -694,7 +644,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
                   <li
                     key={message.id}
                     ref={message.id === latestUserMessageId ? latestUserMessageRef : undefined}
-                    className={`flex max-w-[90%] flex-col gap-1 ${
+                    className={`flex min-w-0 max-w-[90%] flex-col gap-1 ${
                       message.role === "user" ? "self-end items-end" : "self-start items-start"
                     }`}
                   >
@@ -709,7 +659,7 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
                       className={
                         message.role === "user"
                           ? "rounded-md bg-indigo-600 px-3 py-2 text-sm text-white"
-                          : "rounded-md border border-indigo-100 bg-indigo-50/40 px-3.5 py-3 text-sm leading-relaxed text-slate-700 shadow-subtle"
+                          : "max-w-full overflow-x-auto rounded-md border border-indigo-100 bg-indigo-50/40 px-3.5 py-3 text-sm leading-relaxed text-slate-700 shadow-subtle"
                       }
                     >
                       {isPendingAssistant ? <TypingIndicator /> : <MathText text={message.content} />}
@@ -740,8 +690,10 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
                         onClick={() => void askQuestion(followUpQuestion)}
                         className="mt-0.5 flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-left text-xs font-medium text-indigo-700 dark:text-indigo-300 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        <span aria-hidden="true">↳</span>
-                        {followUpQuestion}
+                        <FollowUpIcon />
+                        <span className="min-w-0">
+                          <MathText text={followUpQuestion} />
+                        </span>
                       </button>
                     )}
                   </li>
@@ -771,7 +723,25 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
               </button>
             </div>
           )}
+        </div>
+      )}
+      </div>
 
+      {state.status === "loaded" && (
+        <div className="flex flex-none flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3">
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]" role="group" aria-label="Suggested questions">
+            {(state.result.series?.kind === "practice" ? PRACTICE_PRESET_QUESTIONS : PRESET_QUESTIONS).map((question) => (
+              <button
+                key={question}
+                type="button"
+                disabled={isStreaming}
+                onClick={() => void askQuestion(question)}
+                className="flex-none rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
           <form
             className="flex gap-2"
             onSubmit={(event) => {
@@ -783,10 +753,10 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
               type="text"
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
-              placeholder="Ask a question about this slide…"
-              aria-label="Ask a question about this slide"
+              placeholder={figureSelection ? "Ask about this figure" : "Ask about this slide"}
+              aria-label={figureSelection ? "Ask a question about this figure" : "Ask a question about this slide"}
               disabled={isStreaming}
-              className="flex-1 rounded-sm border border-slate-300 px-3 py-2 text-sm transition-colors duration-[120ms] focus:border-indigo-400 disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 transition-colors duration-[120ms] placeholder:text-slate-400 focus:border-indigo-400 disabled:opacity-50"
             />
             {isStreaming ? (
               <Button variant="secondary" onClick={() => abortRef.current?.abort()}>
@@ -800,7 +770,6 @@ export function AskTab({ restore }: { restore: RestoredChat | null }): JSX.Eleme
           </form>
         </div>
       )}
-      </div>
     </div>
   );
 }

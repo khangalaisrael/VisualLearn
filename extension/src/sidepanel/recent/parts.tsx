@@ -55,6 +55,15 @@ export function CloseIcon(): JSX.Element {
   );
 }
 
+/** A reply arrow: marks a suggested follow-up question. */
+export function FollowUpIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5 flex-none" aria-hidden="true">
+      <path d="M5 4.5v4a3 3 0 0 0 3 3h7M11.5 8l3.5 3.5-3.5 3.5" {...STROKE} />
+    </svg>
+  );
+}
+
 /** Square icon button used for row actions. */
 export const ICON_BUTTON =
   "flex h-8 w-8 flex-none items-center justify-center rounded-sm text-slate-400 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50";

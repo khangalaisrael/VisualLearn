@@ -20,6 +20,29 @@
     outline: 2px solid theme("colors.indigo.500");
     outline-offset: 2px;
   }
+
+  /* Selected text and the typing caret carry the accent too, instead of the
+     browser's default blue, in both themes. */
+  ::selection {
+    background-color: rgb(199 210 254 / 0.75);
+  }
+  .dark ::selection {
+    background-color: rgb(79 70 229 / 0.55);
+  }
+  input,
+  textarea {
+    caret-color: theme("colors.indigo.500");
+  }
+
+  /* KaTeX never breaks a display equation across lines. One wider than the
+     panel scrolls on its own line instead of widening the whole view (which
+     clipped the text around it). */
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-block: 0.2em;
+    scrollbar-width: thin;
+  }
 }
 
 @layer utilities {

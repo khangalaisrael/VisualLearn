@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user_id, verify_api_key
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.orm import Conversation
+from app.models.orm import Conversation, Series
 from app.models.schemas import (
     ConversationDetail,
     ConversationListResponse,
@@ -28,6 +28,7 @@ from app.repositories.messages import MessageRepository
 from app.repositories.objects import ObjectRepository
 from app.repositories.slides import SlideRepository
 from app.services.retention import retention_cutoff, run_cleanup
+from app.services.series import series_ref
 
 router = APIRouter(tags=["conversations"], dependencies=[Depends(verify_api_key)])
 
@@ -89,6 +90,7 @@ async def get_conversation(
             status=slide.status,
             objects=[objects.to_slide_object(record) for record in await objects.list_by_slide(slide.id)],
             summary=slide.summary or "",
+            series=series_ref(await db.get(Series, slide.series_id) if slide.series_id else None, slide),
         )
 
     messages = await MessageRepository(db).list_by_conversation(conversation.id)

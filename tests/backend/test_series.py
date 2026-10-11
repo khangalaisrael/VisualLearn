@@ -376,6 +376,11 @@ async def test_a_chat_follows_the_student_to_the_next_slide_of_the_series(
     status, continued = await _ask(client, headers, second, conversation_id)
     assert (status, continued) == (200, conversation_id)
 
+    # Reopened from Recent, the chat still knows its slide's series.
+    reopened = (await client.get(f"/api/v1/conversations/{conversation_id}", headers=headers)).json()
+    assert reopened["slide"]["slide_id"] == second["slide_id"]
+    assert reopened["slide"]["series"] == second["series"]
+
     conversation = (await db_session.execute(select(Conversation))).scalar_one()
     assert str(conversation.slide_id) == second["slide_id"]
     assert str(conversation.presentation_id) == second["presentation_id"]

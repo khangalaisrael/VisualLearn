@@ -12,7 +12,7 @@ from app.core.logging import configure_logging
 configure_logging()
 settings = get_settings()
 
-app = FastAPI(title="VisionLearn AI Backend", version="0.1.0")
+app = FastAPI(title="VisionLearn AI Backend", version="2.0.0")
 
 # CORS is intentionally wide open: the extension's origin
 # (chrome-extension://<id>) isn't known ahead of install, and Starlette's
