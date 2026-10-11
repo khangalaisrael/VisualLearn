@@ -24,6 +24,7 @@ from app.models.orm import (
     Series,
     Session,
     Slide,
+    StudyAid,
     UsageEvent,
     User,
 )
@@ -44,6 +45,7 @@ async def delete_account(db: AsyncSession, user_id: uuid.UUID) -> None:
     await db.execute(delete(Note).where(Note.user_id == user_id))
     await db.execute(delete(QuizAttempt).where(QuizAttempt.quiz_id.in_(select(Quiz.id).where(Quiz.user_id == user_id))))
     await db.execute(delete(Quiz).where(Quiz.user_id == user_id))
+    await db.execute(delete(StudyAid).where(StudyAid.user_id == user_id))
 
     await db.execute(delete(RateLimitEvent).where(RateLimitEvent.key == f"user:{user_id}"))
     await db.execute(delete(Session).where(Session.user_id == user_id))

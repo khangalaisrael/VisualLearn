@@ -112,6 +112,9 @@ class Settings(BaseSettings):
 
     # Quizzes a signed-in user may generate per day (each is one model call).
     rate_limit_quizzes_per_day: int = 10
+    # Study guides, cheat sheets and flashcard decks a signed-in user may have
+    # written per day, counted together (each is one model call).
+    rate_limit_study_aids_per_day: int = 10
 
     # Web research for a quiz's study resources (admins only for now): how many
     # searches one quiz may run, how long it may take, and what a search costs

@@ -24,6 +24,7 @@ from app.models.orm import (
     Series,
     Session,
     Slide,
+    StudyAid,
 )
 
 # The monthly capture allowance counts events over a rolling 30 days; the
@@ -88,6 +89,7 @@ async def run_cleanup(db: AsyncSession) -> CleanupResult:
     old_quizzes = select(Quiz.id).where(Quiz.created_at < cutoff)
     await db.execute(delete(QuizAttempt).where(QuizAttempt.quiz_id.in_(old_quizzes)))
     await db.execute(delete(Quiz).where(Quiz.created_at < cutoff))
+    await db.execute(delete(StudyAid).where(StudyAid.created_at < cutoff))
 
     cache_entries = await db.execute(delete(CacheEntry).where(CacheEntry.created_at < cutoff))
     rate_limit_events = await db.execute(

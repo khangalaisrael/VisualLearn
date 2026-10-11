@@ -240,6 +240,26 @@ class QuizAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class StudyAid(Base):
+    """A study guide, a cheat sheet or a deck of flashcards written from one
+    series' slides (services/study_aid_generator.py). A series has at most
+    one of each `kind`. `content` is {"markdown": ...} for the two documents
+    and {"cards": [{front, back}]} for flashcards; `progress` lists the
+    positions of the cards the student has marked as known. Expires with the
+    30-day retention, like the slides it was written from."""
+
+    __tablename__ = "study_aids"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
+    series_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16))  # "guide" | "cheatsheet" | "flashcards"
+    title: Mapped[str] = mapped_column(String(160))
+    content: Mapped[dict] = mapped_column(JSON)
+    progress: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CacheEntry(Base):
     """Durable backing store for the Redis analysis cache
     (app/services/cache_service.py) — see docs/DATA_MODEL.md `cache_entries`

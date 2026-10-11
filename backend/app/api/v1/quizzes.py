@@ -27,7 +27,7 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.orm import ObjectRecord, Quiz, QuizAttempt, Series, Slide, User
+from app.models.orm import Quiz, QuizAttempt, Series, User
 from app.models.schemas import (
     QuizAttemptRequest,
     QuizAttemptResponse,
@@ -38,22 +38,16 @@ from app.models.schemas import (
     QuizResource,
     QuizSummary,
 )
-from app.repositories.objects import ObjectRepository
 from app.repositories.usage_events import UsageEventRepository
-from app.services.quiz_generator import QuizGenerator, QuizSource
+from app.services.quiz_generator import QuizGenerator
 from app.services.resource_finder import ResearchResult, ResourceFinder
 from app.services.retention import retention_cutoff
+from app.services.series_source import read_series
 from app.services.usage import estimate_cost_usd, start_accumulator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["quizzes"], dependencies=[Depends(verify_api_key)])
-
-# What one quiz may read: the most recent slides of the series, each cut to
-# this much text. Bounds the cost of a quiz whatever the series' size.
-_MAX_SLIDES = 12
-_MAX_PRACTICE_SLIDES = 3
-_MAX_SLIDE_CHARS = 1200
 
 
 def _require_user(current_user_id: uuid.UUID | None) -> uuid.UUID:
@@ -83,19 +77,12 @@ async def _owned_quiz(db: AsyncSession, quiz_id: str, user_id: uuid.UUID) -> Qui
     return quiz
 
 
-def slide_text(slide: Slide, objects: Sequence[ObjectRecord]) -> str:
-    heading = f"[{slide.subtopic}] " if slide.subtopic else ""
-    body = "\n".join(o.extracted_text or o.latex or o.summary or "" for o in objects).strip()
-    return f"{heading}{slide.summary or ''}\n{body}"[:_MAX_SLIDE_CHARS].strip()
-
-
-async def _research(finder: ResourceFinder, series: Series, slides: Sequence[Slide]) -> ResearchResult:
+async def _research(finder: ResourceFinder, series: Series, subtopics: list[str]) -> ResearchResult:
     """Never raises and never outlasts its time limit: a quiz without
     resources is still a quiz."""
-    subtopics = list(dict.fromkeys(s.subtopic for s in slides if s.subtopic))[:8]
     try:
         return await asyncio.wait_for(
-            finder.find(category=series.category, title=series.title, subtopics=subtopics),
+            finder.find(category=series.category, title=series.title, subtopics=subtopics[:8]),
             timeout=get_settings().research_timeout_seconds,
         )
     except Exception:
@@ -155,38 +142,17 @@ async def create_quiz(
     if body.research and not is_admin(user):
         raise HTTPException(status_code=403, detail="Web research for quizzes is not open to everyone yet.")
 
-    slides = list(
-        (
-            await db.execute(
-                select(Slide)
-                .where(Slide.series_id == series.id, Slide.created_at >= retention_cutoff())
-                .order_by(Slide.created_at.desc())
-            )
-        ).scalars()
-    )
-    practice = [s for s in slides if s.content_kind == "practice"][:_MAX_PRACTICE_SLIDES]
-    # Questions are written from the lecture slides; a series of nothing but
-    # practice slides is quizzed on those instead.
-    lectures = [s for s in slides if s.content_kind != "practice"] or practice
-    lectures = lectures[:_MAX_SLIDES][::-1]  # the newest dozen, in the order they were captured
-    if not lectures:
+    source = await read_series(db, series)
+    if source is None:
         raise HTTPException(status_code=422, detail="This series has no slides to write a quiz from.")
-
-    objects = ObjectRepository(db)
-    source = QuizSource(
-        category=series.category,
-        title=series.title,
-        slides=[slide_text(s, await objects.list_by_slide(s.id)) for s in lectures],
-        practice=[slide_text(s, await objects.list_by_slide(s.id)) for s in practice if s not in lectures],
-    )
 
     usage = start_accumulator()
     # The questions and the web research do not depend on each other, so they run side by side.
     research_task = (
-        asyncio.create_task(_research(finder, series, lectures)) if body.research and finder is not None else None
+        asyncio.create_task(_research(finder, series, source.subtopics)) if body.research and finder is not None else None
     )
     try:
-        generated = await generator.generate(source, body.count)
+        generated = await generator.generate(source.text, body.count)
     except Exception as exc:
         if research_task is not None:
             research_task.cancel()
@@ -203,7 +169,7 @@ async def create_quiz(
                 "options": q.options,
                 "correct_index": q.correct_index,
                 "explanation": q.explanation,
-                "slide_id": str(lectures[q.source_index].id) if q.source_index is not None else None,
+                "slide_id": str(source.slide_ids[q.source_index]) if q.source_index is not None else None,
             }
             for q in generated.questions
         ],

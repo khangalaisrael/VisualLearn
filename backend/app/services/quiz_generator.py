@@ -6,12 +6,13 @@ a quiz costs a few thousand input tokens whatever the series' size.
 """
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 import anthropic
 
 from app.core.prompt_loader import load_prompt
+from app.services.series_source import SeriesText, format_slides
 from app.services.usage import record_response_usage
 
 OPTION_COUNT = 4
@@ -43,15 +44,9 @@ _OUTPUT_SCHEMA = {
 }
 
 
-@dataclass(frozen=True)
-class QuizSource:
-    """A series as the generator reads it. `slides` and `practice` are slide
-    texts; a question's `source_slide` is a 1-based position in `slides`."""
-
-    category: str
-    title: str
-    slides: list[str]
-    practice: list[str] = field(default_factory=list)
+# A series as the generator reads it; a question's `source_slide` is a
+# 1-based position in `slides`.
+QuizSource = SeriesText
 
 
 @dataclass(frozen=True)
@@ -97,16 +92,7 @@ class PlaceholderQuizGenerator:
 
 
 def format_source(source: QuizSource, count: int) -> str:
-    slides = "\n\n".join(f"[Slide {i}]\n{text}" for i, text in enumerate(source.slides, start=1))
-    practice = (
-        "\n\n<practice_questions_from_the_course>\n" + "\n\n".join(source.practice) + "\n</practice_questions_from_the_course>"
-        if source.practice
-        else ""
-    )
-    return (
-        f"Series: {source.title} ({source.category})\n\n<slides>\n{slides}\n</slides>{practice}\n\n"
-        f"Write {count} questions."
-    )
+    return f"{format_slides(source)}\n\nWrite {count} questions."
 
 
 def parse_quiz(payload: dict, source: QuizSource, count: int) -> GeneratedQuiz:

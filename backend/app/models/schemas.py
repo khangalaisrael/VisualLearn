@@ -306,6 +306,46 @@ class QuizAttemptResponse(BaseModel):
     total: int
 
 
+StudyAidKind = Literal["guide", "cheatsheet", "flashcards"]
+
+
+class Flashcard(BaseModel):
+    front: str
+    back: str
+
+
+class StudyAidSummary(BaseModel):
+    id: str
+    kind: StudyAidKind
+    title: str
+    created_at: datetime
+    # Flashcards only: how many cards, and how many the student marked as known.
+    card_count: int | None = None
+    known_count: int | None = None
+
+
+class StudyAidOut(StudyAidSummary):
+    series_id: str
+    # The guide or cheat sheet text; null for flashcards.
+    markdown: str | None = None
+    # The deck; null for the two documents.
+    cards: list[Flashcard] | None = None
+    # Positions (from 0) of the cards marked as known.
+    known: list[int] = []
+
+
+class StudyAidListResponse(BaseModel):
+    aids: list[StudyAidSummary]
+
+
+class StudyAidCreateRequest(BaseModel):
+    kind: StudyAidKind
+
+
+class StudyAidProgressRequest(BaseModel):
+    known: list[int]
+
+
 QueryMode = Literal["figure", "slide", "algorithm", "tutor", "presentation", "general", "auto"]
 
 # docs/TheoryOfAlgorithm.md §24 / docs/AlgorithmsMVP.md Phase 5. Only

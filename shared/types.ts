@@ -320,6 +320,37 @@ export interface QuizAttemptResponse {
   total: number;
 }
 
+export type StudyAidKind = "guide" | "cheatsheet" | "flashcards";
+
+export interface Flashcard {
+  front: string;
+  back: string;
+}
+
+export interface StudyAidSummary {
+  id: string;
+  kind: StudyAidKind;
+  title: string;
+  created_at: string;
+  // Flashcards only: how many cards, and how many are marked as known.
+  card_count: number | null;
+  known_count: number | null;
+}
+
+export interface StudyAidOut extends StudyAidSummary {
+  series_id: string;
+  // The guide or cheat sheet text; null for flashcards.
+  markdown: string | null;
+  // The deck; null for the two documents.
+  cards: Flashcard[] | null;
+  // Positions (from 0) of the cards marked as known.
+  known: number[];
+}
+
+export interface StudyAidListResponse {
+  aids: StudyAidSummary[];
+}
+
 export interface AdminDay {
   date: string;
   captures: number;

@@ -30,11 +30,17 @@ from app.services.rate_limiter import (
     enforce_global_capture_cap,
     enforce_rate_limits,
     quiz_limits,
+    study_aid_limits,
 )
 from app.services.quiz_generator import ClaudeQuizGenerator, PlaceholderQuizGenerator, QuizGenerator
 from app.services.resource_finder import ClaudeResourceFinder, ResourceFinder
 from app.services.series_sorter import ClaudeSeriesSorter, PlaceholderSeriesSorter, SeriesSorter
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer, SlideAnalyzer
+from app.services.study_aid_generator import (
+    ClaudeStudyAidGenerator,
+    PlaceholderStudyAidGenerator,
+    StudyAidGenerator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +159,21 @@ _quiz_generator = _build_quiz_generator()
 async def get_quiz_generator() -> QuizGenerator:
     """Tests override this (tests/backend/conftest.py) so they never call a provider."""
     return _quiz_generator
+
+
+def _build_study_aid_generator() -> StudyAidGenerator:
+    settings = get_settings()
+    if settings.anthropic_api_key:
+        return ClaudeStudyAidGenerator(api_key=settings.anthropic_api_key, model=settings.anthropic_chat_model)
+    return PlaceholderStudyAidGenerator()
+
+
+_study_aid_generator = _build_study_aid_generator()
+
+
+async def get_study_aid_generator() -> StudyAidGenerator:
+    """Tests override this (tests/backend/conftest.py) so they never call a provider."""
+    return _study_aid_generator
 
 
 def _build_resource_finder() -> ResourceFinder | None:
@@ -428,6 +449,27 @@ async def enforce_quiz_rate_limit(
             key=rate_limit_key(request, user.id),
             action="quiz",
             limits=quiz_limits(get_settings(), clock.now()),
+        )
+    except RateLimitExceeded as exc:
+        await _record_limit_hit(db, user, exc)
+        raise
+
+
+async def enforce_study_aid_rate_limit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> None:
+    """Same shape as `enforce_quiz_rate_limit`: only signed-in requests are counted."""
+    ensure_access(user)
+    if user is None or is_admin(user):
+        return
+    try:
+        await enforce_rate_limits(
+            RateLimitEventRepository(db),
+            key=rate_limit_key(request, user.id),
+            action="study_aid",
+            limits=study_aid_limits(get_settings(), clock.now()),
         )
     except RateLimitExceeded as exc:
         await _record_limit_hit(db, user, exc)
