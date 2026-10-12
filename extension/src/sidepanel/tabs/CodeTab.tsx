@@ -502,17 +502,22 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           <p className="text-sm leading-relaxed text-slate-700">
             <span className="font-semibold">Made runnable.</span> {fix.note}
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setCode(fix.previous);
-              setFix(null);
-              setRun({ status: "idle" });
-            }}
-            className="rounded-sm text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
-          >
-            Put my version back
-          </button>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => setFix(null)}>
+              Got it
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                setCode(fix.previous);
+                setFix(null);
+                setRun({ status: "idle" });
+              }}
+              className="rounded-sm text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+            >
+              Put my version back
+            </button>
+          </div>
         </div>
       )}
 
