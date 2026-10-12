@@ -32,13 +32,7 @@ const STARTERS = [
   { label: "Plan my revision for an exam", begins: "Help me plan my revision for an exam on " },
 ];
 
-/** A question handed over from another tab (the Code tab); `id` changes with every handover. */
-export interface IncomingQuestion {
-  id: number;
-  question: string;
-}
-
-export function ChatTab({ incoming = null }: { incoming?: IncomingQuestion | null }): JSX.Element {
+export function ChatTab(): JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -161,16 +155,6 @@ export function ChatTab({ incoming = null }: { incoming?: IncomingQuestion | nul
     },
     [streaming]
   );
-
-  // A handed-over question is asked once, when it arrives. If an answer is
-  // still being written, it waits in the box instead of being dropped.
-  const handledRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!incoming || handledRef.current === incoming.id) return;
-    handledRef.current = incoming.id;
-    if (streaming) setInput(incoming.question);
-    else void ask(incoming.question);
-  }, [incoming, streaming, ask]);
 
   const send = () => {
     const question = input.trim();

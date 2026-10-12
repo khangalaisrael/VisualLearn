@@ -4,15 +4,15 @@
  * student works (Ask about a slide, Recent, Notes, Code, Chat without a slide),
  * today's capture count, and Settings. Ask, Chat and Code stay mounted while
  * another view is open so a conversation or a program in progress is not
- * lost. Code from an answer and questions from the Code tab are handed
- * between tabs through shared/handoff.ts.
+ * lost. Code from an answer or a slide is handed to the Code tab through
+ * shared/handoff.ts.
  */
 
 import { useEffect, useState } from "react";
 
 import { onHandoff } from "../shared/handoff";
 import { AskTab, type RestoredChat } from "./tabs/AskTab";
-import { ChatTab, type IncomingQuestion } from "./tabs/ChatTab";
+import { ChatTab } from "./tabs/ChatTab";
 import { CodeTab, type IncomingCode } from "./tabs/CodeTab";
 import { NotesTab } from "./tabs/NotesTab";
 import { RecentTab } from "./tabs/RecentTab";
@@ -60,21 +60,14 @@ export function App(): JSX.Element {
   // before the welcome screen on a first-ever open.
   const [showWelcome, setShowWelcome] = useState<boolean | null>(null);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
-  // The latest thing handed from one tab to another.
+  // The latest code handed over from an answer or a slide.
   const [incomingCode, setIncomingCode] = useState<IncomingCode | null>(null);
-  const [incomingQuestion, setIncomingQuestion] = useState<IncomingQuestion | null>(null);
 
   useEffect(
     () =>
       onHandoff((handoff) => {
-        const id = Date.now();
-        if (handoff.kind === "code") {
-          setIncomingCode({ id, language: handoff.language, code: handoff.code });
-          setView("code");
-        } else {
-          setIncomingQuestion({ id, question: handoff.question });
-          setView("chat");
-        }
+        setIncomingCode({ id: Date.now(), language: handoff.language, code: handoff.code });
+        setView("code");
       }),
     []
   );
@@ -171,7 +164,7 @@ export function App(): JSX.Element {
         />
       </div>
       <div className={view === "chat" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
-        <ChatTab incoming={incomingQuestion} />
+        <ChatTab />
       </div>
       <div className={view === "code" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
         <CodeTab incoming={incomingCode} active={view === "code"} />

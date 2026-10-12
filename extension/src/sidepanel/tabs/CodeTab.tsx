@@ -5,8 +5,8 @@
  * Haskell and Python also take expressions to try, as a lecture does in GHCi
  * or the Python shell: code from a slide rarely has a main of its own. Programs run in a hosted sandbox reached through
  * the backend (POST /code/run), never in the browser or on our server. The
- * draft for each language is kept on this device, and the result can be sent
- * to Chat to have it explained.
+ * draft for each language is kept on this device, and questions about the
+ * code and its result are asked and answered here (code/CodeTutor.tsx).
  *
  * The editor is a plain textarea laid over a highlighted copy of the same
  * text: the textarea's own text is transparent, so what is seen is the
@@ -24,10 +24,12 @@ import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState }
 import type { CodeRunResponse } from "@shared/types";
 
 import { ApiError, getAuthState, makeRunnable, runCode, signInWithGoogle } from "../../shared/api-client";
-import { CODE_LANGUAGES, type CodeLanguage, askInChat } from "../../shared/handoff";
+import { CODE_LANGUAGES, type CodeLanguage } from "../../shared/handoff";
+import { CodeTutor } from "../code/CodeTutor";
 import { type Edit, editFor } from "../code/editing";
 import { Button } from "../components/Button";
 import { highlight } from "../components/CodeBlock";
+import { ChevronIcon } from "../recent/parts";
 
 /** Code handed over from an answer; `id` changes with every handover. */
 export interface IncomingCode {
@@ -76,29 +78,40 @@ function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-/** The question sent to Chat about a run: the program, then what happened. */
-function tutorQuestion(
+/** The code, and what happened when it last ran, as the tutor is told it. */
+function tutorContext(
   language: CodeLanguage,
   code: string,
   stdin: string,
   expressions: string,
-  result: CodeRunResponse
+  result: CodeRunResponse | null
 ): string {
   const name = CODE_LANGUAGES.find((item) => item.id === language)?.name ?? language;
-  const parts = [
-    result.status === "ok"
-      ? `Explain what this ${name} program does and why it prints this output.`
-      : result.status === "timeout"
-        ? `This ${name} program was stopped because it ran for too long. Why does it not finish, and how do I fix it?`
-        : `This ${name} program fails. Explain the error in plain words and show me how to fix it.`,
-    "```" + language + "\n" + code.trimEnd() + "\n```",
-  ];
+  const outcome =
+    result === null
+      ? "I have not run it yet."
+      : result.status === "ok"
+        ? "It ran."
+        : result.status === "compile_error"
+          ? "It did not compile."
+          : result.status === "timeout"
+            ? "It was stopped because it ran for too long."
+            : "It stopped with an error.";
+  const parts = [`This is my ${name} code. ${outcome}`, "```" + language + "\n" + code.trimEnd() + "\n```"];
   if (expressions.trim()) parts.push("Expressions I tried, one per line:\n```\n" + expressions.trimEnd() + "\n```");
   if (stdin.trim()) parts.push("Input:\n```\n" + stdin.trimEnd() + "\n```");
-  if (result.compiler_output) parts.push("Compiler:\n```\n" + result.compiler_output + "\n```");
-  if (result.stderr) parts.push("Error output:\n```\n" + result.stderr.trimEnd() + "\n```");
-  if (result.stdout) parts.push("Output:\n```\n" + result.stdout.trimEnd() + "\n```");
+  if (result?.compiler_output) parts.push("Compiler:\n```\n" + result.compiler_output + "\n```");
+  if (result?.stderr) parts.push("Error output:\n```\n" + result.stderr.trimEnd() + "\n```");
+  if (result?.stdout) parts.push("Output:\n```\n" + result.stdout.trimEnd() + "\n```");
   return parts.join("\n\n");
+}
+
+/** One-press questions that fit how the last run went. */
+function suggestionsFor(result: CodeRunResponse | null): string[] {
+  if (result === null) return ["Explain this code"];
+  if (result.status === "ok") return ["Why this output?", "Explain this code"];
+  if (result.status === "timeout") return ["Why does it not finish?", "How do I fix it?"];
+  return ["Explain this error", "How do I fix it?"];
 }
 
 const FILE_NAMES: Record<CodeLanguage, string> = { haskell: "Main.hs", java: "Main.java", cpp: "main.cpp", python: "main.py" };
@@ -157,6 +170,8 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   // How far the textarea is scrolled; the highlighted copy and the line numbers follow it.
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
+  // The result's details can be folded away, leaving its one-line status.
+  const [resultOpen, setResultOpen] = useState(true);
   // "Make it runnable": while the tutor works, and afterwards what it changed
   // and the student's own version, so it can be put back.
   const [fixing, setFixing] = useState(false);
@@ -528,13 +543,24 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
       {result && (
         <div className="flex flex-col gap-2">
           <section className="vl-editor flex-none overflow-hidden rounded-md border border-[#3730a3] shadow-subtle" aria-label="Result">
-            <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] px-3 py-1.5">
+            <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] py-1.5 pl-3 pr-1.5">
               <span className={`h-2 w-2 flex-none rounded-full ${STATUS_DOTS[result.status]}`} aria-hidden="true" />
-              <p role="status" className="text-xs text-[var(--vl-editor-text)]">
+              <p role="status" className="min-w-0 flex-1 text-xs text-[var(--vl-editor-text)]">
                 <span className="font-semibold">{HEADLINES[result.status]}</span> in {seconds(result.duration_ms)}
               </p>
+              <button
+                type="button"
+                onClick={() => setResultOpen((open) => !open)}
+                aria-expanded={resultOpen}
+                aria-label={resultOpen ? "Hide the details" : "Show the details"}
+                title={resultOpen ? "Hide the details" : "Show the details"}
+                className="-my-1 flex flex-none items-center gap-1 rounded-sm px-1.5 py-1 text-xs font-medium text-[var(--vl-editor-text)] transition-colors duration-[120ms] hover:bg-white/10"
+              >
+                {resultOpen ? "Hide" : "Show"}
+                <ChevronIcon open={resultOpen} />
+              </button>
             </div>
-            <div className="flex flex-col gap-3 bg-[var(--vl-editor-bg)] px-3 py-2">
+            <div className={resultOpen ? "flex flex-col gap-3 bg-[var(--vl-editor-bg)] px-3 py-2" : "hidden"}>
               {result.compiler_output && (
                 <div className="flex flex-col gap-1">
                   <h2 className={TERMINAL_LABEL}>{result.status === "compile_error" ? "Compiler errors" : "Compiler messages"}</h2>
@@ -565,17 +591,20 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               press Make it runnable.
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            {result.status !== "ok" && (
-              <Button onClick={() => void makeItRunnable()} disabled={fixing}>
-                {fixing ? "Working on it…" : "Make it runnable"}
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => askInChat(tutorQuestion(language, code, stdin, expressions, result))}>
-              {result.status === "ok" ? "Ask the tutor to explain this" : "Ask the tutor about this error"}
+          {result.status !== "ok" && (
+            <Button className="self-start" onClick={() => void makeItRunnable()} disabled={fixing}>
+              {fixing ? "Working on it…" : "Make it runnable"}
             </Button>
-          </div>
+          )}
         </div>
+      )}
+
+      {code.trim() && (
+        <CodeTutor
+          context={tutorContext(language, code, stdin, expressions, result)}
+          suggestions={suggestionsFor(result)}
+          disabled={signedIn === false}
+        />
       )}
 
       <p className="mt-auto text-xs text-slate-400">

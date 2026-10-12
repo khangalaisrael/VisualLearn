@@ -1,6 +1,6 @@
 /**
  * Handing something from one part of the side panel to another: code from an
- * answer into the Code tab, and a question from the Code tab into Chat. The
+ * answer or a slide into the Code tab. The
  * panel shell (sidepanel/App.tsx) listens and switches tabs. Pages without a
  * shell (the print page) have no listener, so nothing there offers to hand
  * anything over.
@@ -15,7 +15,7 @@ export const CODE_LANGUAGES: { id: CodeLanguage; name: string }[] = [
   { id: "python", name: "Python" },
 ];
 
-export type Handoff = { kind: "code"; language: CodeLanguage; code: string } | { kind: "chat"; question: string };
+export type Handoff = { kind: "code"; language: CodeLanguage; code: string };
 
 const listeners = new Set<(handoff: Handoff) => void>();
 
@@ -48,8 +48,4 @@ export function runnableLanguage(language: string | null | undefined): CodeLangu
 
 export function openInCodeTab(language: CodeLanguage, code: string): void {
   send({ kind: "code", language, code });
-}
-
-export function askInChat(question: string): void {
-  send({ kind: "chat", question });
 }
