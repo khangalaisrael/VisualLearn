@@ -19,6 +19,7 @@ from app.api.deps import (
     get_resource_finder,
     get_series_sorter,
     get_slide_analyzer,
+    get_code_runner,
     get_study_aid_generator,
 )
 from app.core.cache import get_redis
@@ -31,6 +32,7 @@ from app.services.chat_service import ChatChunk
 from app.services.quiz_generator import PlaceholderQuizGenerator
 from app.services.series_sorter import PlaceholderSeriesSorter
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer
+from app.services.code_runner import PlaceholderCodeRunner
 from app.services.study_aid_generator import PlaceholderStudyAidGenerator
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
@@ -134,6 +136,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_series_sorter] = override_get_series_sorter
     app.dependency_overrides[get_quiz_generator] = lambda: PlaceholderQuizGenerator()
     app.dependency_overrides[get_study_aid_generator] = lambda: PlaceholderStudyAidGenerator()
+    app.dependency_overrides[get_code_runner] = lambda: PlaceholderCodeRunner()
     # No web research unless a test installs its own finder.
     app.dependency_overrides[get_resource_finder] = lambda: None
 

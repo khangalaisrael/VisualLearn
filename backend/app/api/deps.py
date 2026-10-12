@@ -26,12 +26,14 @@ from app.services.rate_limiter import (
     RateLimitExceeded,
     capture_limits,
     chat_limits,
+    code_run_limits,
     enforce_global_chat_cap,
     enforce_global_capture_cap,
     enforce_rate_limits,
     quiz_limits,
     study_aid_limits,
 )
+from app.services.code_runner import CodeRunner, WandboxCodeRunner
 from app.services.quiz_generator import ClaudeQuizGenerator, PlaceholderQuizGenerator, QuizGenerator
 from app.services.resource_finder import ClaudeResourceFinder, ResourceFinder
 from app.services.series_sorter import ClaudeSeriesSorter, PlaceholderSeriesSorter, SeriesSorter
@@ -174,6 +176,12 @@ _study_aid_generator = _build_study_aid_generator()
 async def get_study_aid_generator() -> StudyAidGenerator:
     """Tests override this (tests/backend/conftest.py) so they never call a provider."""
     return _study_aid_generator
+
+
+async def get_code_runner() -> CodeRunner:
+    """Tests override this (tests/backend/conftest.py) so they never reach the sandbox."""
+    settings = get_settings()
+    return WandboxCodeRunner(settings.code_runner_url, settings.code_run_timeout_seconds)
 
 
 def _build_resource_finder() -> ResourceFinder | None:
@@ -449,6 +457,27 @@ async def enforce_quiz_rate_limit(
             key=rate_limit_key(request, user.id),
             action="quiz",
             limits=quiz_limits(get_settings(), clock.now()),
+        )
+    except RateLimitExceeded as exc:
+        await _record_limit_hit(db, user, exc)
+        raise
+
+
+async def enforce_code_run_rate_limit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> None:
+    """Same shape as `enforce_quiz_rate_limit`: only signed-in requests are counted."""
+    ensure_access(user)
+    if user is None or is_admin(user):
+        return
+    try:
+        await enforce_rate_limits(
+            RateLimitEventRepository(db),
+            key=rate_limit_key(request, user.id),
+            action="code_run",
+            limits=code_run_limits(get_settings(), clock.now()),
         )
     except RateLimitExceeded as exc:
         await _record_limit_hit(db, user, exc)

@@ -116,6 +116,14 @@ class Settings(BaseSettings):
     # written per day, counted together (each is one model call).
     rate_limit_study_aids_per_day: int = 3
 
+    # Running Haskell and Java (services/code_runner.py). Programs run in a
+    # hosted sandbox, never on this server; a run costs nothing here, so the
+    # allowance only keeps one person from leaning on a free outside service.
+    code_runner_url: str = "https://wandbox.org/api/compile.json"
+    # The sandbox ends a program after about 30 seconds; allow for that and the compile.
+    code_run_timeout_seconds: float = 60.0
+    rate_limit_code_runs_per_day: int = 50
+
     # Web research for a quiz's study resources (admins only for now): how many
     # searches one quiz may run, how long it may take, and what a search costs
     # (Anthropic bills web search per request, on top of tokens).

@@ -363,6 +363,26 @@ export interface StudyAidOut extends StudyAidSummary {
   known: number[];
 }
 
+// POST /code/run: compile and run a Haskell or Java program in a hosted sandbox.
+export type CodeLanguage = "haskell" | "java";
+
+export interface CodeRunRequest {
+  language: CodeLanguage;
+  code: string;
+  // What the program reads from standard input.
+  stdin: string;
+}
+
+export interface CodeRunResponse {
+  // "timeout": the program ran too long and was stopped.
+  status: "ok" | "compile_error" | "runtime_error" | "timeout";
+  stdout: string;
+  stderr: string;
+  // The compiler's errors and warnings.
+  compiler_output: string;
+  duration_ms: number;
+}
+
 export interface StudyAidListResponse {
   aids: StudyAidSummary[];
   // How many slides an aid written now would be written from.

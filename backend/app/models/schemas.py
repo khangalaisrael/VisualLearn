@@ -367,6 +367,26 @@ class StudyAidCreateRequest(BaseModel):
     kind: StudyAidKind
 
 
+CodeLanguage = Literal["haskell", "java"]
+
+
+class CodeRunRequest(BaseModel):
+    language: CodeLanguage
+    code: str = Field(max_length=20_000)
+    # What the program reads from standard input.
+    stdin: str = Field(default="", max_length=10_000)
+
+
+class CodeRunResponse(BaseModel):
+    # "timeout": the program ran too long and was stopped.
+    status: Literal["ok", "compile_error", "runtime_error", "timeout"]
+    stdout: str
+    stderr: str
+    # The compiler's errors and warnings.
+    compiler_output: str
+    duration_ms: int
+
+
 class StudyAidProgressRequest(BaseModel):
     known: list[int]
 
