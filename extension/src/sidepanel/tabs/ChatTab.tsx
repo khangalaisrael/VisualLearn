@@ -230,7 +230,7 @@ export function ChatTab(): JSX.Element {
               const state = saved[message.id];
               return (
                 <li key={message.id} className="flex min-w-0 max-w-full flex-col items-start gap-1 self-start">
-                  <div className="max-w-full overflow-x-auto rounded-md border border-amber-100 bg-amber-50/70 px-3.5 py-3 dark:border-amber-100/50 dark:bg-amber-50/45 text-sm leading-relaxed text-slate-700 shadow-subtle">
+                  <div className="max-w-full overflow-x-auto rounded-md border border-amber-100 bg-amber-50/70 px-3.5 py-3 dark:border-indigo-100 dark:bg-indigo-50/40 text-sm leading-relaxed text-slate-700 shadow-subtle">
                     {pending ? <span className="text-slate-400">Thinking…</span> : <MathText text={message.content} />}
                   </div>
                   {!pending && !streaming && usage?.signed_in && (

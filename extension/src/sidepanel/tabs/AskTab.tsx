@@ -661,7 +661,7 @@ export function AskTab({
                       className={
                         message.role === "user"
                           ? "rounded-md bg-indigo-600 px-3 py-2 text-sm text-white"
-                          : "max-w-full overflow-x-auto rounded-md border border-amber-100 bg-amber-50/70 px-3.5 py-3 dark:border-amber-100/50 dark:bg-amber-50/45 text-sm leading-relaxed text-slate-700 shadow-subtle"
+                          : "max-w-full overflow-x-auto rounded-md border border-amber-100 bg-amber-50/70 px-3.5 py-3 dark:border-indigo-100 dark:bg-indigo-50/40 text-sm leading-relaxed text-slate-700 shadow-subtle"
                       }
                     >
                       {isPendingAssistant ? <TypingIndicator /> : <MathText text={message.content} />}
