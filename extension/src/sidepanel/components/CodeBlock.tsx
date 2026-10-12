@@ -73,7 +73,8 @@ interface CodeBlockProps {
   language?: string | null;
 }
 
-function highlight(code: string, language?: string | null): { html: string; language: string | null } {
+/** `code` as highlighted HTML (escaped by highlight.js), and the language it was read as. */
+export function highlight(code: string, language?: string | null): { html: string; language: string | null } {
   const normalized = language?.toLowerCase().trim();
   if (normalized && hljs.getLanguage(normalized)) {
     const result = hljs.highlight(code, { language: normalized });

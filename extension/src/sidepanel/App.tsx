@@ -1,7 +1,7 @@
 /**
  * Side panel shell. Chrome's own title bar already shows the product name,
  * so there is no in-app header: one row of navigation with the places a
- * student works (Ask about a slide, Chat without one, Code, Recent, Notes),
+ * student works (Ask about a slide, Recent, Notes, Code, Chat without a slide),
  * today's capture count, and Settings. Ask, Chat and Code stay mounted while
  * another view is open so a conversation or a program in progress is not
  * lost. Code from an answer and questions from the Code tab are handed
@@ -24,10 +24,10 @@ type View = "ask" | "chat" | "code" | "recent" | "notes" | "settings";
 
 const TABS: { view: View; label: string }[] = [
   { view: "ask", label: "Ask" },
-  { view: "chat", label: "Chat" },
-  { view: "code", label: "Code" },
   { view: "recent", label: "Recent" },
   { view: "notes", label: "Notes" },
+  { view: "code", label: "Code" },
+  { view: "chat", label: "Chat" },
 ];
 
 const HAS_SEEN_WELCOME_KEY = "hasSeenWelcome";

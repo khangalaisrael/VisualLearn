@@ -186,3 +186,58 @@
 .dark .hljs-deletion{color: #ffdcd7;
   background-color: #67060c}
 .dark .hljs-char.escape_,.dark .hljs-link,.dark .hljs-params,.dark .hljs-property,.dark .hljs-punctuation,.dark .hljs-tag{}
+
+/* The Code tab's editor and output (tabs/CodeTab.tsx): always dark, in the
+   panel's indigo, with warm accents that echo the cream of the answers. The
+   same in light and dark mode, like an editor window. Outside @layer for the
+   same reason as the KaTeX rule above: highlight.js's classes only exist in
+   its output. */
+.vl-editor {
+  color-scheme: dark;
+  --vl-editor-bg: #1e1b4b;
+  --vl-editor-bar: #2a2670;
+  --vl-editor-text: #e0e7ff;
+  --vl-editor-dim: #8b8fd6;
+  --vl-editor-warm: #fde68a;
+}
+.vl-editor textarea::selection {
+  background-color: rgb(129 140 248 / 0.45);
+  color: transparent;
+}
+.vl-editor .hljs { color: var(--vl-editor-text); background: transparent; }
+.vl-editor .hljs-keyword,
+.vl-editor .hljs-doctag,
+.vl-editor .hljs-meta .hljs-keyword,
+.vl-editor .hljs-template-tag,
+.vl-editor .hljs-template-variable { color: #c4b5fd; }
+.vl-editor .hljs-type,
+.vl-editor .hljs-title,
+.vl-editor .hljs-title.class_,
+.vl-editor .hljs-title.class_.inherited__,
+.vl-editor .hljs-variable.language_ { color: #93c5fd; }
+.vl-editor .hljs-title.function_,
+.vl-editor .hljs-name,
+.vl-editor .hljs-section { color: #a5f3fc; font-weight: inherit; }
+.vl-editor .hljs-string,
+.vl-editor .hljs-regexp,
+.vl-editor .hljs-meta .hljs-string,
+.vl-editor .hljs-char.escape_ { color: var(--vl-editor-warm); }
+.vl-editor .hljs-number,
+.vl-editor .hljs-literal,
+.vl-editor .hljs-symbol,
+.vl-editor .hljs-built_in { color: #fdba74; }
+.vl-editor .hljs-comment,
+.vl-editor .hljs-quote,
+.vl-editor .hljs-code,
+.vl-editor .hljs-formula { color: var(--vl-editor-dim); font-style: italic; }
+.vl-editor .hljs-attr,
+.vl-editor .hljs-attribute,
+.vl-editor .hljs-meta,
+.vl-editor .hljs-operator,
+.vl-editor .hljs-variable,
+.vl-editor .hljs-selector-tag,
+.vl-editor .hljs-selector-pseudo,
+.vl-editor .hljs-subst,
+.vl-editor .hljs-params,
+.vl-editor .hljs-property,
+.vl-editor .hljs-punctuation { color: var(--vl-editor-text); }

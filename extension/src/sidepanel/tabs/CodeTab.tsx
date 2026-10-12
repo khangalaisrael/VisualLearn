@@ -4,15 +4,22 @@
  * the backend (POST /code/run), never in the browser or on our server. The
  * draft for each language is kept on this device, and the result can be sent
  * to Chat to have it explained.
+ *
+ * The editor is a plain textarea laid over a highlighted copy of the same
+ * text: the textarea's own text is transparent, so what is seen is the
+ * coloured copy while typing, selection and the caret stay native. Both must
+ * keep the same font, padding and line height (EDITOR_TEXT), and the copy
+ * follows the textarea's scroll position.
  */
 
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { CodeRunResponse } from "@shared/types";
 
 import { ApiError, getAuthState, runCode, signInWithGoogle } from "../../shared/api-client";
 import { CODE_LANGUAGES, type CodeLanguage, askInChat } from "../../shared/handoff";
 import { Button } from "../components/Button";
+import { highlight } from "../components/CodeBlock";
 
 /** Code handed over from an answer; `id` changes with every handover. */
 export interface IncomingCode {
@@ -67,7 +74,30 @@ function tutorQuestion(language: CodeLanguage, code: string, stdin: string, resu
   return parts.join("\n\n");
 }
 
-const OUTPUT = "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-sm px-3 py-2 font-mono text-xs leading-relaxed";
+const FILE_NAMES: Record<CodeLanguage, string> = { haskell: "Main.hs", java: "Main.java" };
+// A letter in a coloured chip, not a logo.
+const BADGES: Record<CodeLanguage, { mark: string; className: string }> = {
+  haskell: { mark: "λ", className: "bg-[#c4b5fd] text-[#1e1b4b]" },
+  java: { mark: "J", className: "bg-[#fdba74] text-[#1e1b4b]" },
+};
+// Shared by the textarea and the highlighted copy under it: they must line up exactly.
+const EDITOR_TEXT = "m-0 whitespace-pre px-3 py-2 font-mono text-xs leading-5 [tab-size:2]";
+const STATUS_DOTS: Record<CodeRunResponse["status"], string> = {
+  ok: "bg-[#86efac]",
+  compile_error: "bg-[#fca5a5]",
+  runtime_error: "bg-[#fca5a5]",
+  timeout: "bg-[#fde68a]",
+};
+const TERMINAL_LABEL = "text-[11px] font-medium text-[#8b8fd6]";
+const TERMINAL_TEXT = "max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5";
+
+function RunIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden="true">
+      <path d="M4 2.5v11a.5.5 0 0 0 .77.42l8.5-5.5a.5.5 0 0 0 0-.84l-8.5-5.5A.5.5 0 0 0 4 2.5Z" />
+    </svg>
+  );
+}
 
 export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; active: boolean }): JSX.Element {
   const [language, setLanguage] = useState<CodeLanguage>("haskell");
@@ -77,6 +107,8 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [loaded, setLoaded] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  // How far the textarea is scrolled; the highlighted copy and the line numbers follow it.
+  const [scroll, setScroll] = useState({ top: 0, left: 0 });
 
   const code = drafts[language];
 
@@ -127,6 +159,10 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   }, [active, incoming]);
 
   const setCode = (next: string) => setDrafts((current) => ({ ...current, [language]: next }));
+
+  // A trailing newline has no height of its own in a <pre>; the space gives the last line one.
+  const highlighted = useMemo(() => highlight(code, language).html + " ", [code, language]);
+  const lineCount = useMemo(() => code.split("\n").length, [code]);
 
   const execute = async () => {
     if (run.status === "running" || !code.trim()) return;
@@ -191,6 +227,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               onClick={() => {
                 setLanguage(item.id);
                 setRun({ status: "idle" });
+                if (editorRef.current) editorRef.current.scrollTop = editorRef.current.scrollLeft = 0;
               }}
               className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors duration-[120ms] ${
                 language === item.id ? "bg-white text-slate-800 shadow-subtle" : "text-slate-500 hover:text-slate-700"
@@ -211,26 +248,60 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
         >
           Reset
         </button>
-        <Button className="ml-auto" onClick={() => void execute()} disabled={run.status === "running" || !code.trim() || signedIn === false}>
-          {run.status === "running" ? "Running…" : "Run"}
-        </Button>
       </div>
 
-      <label className="flex flex-col gap-1">
-        <span className="sr-only">Your {language === "java" ? "Java" : "Haskell"} code</span>
-        <textarea
-          ref={editorRef}
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-          onKeyDown={onEditorKey}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          rows={14}
-          maxLength={20000}
-          className="scrollbar-thin w-full resize-y whitespace-pre rounded-sm border border-slate-300 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-800 transition-colors duration-[120ms] focus:border-indigo-400"
-        />
-      </label>
+      <div className="vl-editor overflow-hidden rounded-md border border-[#3730a3] shadow-subtle focus-within:ring-2 focus-within:ring-indigo-300">
+        <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] py-1.5 pl-3 pr-1.5">
+          <span
+            className={`flex h-5 w-5 flex-none items-center justify-center rounded-sm font-mono text-xs font-bold ${BADGES[language].className}`}
+            aria-hidden="true"
+          >
+            {BADGES[language].mark}
+          </span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--vl-editor-text)]">{FILE_NAMES[language]}</span>
+          <button
+            type="button"
+            onClick={() => void execute()}
+            disabled={run.status === "running" || !code.trim() || signedIn === false}
+            className="flex flex-none items-center gap-1.5 rounded-sm bg-[var(--vl-editor-warm)] px-3 py-1 text-xs font-semibold text-[#1e1b4b] transition-colors duration-[120ms] hover:bg-[#fef3c7] active:bg-[#fcd34d] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RunIcon />
+            {run.status === "running" ? "Running…" : "Run"}
+          </button>
+        </div>
+        <div className="relative flex h-72 min-h-[7rem] resize-y overflow-hidden bg-[var(--vl-editor-bg)]">
+          <div className="flex-none select-none overflow-hidden border-r border-white/10 py-2 pl-2 pr-2 text-right font-mono text-xs leading-5 text-[var(--vl-editor-dim)]" aria-hidden="true">
+            <div style={{ transform: `translateY(${-scroll.top}px)` }}>
+              {Array.from({ length: lineCount }, (_, index) => (
+                <div key={index}>{index + 1}</div>
+              ))}
+            </div>
+          </div>
+          <div className="relative min-w-0 flex-1 overflow-hidden">
+            <pre
+              aria-hidden="true"
+              className={`${EDITOR_TEXT} hljs pointer-events-none absolute left-0 top-0 text-[var(--vl-editor-text)]`}
+              style={{ transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}
+              // eslint-disable-next-line react/no-danger -- hljs.highlight's own output, which escapes the code
+              dangerouslySetInnerHTML={{ __html: highlighted }}
+            />
+            <textarea
+              ref={editorRef}
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              onKeyDown={onEditorKey}
+              onScroll={(event) => setScroll({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}
+              aria-label={`Your ${language === "java" ? "Java" : "Haskell"} code`}
+              wrap="off"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              maxLength={20000}
+              className={`${EDITOR_TEXT} scrollbar-thin absolute inset-0 h-full w-full resize-none overflow-auto border-0 bg-transparent text-transparent caret-[var(--vl-editor-warm)] outline-none focus:ring-0`}
+            />
+          </div>
+        </div>
+      </div>
 
       <details className="rounded-sm border border-slate-200 px-3 py-2">
         <summary className="cursor-pointer text-xs font-medium text-slate-600">Program input{stdin ? " (set)" : ""}</summary>
@@ -271,38 +342,38 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
         ))}
 
       {result && (
-        <section className="flex flex-col gap-2" aria-label="Result">
-          <p role="status" className="text-xs text-slate-500">
-            <span
-              className={`font-semibold ${
-                result.status === "ok" ? "text-slate-700" : "text-red-700 dark:text-red-300"
-              }`}
-            >
-              {HEADLINES[result.status]}
-            </span>{" "}
-            in {seconds(result.duration_ms)}
-          </p>
-          {result.compiler_output && (
-            <div className="flex flex-col gap-1">
-              <h2 className="text-xs font-medium text-slate-500">
-                {result.status === "compile_error" ? "Compiler errors" : "Compiler messages"}
-              </h2>
-              <pre className={`${OUTPUT} bg-red-50 text-red-800 dark:text-red-300`}>{result.compiler_output}</pre>
+        <div className="flex flex-col gap-2">
+          <section className="vl-editor overflow-hidden rounded-md border border-[#3730a3] shadow-subtle" aria-label="Result">
+            <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] px-3 py-1.5">
+              <span className={`h-2 w-2 flex-none rounded-full ${STATUS_DOTS[result.status]}`} aria-hidden="true" />
+              <p role="status" className="text-xs text-[var(--vl-editor-text)]">
+                <span className="font-semibold">{HEADLINES[result.status]}</span> in {seconds(result.duration_ms)}
+              </p>
             </div>
-          )}
-          {result.stdout && (
-            <div className="flex flex-col gap-1">
-              <h2 className="text-xs font-medium text-slate-500">Output</h2>
-              <pre className={`${OUTPUT} border border-slate-200 bg-slate-50 text-slate-800`}>{result.stdout}</pre>
+            <div className="flex flex-col gap-3 bg-[var(--vl-editor-bg)] px-3 py-2">
+              {result.compiler_output && (
+                <div className="flex flex-col gap-1">
+                  <h2 className={TERMINAL_LABEL}>{result.status === "compile_error" ? "Compiler errors" : "Compiler messages"}</h2>
+                  <pre className={`${TERMINAL_TEXT} ${result.status === "compile_error" ? "text-[#fca5a5]" : "text-[var(--vl-editor-warm)]"}`}>
+                    {result.compiler_output}
+                  </pre>
+                </div>
+              )}
+              {result.stdout && (
+                <div className="flex flex-col gap-1">
+                  <h2 className={TERMINAL_LABEL}>Output</h2>
+                  <pre className={`${TERMINAL_TEXT} text-[var(--vl-editor-text)]`}>{result.stdout}</pre>
+                </div>
+              )}
+              {result.stderr && (
+                <div className="flex flex-col gap-1">
+                  <h2 className={TERMINAL_LABEL}>Error output</h2>
+                  <pre className={`${TERMINAL_TEXT} text-[#fca5a5]`}>{result.stderr}</pre>
+                </div>
+              )}
+              {nothingPrinted && <p className="font-mono text-xs text-[var(--vl-editor-dim)]">The program printed nothing.</p>}
             </div>
-          )}
-          {result.stderr && (
-            <div className="flex flex-col gap-1">
-              <h2 className="text-xs font-medium text-slate-500">Error output</h2>
-              <pre className={`${OUTPUT} bg-red-50 text-red-800 dark:text-red-300`}>{result.stderr}</pre>
-            </div>
-          )}
-          {nothingPrinted && <p className="text-sm text-slate-500">The program printed nothing.</p>}
+          </section>
           <Button
             variant="secondary"
             className="self-start"
@@ -310,7 +381,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           >
             {result.status === "ok" ? "Ask the tutor to explain this" : "Ask the tutor about this error"}
           </Button>
-        </section>
+        </div>
       )}
 
       <p className="mt-auto text-xs text-slate-400">
