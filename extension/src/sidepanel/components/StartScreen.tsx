@@ -146,6 +146,7 @@ export function WhatsNewCard({ onOpenRecent, onDismiss }: { onOpenRecent: () => 
         <li>Answers can be saved as notes that you edit and keep.</li>
         <li>The chat carries on when you capture the next slide of a topic.</li>
         <li>The Chat tab is for questions that are not about a slide.</li>
+        <li>The Code tab runs Haskell, Java, C++ and Python, with the tutor on hand.</li>
       </ul>
       <div className="flex gap-2">
         <button

@@ -363,7 +363,7 @@ export interface StudyAidOut extends StudyAidSummary {
   known: number[];
 }
 
-// POST /code/run: compile and run a Haskell or Java program in a hosted sandbox.
+// POST /code/run: compile and run a program in a hosted sandbox.
 export type CodeLanguage = "haskell" | "java" | "cpp" | "python";
 
 export interface CodeRunRequest {

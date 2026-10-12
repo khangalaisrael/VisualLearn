@@ -18,9 +18,7 @@ import httpx
 Language = Literal["haskell", "java", "cpp", "python"]
 RunStatus = Literal["ok", "compile_error", "runtime_error", "timeout"]
 
-LANGUAGES: tuple[Language, ...] = ("haskell", "java", "cpp", "python")
 MAX_CODE_CHARS = 20_000
-MAX_STDIN_CHARS = 10_000
 # What comes back is shown in a narrow panel; a runaway loop can print megabytes.
 MAX_OUTPUT_CHARS = 20_000
 

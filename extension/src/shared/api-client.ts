@@ -258,7 +258,6 @@ const CHAT_ATTEMPT_TIMEOUT_MS = 30_000;
 // Writing a quiz is one long model call; with web research it also runs searches.
 // Too short a timeout here would abort a quiz mid-write and pay for it twice.
 const QUIZ_ATTEMPT_TIMEOUT_MS = 90_000;
-const RESEARCH_QUIZ_ATTEMPT_TIMEOUT_MS = 180_000;
 // A study aid is written from the whole series, so a long series takes longer.
 const STUDY_AID_ATTEMPT_TIMEOUT_MS = 240_000;
 const WAKE_STATUSES = new Set([502, 503, 504]);

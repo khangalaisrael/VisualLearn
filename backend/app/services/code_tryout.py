@@ -23,11 +23,14 @@ MAX_EXPRESSIONS = 30
 _HASKELL_PROMPT = re.compile(r"^\s*(?:ghci>|[\w.*]*Prelude[\w.* ]*>|\*?[A-Z][\w.]*>|λ>|>)\s*")
 _PYTHON_PROMPT = re.compile(r"^(?:>>>|\.\.\.) ?")
 # `:load file.hs`, `:reload`, `:type x` and the like. The colon is often left
-# off when typing from memory, so "load prog.hs" counts too.
-_GHCI_COMMAND = re.compile(r"^(?::\S*|(?:load|reload)\b.*)(?:\s.*)?$")
+# off when typing from memory, so "load prog.hs" counts too (but `load 5`, a
+# call to the student's own function, does not).
+_GHCI_COMMAND = re.compile(r"^(?::.*|(?:load|reload)(?:\s+\S+\.l?hs)?)$")
 # Actions that are run rather than shown.
 _HASKELL_ACTION = re.compile(r"^(?:putStr|putStrLn|print|mapM_|forM_|sequence_|when|unless|main)\b")
-_HASKELL_STATEMENT = re.compile(r"^(?:let\s|\S.*<-\s)")
+# `let x = 1` and `x <- action`. An arrow further in belongs to an expression,
+# as in the list comprehension `[x | x <- xs]`.
+_HASKELL_STATEMENT = re.compile(r"^(?:let\s|(?:[a-z_][\w']*|\([^()]*\))\s*<-\s)")
 _HASKELL_MAIN = re.compile(r"^main(?=\s*(?:::|=))", re.MULTILINE)
 _HASKELL_MODULE = re.compile(r"^module\s[^\n]*?\bwhere[ \t]*$", re.MULTILINE)
 _USER_MAIN = "studentMain"
@@ -54,7 +57,11 @@ def _haskell(code: str, expressions: str) -> str:
             continue
         body.append(f"  putStrLn {_haskell_string('ghci> ' + line)}")
         if _GHCI_COMMAND.match(line):
-            body.append('  putStrLn "(not needed here: your code is already loaded)"')
+            if re.match(r"^:?(?:l|load|r|reload)\b", line):
+                body.append('  putStrLn "(not needed here: your code is already loaded)"')
+            else:
+                # `:t`, `:info` and the rest need the interpreter itself.
+                body.append('  putStrLn "(GHCi commands are not available here, only expressions)"')
         elif _HASKELL_STATEMENT.match(line):
             body.append(f"  {line}")
         elif _HASKELL_ACTION.match(line):

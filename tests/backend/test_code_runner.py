@@ -324,7 +324,8 @@ def test_haskell_prompts_commands_statements_and_actions() -> None:
         ]
     )
     main = with_expressions("haskell", _PRIMES, tried).split("main = do\n")[1]
-    assert main.count("(not needed here: your code is already loaded)") == 3  # the two loads and :t
+    assert main.count("(not needed here: your code is already loaded)") == 2  # the two loads
+    assert main.count("(GHCi commands are not available here, only expressions)") == 1  # :t
     assert "  let n = 7\n" in main and '  putStrLn "hi"\n' in main
     assert '  putStrLn "ghci> show \\"a\\\\b\\""\n  print (show "a\\b")\n' in main
     assert "print (:" not in main and "print (load" not in main and "print (let" not in main
@@ -378,3 +379,12 @@ async def test_the_endpoint_sends_the_expressions_with_the_code(client: AsyncCli
     assert _Seen.code.endswith('main = do\n  putStrLn "ghci> isPrime 10"\n  print (isPrime 10)\n')
     response = await client.post(URL, json={"language": "java", "code": "class A {}", "expressions": "1 + 1"}, headers=headers)
     assert response.status_code == 422 and "Haskell and Python only" in response.json()["detail"]
+
+
+def test_haskell_expressions_that_only_look_like_commands_or_statements() -> None:
+    tried = "\n".join(["[x | x <- [1..5], isPrime x]", "load 5", "reload", "line <- getLine", "(a, b) <- pure (1, 2)"])
+    main = with_expressions("haskell", _PRIMES, tried).split("main = do\n")[1]
+    assert "  print ([x | x <- [1..5], isPrime x])\n" in main  # a comprehension is a value
+    assert "  print (load 5)\n" in main  # a call to the student's own `load`
+    assert main.count("(not needed here") == 1  # only the bare `reload`
+    assert "  line <- getLine\n" in main and "  (a, b) <- pure (1, 2)\n" in main
