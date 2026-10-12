@@ -1,35 +1,31 @@
 /**
  * Code: write a program (Haskell, Java, C++ or Python), run it, and read what
- * it printed or what the compiler said. "Make it runnable" has the tutor
- * complete a fragment or correct a program that failed, then runs the result.
- * Haskell and Python also take expressions to try, as a lecture does in GHCi
- * or the Python shell: code from a slide rarely has a main of its own. Programs run in a hosted sandbox reached through
- * the backend (POST /code/run), never in the browser or on our server. The
- * draft for each language is kept on this device, and questions about the
- * code and its result are asked and answered here (code/CodeTutor.tsx).
+ * it printed or what the compiler said, laid out like a small IDE: a toolbar,
+ * the editor filling the space, a docked panel below it (Output, Input, Try,
+ * Tutor) whose height can be dragged, and a status bar.
  *
- * The editor is a plain textarea laid over a highlighted copy of the same
- * text: the textarea's own text is transparent, so what is seen is the
- * coloured copy while typing, selection and the caret stay native. Both must
- * keep the same font, padding and line height (EDITOR_TEXT and `textStyle`),
- * and the copy follows the textarea's scroll position.
+ * "Make it runnable" has the tutor complete a fragment or correct a program
+ * that failed, then runs the result. Haskell and Python also take expressions
+ * to try, as a lecture does in GHCi or the Python shell: code from a slide
+ * rarely has a main of its own. Programs run in a hosted sandbox reached
+ * through the backend (POST /code/run), never in the browser or on our
+ * server. The draft for each language is kept on this device.
  *
- * What a key does beyond typing itself (indentation, bracket pairs, comments)
- * is decided in code/editing.ts and applied here with the browser's own
- * insert command, so Ctrl+Z undoes it like any other typing.
+ * Compiler errors and tracebacks are read for the lines they name
+ * (code/diagnostics.ts): those lines are underlined in the editor, and every
+ * place named in the output can be clicked to jump there.
  */
 
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { CodeRunResponse } from "@shared/types";
 
 import { ApiError, getAuthState, makeRunnable, runCode, signInWithGoogle } from "../../shared/api-client";
 import { CODE_LANGUAGES, type CodeLanguage } from "../../shared/handoff";
 import { CodeTutor } from "../code/CodeTutor";
-import { type Edit, editFor } from "../code/editing";
+import { linkLocations, parseDiagnostics } from "../code/diagnostics";
+import { type CursorPosition, Editor, type EditorHandle } from "../code/Editor";
 import { Button } from "../components/Button";
-import { highlight } from "../components/CodeBlock";
-import { ChevronIcon } from "../recent/parts";
 
 /** Code handed over from an answer; `id` changes with every handover. */
 export interface IncomingCode {
@@ -42,6 +38,7 @@ const DRAFTS_KEY = "codeDrafts";
 const LANGUAGE_KEY = "codeLanguage";
 const FONT_SIZE_KEY = "codeFontSize";
 const TRIES_KEY = "codeTries";
+const PANEL_KEY = "codePanelHeight";
 
 // Languages a lecture uses through an interpreter prompt, and how that is described.
 const TRY_HELP: Partial<Record<CodeLanguage, { where: string; example: string }>> = {
@@ -50,16 +47,17 @@ const TRY_HELP: Partial<Record<CodeLanguage, { where: string; example: string }>
 };
 // Text sizes the editor offers, in pixels, and the one it starts on.
 const FONT_SIZES = [12, 13, 14, 15, 16, 18];
-const DEFAULT_FONT_SIZE = 12;
+const DEFAULT_FONT_SIZE = 13;
 
 const STARTERS: Record<CodeLanguage, string> = {
   haskell: `double :: Int -> Int\ndouble x = x + x\n\nmain :: IO ()\nmain = print (double 21)\n`,
-  java: `public class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello, world");\n  }\n}\n`,
-  cpp: `#include <iostream>\n\nint twice(int n) {\n  return n * 2;\n}\n\nint main() {\n  std::cout << twice(21) << std::endl;\n}\n`,
+  java: `public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, world");\n    }\n}\n`,
+  cpp: `#include <iostream>\n\nint twice(int n) {\n    return n * 2;\n}\n\nint main() {\n    std::cout << twice(21) << std::endl;\n}\n`,
   python: `def twice(n):\n    return n * 2\n\nprint(twice(21))\n`,
 };
 
 type Drafts = Record<CodeLanguage, string>;
+type PanelTab = "output" | "input" | "try" | "tutor";
 
 type RunState =
   | { status: "idle" }
@@ -122,38 +120,65 @@ const BADGES: Record<CodeLanguage, { mark: string; className: string }> = {
   cpp: { mark: "C", className: "bg-[#93c5fd] text-[#1e1b4b]" },
   python: { mark: "Py", className: "bg-[#fde68a] text-[#1e1b4b] text-[10px]" },
 };
-// Shared by the textarea and the highlighted copy under it: they must line up exactly.
-// (Size and line height are set together in `textStyle`, since the size can be changed.)
-const EDITOR_TEXT = "m-0 whitespace-pre px-3 py-2 font-mono [tab-size:2]";
 const STATUS_DOTS: Record<CodeRunResponse["status"], string> = {
   ok: "bg-[#86efac]",
   compile_error: "bg-[#fca5a5]",
   runtime_error: "bg-[#fca5a5]",
   timeout: "bg-[#fde68a]",
 };
-const TERMINAL_LABEL = "text-[11px] font-medium text-[#8b8fd6]";
-const TERMINAL_TEXT = "max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono";
-
-/** Makes one change to the textarea through the browser's own editing command,
- * which keeps it on the undo stack and reports it to React as typing. */
-function applyEdit(area: HTMLTextAreaElement, edit: Edit): void {
-  if (edit.from !== edit.to || edit.insert !== "") {
-    area.setSelectionRange(edit.from, edit.to);
-    const done = edit.insert === "" ? document.execCommand("delete") : document.execCommand("insertText", false, edit.insert);
-    if (!done) {
-      // No editing command here: change the text directly and tell React.
-      area.setRangeText(edit.insert, edit.from, edit.to, "end");
-      area.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-  }
-  area.setSelectionRange(edit.selectStart, edit.selectEnd);
-}
+const TERMINAL_LABEL = "text-[11px] font-medium uppercase tracking-wide text-[var(--vl-editor-dim)]";
+const TERMINAL_TEXT = "whitespace-pre-wrap break-words font-mono [font-variant-ligatures:none]";
+const MIN_PANEL = 120;
+const MIN_EDITOR = 140;
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+const MOD = IS_MAC ? "⌘" : "Ctrl";
 
 function RunIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden="true">
       <path d="M4 2.5v11a.5.5 0 0 0 .77.42l8.5-5.5a.5.5 0 0 0 0-.84l-8.5-5.5A.5.5 0 0 0 4 2.5Z" />
     </svg>
+  );
+}
+
+function MoreIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+      <circle cx="3.5" cy="8" r="1.3" />
+      <circle cx="8" cy="8" r="1.3" />
+      <circle cx="12.5" cy="8" r="1.3" />
+    </svg>
+  );
+}
+
+function Chevron({ up }: { up: boolean }): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" className={`h-3.5 w-3.5 transition-transform ${up ? "" : "rotate-180"}`} fill="none" aria-hidden="true">
+      <path d="M4 10l4-4 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Output text with every place in the code it names turned into a link to that line. */
+function Located({ text, lineCount, onGo, className }: { text: string; lineCount: number; onGo: (line: number) => void; className: string }): JSX.Element {
+  return (
+    <pre className={className}>
+      {linkLocations(text, lineCount).map((part, index) =>
+        "line" in part ? (
+          <button
+            key={index}
+            type="button"
+            onClick={() => onGo(part.line)}
+            title={`Go to line ${part.line}`}
+            className="rounded-sm underline decoration-dotted underline-offset-2 hover:bg-white/10 hover:decoration-solid"
+          >
+            {part.text}
+          </button>
+        ) : (
+          <span key={index}>{part.text}</span>
+        )
+      )}
+    </pre>
   );
 }
 
@@ -166,22 +191,28 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   const [run, setRun] = useState<RunState>({ status: "idle" });
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  // How far the textarea is scrolled; the highlighted copy and the line numbers follow it.
-  const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
-  // The result's details can be folded away, leaving its one-line status.
-  const [resultOpen, setResultOpen] = useState(true);
+  const [cursor, setCursor] = useState<CursorPosition>({ line: 1, column: 1, selected: 0 });
+  const [panel, setPanel] = useState<PanelTab>("output");
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelHeight, setPanelHeight] = useState(240);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [tutorQuestion, setTutorQuestion] = useState<{ id: number; text: string } | null>(null);
   // "Make it runnable": while the tutor works, and afterwards what it changed
   // and the student's own version, so it can be put back.
   const [fixing, setFixing] = useState(false);
   const [fix, setFix] = useState<{ note: string; language: CodeLanguage; previous: string } | null>(null);
+  const editorRef = useRef<EditorHandle | null>(null);
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const code = drafts[language];
+  const lineCount = useMemo(() => code.split("\n").length, [code]);
 
   useEffect(() => {
     chrome.storage.local
-      .get([DRAFTS_KEY, LANGUAGE_KEY, FONT_SIZE_KEY, TRIES_KEY])
+      .get([DRAFTS_KEY, LANGUAGE_KEY, FONT_SIZE_KEY, TRIES_KEY, PANEL_KEY])
       .then((stored) => {
         const saved = stored[DRAFTS_KEY] as Partial<Drafts> | undefined;
         if (saved) setDrafts((current) => ({ ...current, ...saved }));
@@ -189,21 +220,22 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
         const chosen = CODE_LANGUAGES.find((item) => item.id === stored[LANGUAGE_KEY]);
         if (chosen) setLanguage(chosen.id);
         if (FONT_SIZES.includes(stored[FONT_SIZE_KEY] as number)) setFontSize(stored[FONT_SIZE_KEY] as number);
+        if (typeof stored[PANEL_KEY] === "number") setPanelHeight(stored[PANEL_KEY] as number);
       })
       .catch(() => undefined)
       .finally(() => setLoaded(true));
   }, []);
 
-  // Drafts are kept on this device, a moment after typing stops.
+  // Drafts and layout are kept on this device, a moment after typing stops.
   useEffect(() => {
     if (!loaded) return;
     const timer = setTimeout(() => {
       chrome.storage.local
-        .set({ [DRAFTS_KEY]: drafts, [LANGUAGE_KEY]: language, [FONT_SIZE_KEY]: fontSize, [TRIES_KEY]: tries })
+        .set({ [DRAFTS_KEY]: drafts, [LANGUAGE_KEY]: language, [FONT_SIZE_KEY]: fontSize, [TRIES_KEY]: tries, [PANEL_KEY]: panelHeight })
         .catch(() => undefined);
     }, 400);
     return () => clearTimeout(timer);
-  }, [drafts, language, fontSize, tries, loaded]);
+  }, [drafts, language, fontSize, tries, panelHeight, loaded]);
 
   const refreshAuth = useCallback(() => {
     void getAuthState().then((auth) => setSignedIn(auth.sessionToken !== null));
@@ -226,19 +258,37 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
     // Expressions written for the code that was here do not belong to the new code.
     setTries((current) => ({ ...current, [incoming.language]: "" }));
     setRun({ status: "idle" });
+    setFix(null);
   }, [incoming]);
 
   useEffect(() => {
     if (active && incoming) editorRef.current?.focus();
   }, [active, incoming]);
 
-  const setCode = (next: string) => setDrafts((current) => ({ ...current, [language]: next }));
+  // The ⋯ menu closes on a click anywhere else, or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+        setConfirmReset(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        setConfirmReset(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
-  // A trailing newline has no height of its own in a <pre>; the space gives the last line one.
-  const highlighted = useMemo(() => highlight(code, language).html + " ", [code, language]);
-  const lineCount = useMemo(() => code.split("\n").length, [code]);
-  // One size and one line height for the text, its coloured copy and the line numbers.
-  const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.55)}px` };
+  const setCode = useCallback((next: string) => setDrafts((current) => ({ ...current, [language]: next })), [language]);
   const resize = (step: number) => {
     const next = FONT_SIZES[FONT_SIZES.indexOf(fontSize) + step];
     if (next !== undefined) setFontSize(next);
@@ -247,11 +297,25 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   const languageName = CODE_LANGUAGES.find((item) => item.id === language)?.name ?? language;
   const tryHelp = TRY_HELP[language];
   const expressions = tryHelp ? (tries[language] ?? "") : "";
+  const result = run.status === "done" ? run.result : null;
+
+  const diagnostics = useMemo(
+    () => (result && result.status !== "ok" ? parseDiagnostics(`${result.compiler_output}\n${result.stderr}`, lineCount) : []),
+    // Only a new result moves the marks; edits after it are tracked by the editor itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [result]
+  );
+
+  const showPanel = (tab: PanelTab) => {
+    setPanel(tab);
+    setPanelOpen(true);
+  };
 
   /** Runs `source` (the editor's code unless given), with the expressions to try unless told not to. */
   const execute = async (source: string = code, tryExpressions: boolean = true) => {
-    if (run.status === "running" || !source.trim()) return;
+    if (run.status === "running" || fixing || !source.trim() || signedIn === false) return;
     setRun({ status: "running" });
+    showPanel("output");
     try {
       setRun({ status: "done", result: await runCode(language, source, stdin, tryExpressions ? expressions : "") });
     } catch (caught) {
@@ -265,7 +329,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
 
   /** Has the tutor complete or correct the code, puts the result in the editor and runs it. */
   const makeItRunnable = async () => {
-    if (fixing || run.status === "running" || !code.trim()) return;
+    if (fixing || run.status === "running" || !code.trim() || signedIn === false) return;
     const failed = run.status === "done" && run.result.status !== "ok" ? run.result : null;
     const lastRun = failed
       ? failed.status === "timeout"
@@ -274,15 +338,24 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
       : "";
     setFixing(true);
     setFix(null);
+    showPanel("output");
     try {
       const fixed = await makeRunnable(language, code, stdin, lastRun);
       setFix({ note: fixed.note, language, previous: code });
       setCode(fixed.code);
       setFixing(false);
-      if (editorRef.current) editorRef.current.scrollTop = editorRef.current.scrollLeft = 0;
       // The completed program is run as a program: it has a main of its own now,
       // and the expressions may have been written for something else.
-      await execute(fixed.code, false);
+      setRun({ status: "running" });
+      try {
+        setRun({ status: "done", result: await runCode(language, fixed.code, stdin, "") });
+      } catch (caught) {
+        setRun({
+          status: "failed",
+          message: caught instanceof Error ? caught.message : String(caught),
+          limited: caught instanceof ApiError && caught.status === 429,
+        });
+      }
     } catch (caught) {
       setRun({
         status: "failed",
@@ -294,28 +367,9 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
     }
   };
 
-  const onEditorKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      void execute();
-      return;
-    }
-    // Escape leaves the editor, so Tab (which indents here) can move on again.
-    if (event.key === "Escape") {
-      event.currentTarget.blur();
-      return;
-    }
-    // While an input method is composing a character, keys belong to it.
-    if (event.nativeEvent.isComposing) return;
-    const area = event.currentTarget;
-    const edit = editFor(
-      { value: area.value, start: area.selectionStart, end: area.selectionEnd },
-      { key: event.key, shift: event.shiftKey, mod: event.ctrlKey || event.metaKey, alt: event.altKey },
-      language
-    );
-    if (edit === null) return;
-    event.preventDefault();
-    applyEdit(area, edit);
+  const askTutor = (text: string) => {
+    setTutorQuestion({ id: Date.now(), text });
+    showPanel("tutor");
   };
 
   const signIn = async () => {
@@ -327,300 +381,441 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
     }
   };
 
-  const result = run.status === "done" ? run.result : null;
+  const goToLine = (line: number) => editorRef.current?.goToLine(line);
+
+  // Dragging the bar between the editor and the panel.
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const layout = layoutRef.current;
+    if (!layout) return;
+    event.preventDefault();
+    const bar = event.currentTarget;
+    bar.setPointerCapture(event.pointerId);
+    const bottom = layout.getBoundingClientRect().bottom;
+    const move = (moveEvent: PointerEvent) => {
+      const room = layout.clientHeight - MIN_EDITOR;
+      setPanelHeight(Math.round(Math.min(Math.max(bottom - moveEvent.clientY, MIN_PANEL), Math.max(MIN_PANEL, room))));
+      setPanelOpen(true);
+    };
+    const end = () => {
+      bar.removeEventListener("pointermove", move);
+      bar.removeEventListener("pointerup", end);
+      bar.removeEventListener("pointercancel", end);
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", end);
+    bar.addEventListener("pointercancel", end);
+  };
+
+  const running = run.status === "running";
+  const canRun = !running && !fixing && Boolean(code.trim()) && signedIn !== false;
   const nothingPrinted = result !== null && !result.stdout && !result.stderr && !result.compiler_output;
+  const errorCount = diagnostics.filter((item) => item.severity === "error").length;
+  const noMain = result?.status === "compile_error" && tryHelp && !expressions.trim() && /main.{0,3} is not defined/.test(result.compiler_output);
+
+  const tabs: { id: PanelTab; label: string; badge?: string }[] = [
+    { id: "output", label: "Output" },
+    { id: "input", label: "Input", badge: stdin.trim() ? "●" : undefined },
+    ...(tryHelp ? [{ id: "try" as const, label: "Try", badge: expressions.trim() ? String(expressions.trim().split("\n").length) : undefined }] : []),
+    { id: "tutor", label: "Tutor" },
+  ];
+  const panelTab = tabs.some((tab) => tab.id === panel) ? panel : "output";
 
   return (
-    <div className="scrollbar-thin flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-      <div className="flex flex-col gap-0.5">
-        <h1 className="text-base font-semibold text-slate-800">Code</h1>
-        <p className="text-sm text-slate-500">Write a program, run it, and see what it prints.</p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={language}
-          aria-label="Language"
-          onChange={(event) => {
-            setLanguage(event.target.value as CodeLanguage);
-            setRun({ status: "idle" });
-            if (editorRef.current) editorRef.current.scrollTop = editorRef.current.scrollLeft = 0;
-          }}
-          className="rounded-sm border border-slate-300 bg-white py-1 pl-2 pr-7 text-xs font-medium text-slate-700 focus:border-indigo-400"
-        >
-          {CODE_LANGUAGES.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={() => void makeItRunnable()}
-          disabled={fixing || run.status === "running" || !code.trim() || signedIn === false}
-          title="Have the tutor complete this code, or correct it if it failed, so that it runs"
-          className="rounded-sm px-2 py-1 text-xs font-medium text-indigo-600 transition-colors duration-[120ms] hover:bg-indigo-50 disabled:opacity-50 disabled:hover:bg-transparent dark:text-indigo-300"
-        >
-          {fixing ? "Working on it…" : "Make it runnable"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (code.trim() && code !== STARTERS[language] && !window.confirm("Replace your code with the starting example?")) return;
-            setCode(STARTERS[language]);
-            setTries((current) => ({ ...current, [language]: "" }));
-            setRun({ status: "idle" });
-            setFix(null);
-          }}
-          className="rounded-sm px-2 py-1 text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700"
-        >
-          Reset
-        </button>
-        <div className="ml-auto flex items-center gap-1" role="group" aria-label="Text size">
-          <button
-            type="button"
-            onClick={() => resize(-1)}
-            disabled={fontSize === FONT_SIZES[0]}
-            aria-label="Smaller text"
-            title="Smaller text"
-            className="flex h-7 w-7 items-center justify-center rounded-sm text-xs font-semibold text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent"
-          >
-            A−
-          </button>
-          <button
-            type="button"
-            onClick={() => resize(1)}
-            disabled={fontSize === FONT_SIZES[FONT_SIZES.length - 1]}
-            aria-label="Larger text"
-            title="Larger text"
-            className="flex h-7 w-7 items-center justify-center rounded-sm text-base font-semibold text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent"
-          >
-            A+
-          </button>
-        </div>
-      </div>
-
-      <div className="vl-editor flex-none overflow-hidden rounded-md border border-[#3730a3] shadow-subtle focus-within:ring-2 focus-within:ring-indigo-300">
-        <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] py-1.5 pl-3 pr-1.5">
+    <div className="vl-editor flex min-h-0 flex-1 flex-col bg-[var(--vl-editor-bg)]">
+      {/* Toolbar */}
+      <div className="flex flex-none items-center gap-1.5 border-b border-white/10 bg-[var(--vl-editor-bar)] px-2 py-1.5">
+        <label className="relative flex min-w-0 items-center gap-1.5 rounded-sm py-1 pl-1.5 pr-1 hover:bg-white/10">
           <span
             className={`flex h-5 w-5 flex-none items-center justify-center rounded-sm font-mono text-xs font-bold ${BADGES[language].className}`}
             aria-hidden="true"
           >
             {BADGES[language].mark}
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--vl-editor-text)]">{FILE_NAMES[language]}</span>
+          <select
+            value={language}
+            aria-label="Language"
+            title="Language"
+            onChange={(event) => {
+              setLanguage(event.target.value as CodeLanguage);
+              setRun({ status: "idle" });
+            }}
+            className="min-w-0 cursor-pointer appearance-none border-0 bg-transparent py-0 pl-0 pr-4 font-mono text-xs text-[var(--vl-editor-text)] focus:ring-0"
+          >
+            {CODE_LANGUAGES.map((item) => (
+              <option key={item.id} value={item.id} className="bg-white font-sans text-slate-800">
+                {item.name}
+              </option>
+            ))}
+          </select>
+          <svg viewBox="0 0 16 16" className="pointer-events-none absolute right-1 h-3 w-3 text-[var(--vl-editor-dim)]" fill="none" aria-hidden="true">
+            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </label>
+
+        <span className="hidden min-w-0 truncate font-mono text-[11px] text-[var(--vl-editor-dim)] min-[380px]:inline">{FILE_NAMES[language]}</span>
+
+        <div className="ml-auto flex flex-none items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void makeItRunnable()}
+            disabled={fixing || running || !code.trim() || signedIn === false}
+            title="Have the tutor complete this code, or correct it if it failed, so that it runs"
+            className="rounded-sm px-2 py-1 text-xs font-medium text-[var(--vl-editor-text)] transition-colors duration-[120ms] hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            {fixing ? "Fixing…" : "Make runnable"}
+          </button>
           <button
             type="button"
             onClick={() => void execute()}
-            disabled={run.status === "running" || fixing || !code.trim() || signedIn === false}
-            className="flex flex-none items-center gap-1.5 rounded-sm bg-[var(--vl-editor-warm)] px-3 py-1 text-xs font-semibold text-[#1e1b4b] transition-colors duration-[120ms] hover:bg-[#fef3c7] active:bg-[#fcd34d] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canRun}
+            title={`Run (${MOD}+Enter)`}
+            className="flex items-center gap-1.5 rounded-sm bg-[var(--vl-editor-warm)] px-3 py-1 text-xs font-semibold text-[#1e1b4b] transition-colors duration-[120ms] hover:bg-[#fef3c7] active:bg-[#fcd34d] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RunIcon />
-            {run.status === "running" ? "Running…" : "Run"}
+            {running ? "Running…" : "Run"}
           </button>
-        </div>
-        <div className="relative flex h-72 min-h-[7rem] resize-y overflow-hidden bg-[var(--vl-editor-bg)]">
-          <div className="flex-none select-none overflow-hidden border-r border-white/10 py-2 pl-2 pr-2 text-right font-mono text-[var(--vl-editor-dim)]" style={textStyle} aria-hidden="true">
-            <div style={{ transform: `translateY(${-scroll.top}px)` }}>
-              {Array.from({ length: lineCount }, (_, index) => (
-                <div key={index}>{index + 1}</div>
-              ))}
-            </div>
-          </div>
-          <div className="relative min-w-0 flex-1 overflow-hidden">
-            <pre
-              aria-hidden="true"
-              className={`${EDITOR_TEXT} hljs pointer-events-none absolute left-0 top-0 text-[var(--vl-editor-text)]`}
-              style={{ ...textStyle, transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}
-              // eslint-disable-next-line react/no-danger -- hljs.highlight's own output, which escapes the code
-              dangerouslySetInnerHTML={{ __html: highlighted }}
-            />
-            <textarea
-              ref={editorRef}
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              onKeyDown={onEditorKey}
-              onScroll={(event) => setScroll({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}
-              aria-label={`Your ${languageName} code`}
-              wrap="off"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              maxLength={20000}
-              style={textStyle}
-              className={`${EDITOR_TEXT} scrollbar-thin absolute inset-0 h-full w-full resize-none overflow-auto border-0 bg-transparent text-transparent caret-[var(--vl-editor-warm)] outline-none focus:ring-0`}
-            />
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen((open) => !open);
+                setConfirmReset(false);
+              }}
+              aria-label="More options"
+              aria-expanded={menuOpen}
+              title="More options"
+              className="flex h-7 w-7 items-center justify-center rounded-sm text-[var(--vl-editor-text)] transition-colors duration-[120ms] hover:bg-white/10"
+            >
+              <MoreIcon />
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-8 z-20 flex w-60 flex-col gap-1 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 shadow-lg"
+              >
+                <div className="flex items-center justify-between px-1 py-1">
+                  <span className="text-xs text-slate-500">Text size</span>
+                  <span className="flex items-center gap-1" role="group" aria-label="Text size">
+                    <button
+                      type="button"
+                      onClick={() => resize(-1)}
+                      disabled={fontSize === FONT_SIZES[0]}
+                      aria-label="Smaller text"
+                      className="flex h-7 w-7 items-center justify-center rounded-sm text-xs font-semibold hover:bg-slate-100 disabled:opacity-40"
+                    >
+                      A−
+                    </button>
+                    <span className="w-6 text-center text-xs tabular-nums text-slate-500">{fontSize}</span>
+                    <button
+                      type="button"
+                      onClick={() => resize(1)}
+                      disabled={fontSize === FONT_SIZES[FONT_SIZES.length - 1]}
+                      aria-label="Larger text"
+                      className="flex h-7 w-7 items-center justify-center rounded-sm text-base font-semibold hover:bg-slate-100 disabled:opacity-40"
+                    >
+                      A+
+                    </button>
+                  </span>
+                </div>
+                {confirmReset ? (
+                  <div className="flex flex-col gap-2 rounded-sm bg-slate-50 p-2">
+                    <p className="text-xs text-slate-600">Replace your {languageName} code with the starting example?</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCode(STARTERS[language]);
+                          setTries((current) => ({ ...current, [language]: "" }));
+                          setRun({ status: "idle" });
+                          setFix(null);
+                          setMenuOpen(false);
+                          setConfirmReset(false);
+                        }}
+                        className="rounded-sm bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700"
+                      >
+                        Replace
+                      </button>
+                      <button type="button" onClick={() => setConfirmReset(false)} className="rounded-sm px-2.5 py-1 text-xs font-medium hover:bg-slate-200">
+                        Keep my code
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => (code === STARTERS[language] ? setMenuOpen(false) : setConfirmReset(true))}
+                    className="rounded-sm px-2 py-1.5 text-left text-xs hover:bg-slate-100"
+                  >
+                    Start again from the example
+                  </button>
+                )}
+                <div className="border-t border-slate-100 px-2 pb-1 pt-2 text-[11px] leading-relaxed text-slate-500">
+                  <p className="mb-1 font-medium text-slate-600">Keyboard</p>
+                  <p>{MOD}+Enter run · {MOD}+/ comment</p>
+                  <p>{MOD}+F find · {MOD}+Z undo · Alt+↑↓ move line</p>
+                  <p>Tab indent · Esc then Tab leaves the editor</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {tryHelp && (
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-slate-600">Try expressions</span>
-          <span className="text-xs leading-relaxed text-slate-500">
-            One per line, as you would type them in {tryHelp.where}. Each is evaluated after your code and its value
-            shown, so the code does not need a main.
-          </span>
-          <textarea
-            value={tries[language] ?? ""}
-            onChange={(event) => setTries((current) => ({ ...current, [language]: event.target.value }))}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault();
-                void execute();
-              }
-            }}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            rows={3}
-            maxLength={4000}
-            aria-label="Expressions to try"
-            placeholder={tryHelp.example}
-            className="w-full resize-y rounded-sm border border-slate-300 bg-white px-3 py-2 font-mono text-xs leading-5 text-slate-800 placeholder:text-slate-400 focus:border-indigo-400"
-          />
-        </label>
+      {/* Notices */}
+      {signedIn === false && (
+        <div className="flex flex-none items-center gap-3 bg-white px-3 py-2 text-sm text-slate-600">
+          <p className="min-w-0 flex-1">Sign in to run code. Your draft stays here either way.</p>
+          <Button className="flex-none" onClick={() => void signIn()}>
+            Sign in
+          </Button>
+        </div>
       )}
-
-      <details className="rounded-sm border border-slate-200 px-3 py-2">
-        <summary className="cursor-pointer text-xs font-medium text-slate-600">Program input{stdin ? " (set)" : ""}</summary>
-        <textarea
-          value={stdin}
-          onChange={(event) => setStdin(event.target.value)}
-          spellCheck={false}
-          rows={3}
-          maxLength={10000}
-          aria-label="Program input"
-          placeholder="Text a running program reads, such as numbers it asks for. One value per line."
-          className="mt-2 w-full resize-y rounded-sm border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-800 placeholder:font-sans placeholder:text-slate-400 focus:border-indigo-400"
-        />
-      </details>
-
-      {fixing && (
-        <p className="animate-pulse text-xs text-slate-400" role="status">
-          The tutor is completing your code. This takes a few seconds.
-        </p>
-      )}
-
       {fix && fix.language === language && (
-        <div role="status" className="flex flex-col items-start gap-2 rounded-md border border-amber-100 bg-amber-50/70 p-3 dark:border-indigo-100 dark:bg-indigo-50/40">
-          <p className="text-sm leading-relaxed text-slate-700">
-            <span className="font-semibold">Made runnable.</span> {fix.note}
+        <div role="status" className="flex flex-none items-start gap-2 border-b border-amber-200/30 bg-[#3b3270] px-3 py-2 text-xs leading-relaxed text-[var(--vl-editor-text)]">
+          <p className="min-w-0 flex-1">
+            <span className="font-semibold text-[var(--vl-editor-warm)]">Made runnable.</span> {fix.note}
           </p>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => setFix(null)}>
-              Got it
-            </Button>
+          <button
+            type="button"
+            onClick={() => {
+              setCode(fix.previous);
+              setFix(null);
+              setRun({ status: "idle" });
+            }}
+            className="flex-none rounded-sm px-1.5 py-0.5 font-medium underline-offset-2 hover:underline"
+          >
+            Undo
+          </button>
+          <button type="button" onClick={() => setFix(null)} aria-label="Dismiss" className="flex-none rounded-sm px-1.5 py-0.5 hover:bg-white/10">
+            ✕
+          </button>
+        </div>
+      )}
+
+      <div ref={layoutRef} className="flex min-h-0 flex-1 flex-col">
+        {/* Editor */}
+        <div className="min-h-0 flex-1">
+          <Editor
+            ref={editorRef}
+            value={code}
+            language={language}
+            fontSize={fontSize}
+            diagnostics={diagnostics}
+            ariaLabel={`Your ${languageName} code`}
+            onChange={setCode}
+            onRun={() => void execute()}
+            onCursor={setCursor}
+          />
+        </div>
+
+        {/* Panel */}
+        <div className="flex flex-none flex-col border-t border-white/10" style={panelOpen ? { height: panelHeight } : undefined}>
+          {panelOpen && (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize the panel"
+              title="Drag to resize"
+              onPointerDown={startDrag}
+              className="-mt-1.5 h-2 flex-none cursor-row-resize touch-none bg-transparent hover:bg-indigo-400/40"
+            />
+          )}
+          <div className="flex flex-none items-center gap-0.5 bg-[var(--vl-editor-bar)] px-1.5" role="tablist" aria-label="Panel">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={panelOpen && panelTab === tab.id}
+                onClick={() => (panelOpen && panelTab === tab.id ? setPanelOpen(false) : showPanel(tab.id))}
+                className={`flex items-center gap-1 border-b-2 px-2.5 py-1.5 text-xs font-medium transition-colors duration-[120ms] ${
+                  panelOpen && panelTab === tab.id
+                    ? "border-[var(--vl-editor-warm)] text-[var(--vl-editor-text)]"
+                    : "border-transparent text-[var(--vl-editor-dim)] hover:text-[var(--vl-editor-text)]"
+                }`}
+              >
+                {tab.id === "output" && result && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOTS[result.status]}`} aria-hidden="true" />}
+                {tab.label}
+                {tab.badge && <span className="text-[10px] text-[var(--vl-editor-warm)]">{tab.badge}</span>}
+              </button>
+            ))}
             <button
               type="button"
-              onClick={() => {
-                setCode(fix.previous);
-                setFix(null);
-                setRun({ status: "idle" });
-              }}
-              className="rounded-sm text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              onClick={() => setPanelOpen((open) => !open)}
+              aria-label={panelOpen ? "Hide the panel" : "Show the panel"}
+              title={panelOpen ? "Hide the panel" : "Show the panel"}
+              className="ml-auto flex h-6 w-6 items-center justify-center rounded-sm text-[var(--vl-editor-dim)] hover:bg-white/10 hover:text-[var(--vl-editor-text)]"
             >
-              Put my version back
+              <Chevron up={!panelOpen} />
             </button>
           </div>
-        </div>
-      )}
 
-      {signedIn === false && (
-        <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-slate-200 p-3">
-          <p className="text-sm text-slate-600">Sign in to run code. Your draft stays here either way.</p>
-          <Button onClick={() => void signIn()}>Sign in with Google</Button>
-        </div>
-      )}
+          <div className={panelOpen ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+            {panelTab === "output" && (
+              <div className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-2 text-[var(--vl-editor-text)]" style={{ fontSize: Math.max(12, fontSize - 1) }}>
+                {run.status === "idle" && !fixing && (
+                  <p className="text-xs leading-relaxed text-[var(--vl-editor-dim)]">
+                    Press Run or {MOD}+Enter. What the program prints appears here. Programs run on wandbox.org, an outside
+                    service, and are stopped after about 30 seconds, so keep passwords and private data out of them.
+                  </p>
+                )}
+                {fixing && (
+                  <p className="animate-pulse text-xs text-[var(--vl-editor-dim)]" role="status">
+                    The tutor is completing your code. This takes a few seconds.
+                  </p>
+                )}
+                {running && (
+                  <p className="animate-pulse text-xs text-[var(--vl-editor-dim)]" role="status">
+                    Compiling and running…
+                  </p>
+                )}
+                {run.status === "failed" && (
+                  <p role={run.limited ? "status" : "alert"} className={`text-sm ${run.limited ? "text-[var(--vl-editor-text)]" : "text-[#fca5a5]"}`}>
+                    {run.message}
+                  </p>
+                )}
+                {result && (
+                  <>
+                    <p role="status" className="flex items-center gap-2 text-xs text-[var(--vl-editor-dim)]">
+                      <span className={`h-2 w-2 flex-none rounded-full ${STATUS_DOTS[result.status]}`} aria-hidden="true" />
+                      <span>
+                        <span className="font-semibold text-[var(--vl-editor-text)]">{HEADLINES[result.status]}</span> in {seconds(result.duration_ms)}
+                        {errorCount > 0 && ` · ${errorCount === 1 ? "1 error" : `${errorCount} errors`} marked in the code`}
+                      </span>
+                    </p>
+                    {result.compiler_output && (
+                      <div className="flex flex-col gap-1">
+                        <h2 className={TERMINAL_LABEL}>{result.status === "compile_error" ? "Compiler errors" : "Compiler messages"}</h2>
+                        <Located
+                          text={result.compiler_output}
+                          lineCount={lineCount}
+                          onGo={goToLine}
+                          className={`${TERMINAL_TEXT} ${result.status === "compile_error" ? "text-[#fca5a5]" : "text-[var(--vl-editor-warm)]"}`}
+                        />
+                      </div>
+                    )}
+                    {result.stdout && (
+                      <div className="flex flex-col gap-1">
+                        {(result.compiler_output || result.stderr) && <h2 className={TERMINAL_LABEL}>Output</h2>}
+                        <pre className={`${TERMINAL_TEXT} text-[var(--vl-editor-text)]`}>{result.stdout}</pre>
+                      </div>
+                    )}
+                    {result.stderr && (
+                      <div className="flex flex-col gap-1">
+                        <h2 className={TERMINAL_LABEL}>Error output</h2>
+                        <Located text={result.stderr} lineCount={lineCount} onGo={goToLine} className={`${TERMINAL_TEXT} text-[#fca5a5]`} />
+                      </div>
+                    )}
+                    {nothingPrinted && <p className="font-mono text-xs text-[var(--vl-editor-dim)]">The program printed nothing.</p>}
+                    {noMain && (
+                      <p className="text-xs leading-relaxed text-[var(--vl-editor-warm)]">
+                        This code has no <code className="font-mono">main</code>, so there is nothing to run yet. Put what you want to
+                        try in the <button type="button" onClick={() => showPanel("try")} className="underline underline-offset-2">Try</button> tab
+                        (for example a function call), or press Make runnable.
+                      </p>
+                    )}
+                    {result.status !== "ok" && (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void makeItRunnable()}
+                          disabled={fixing || signedIn === false}
+                          className="rounded-sm bg-[var(--vl-editor-warm)] px-2.5 py-1 text-xs font-semibold text-[#1e1b4b] hover:bg-[#fef3c7] disabled:opacity-50"
+                        >
+                          Fix it for me
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => askTutor("Explain this error")}
+                          disabled={signedIn === false}
+                          className="rounded-sm border border-white/20 px-2.5 py-1 text-xs font-medium hover:bg-white/10 disabled:opacity-50"
+                        >
+                          Explain the error
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
-      {run.status === "running" && (
-        <p className="animate-pulse text-xs text-slate-400" role="status">
-          Compiling and running. This takes a few seconds.
-        </p>
-      )}
+            {panelTab === "input" && (
+              <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-3 py-2">
+                <p className="text-xs text-[var(--vl-editor-dim)]">What the program reads when it asks for input, one value per line.</p>
+                <textarea
+                  value={stdin}
+                  onChange={(event) => setStdin(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault();
+                      void execute();
+                    }
+                  }}
+                  spellCheck={false}
+                  maxLength={10000}
+                  aria-label="Program input"
+                  placeholder={"5\n3 4"}
+                  className="scrollbar-thin min-h-0 w-full flex-1 resize-none rounded-sm border border-white/15 bg-black/20 px-2.5 py-2 font-mono text-xs text-[var(--vl-editor-text)] placeholder:text-[var(--vl-editor-dim)] focus:border-indigo-300 focus:ring-0"
+                />
+              </div>
+            )}
 
-      {run.status === "failed" &&
-        (run.limited ? (
-          <p role="status" className="rounded-md border border-violet-100 bg-violet-50/50 p-3 text-sm text-slate-600">
-            {run.message}
-          </p>
-        ) : (
-          <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
-            {run.message}
-          </p>
-        ))}
+            {panelTab === "try" && tryHelp && (
+              <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-3 py-2">
+                <p className="text-xs leading-relaxed text-[var(--vl-editor-dim)]">
+                  One expression per line, as you would type it in {tryHelp.where}. Each is evaluated after your code and its value
+                  shown in Output, so the code needs no main.
+                </p>
+                <textarea
+                  value={tries[language] ?? ""}
+                  onChange={(event) => setTries((current) => ({ ...current, [language]: event.target.value }))}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault();
+                      void execute();
+                    }
+                  }}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  maxLength={4000}
+                  aria-label="Expressions to try"
+                  placeholder={tryHelp.example}
+                  className="scrollbar-thin min-h-0 w-full flex-1 resize-none rounded-sm border border-white/15 bg-black/20 px-2.5 py-2 font-mono text-xs text-[var(--vl-editor-text)] [font-variant-ligatures:none] placeholder:text-[var(--vl-editor-dim)] focus:border-indigo-300 focus:ring-0"
+                />
+              </div>
+            )}
 
-      {result && (
-        <div className="flex flex-col gap-2">
-          <section className="vl-editor flex-none overflow-hidden rounded-md border border-[#3730a3] shadow-subtle" aria-label="Result">
-            <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] py-1.5 pl-3 pr-1.5">
-              <span className={`h-2 w-2 flex-none rounded-full ${STATUS_DOTS[result.status]}`} aria-hidden="true" />
-              <p role="status" className="min-w-0 flex-1 text-xs text-[var(--vl-editor-text)]">
-                <span className="font-semibold">{HEADLINES[result.status]}</span> in {seconds(result.duration_ms)}
-              </p>
-              <button
-                type="button"
-                onClick={() => setResultOpen((open) => !open)}
-                aria-expanded={resultOpen}
-                aria-label={resultOpen ? "Hide the details" : "Show the details"}
-                title={resultOpen ? "Hide the details" : "Show the details"}
-                className="-my-1 flex flex-none items-center gap-1 rounded-sm px-1.5 py-1 text-xs font-medium text-[var(--vl-editor-text)] transition-colors duration-[120ms] hover:bg-white/10"
-              >
-                {resultOpen ? "Hide" : "Show"}
-                <ChevronIcon open={resultOpen} />
-              </button>
+            {/* The tutor stays mounted so its conversation survives switching tabs. */}
+            <div className={panelTab === "tutor" ? "flex min-h-0 flex-1 flex-col bg-white" : "hidden"}>
+              <CodeTutor
+                context={tutorContext(language, code, stdin, expressions, result)}
+                suggestions={suggestionsFor(result)}
+                disabled={signedIn === false}
+                question={tutorQuestion}
+              />
             </div>
-            <div className={resultOpen ? "flex flex-col gap-3 bg-[var(--vl-editor-bg)] px-3 py-2" : "hidden"}>
-              {result.compiler_output && (
-                <div className="flex flex-col gap-1">
-                  <h2 className={TERMINAL_LABEL}>{result.status === "compile_error" ? "Compiler errors" : "Compiler messages"}</h2>
-                  <pre style={textStyle} className={`${TERMINAL_TEXT} ${result.status === "compile_error" ? "text-[#fca5a5]" : "text-[var(--vl-editor-warm)]"}`}>
-                    {result.compiler_output}
-                  </pre>
-                </div>
-              )}
-              {result.stdout && (
-                <div className="flex flex-col gap-1">
-                  <h2 className={TERMINAL_LABEL}>Output</h2>
-                  <pre style={textStyle} className={`${TERMINAL_TEXT} text-[var(--vl-editor-text)]`}>{result.stdout}</pre>
-                </div>
-              )}
-              {result.stderr && (
-                <div className="flex flex-col gap-1">
-                  <h2 className={TERMINAL_LABEL}>Error output</h2>
-                  <pre style={textStyle} className={`${TERMINAL_TEXT} text-[#fca5a5]`}>{result.stderr}</pre>
-                </div>
-              )}
-              {nothingPrinted && <p className="font-mono text-xs text-[var(--vl-editor-dim)]">The program printed nothing.</p>}
-            </div>
-          </section>
-          {result.status === "compile_error" && tryHelp && !expressions.trim() && /main.{0,3} is not defined/.test(result.compiler_output) && (
-            <p className="rounded-md border border-amber-100 bg-amber-50/70 p-3 text-sm leading-relaxed text-slate-700 dark:border-indigo-100 dark:bg-indigo-50/40">
-              This code has no <code className="font-mono text-[0.92em]">main</code>, so there is nothing to run yet. Type what
-              you want to try under <span className="font-medium">Try expressions</span> (for example a function call), or
-              press Make it runnable.
-            </p>
-          )}
-          {result.status !== "ok" && (
-            <Button className="self-start" onClick={() => void makeItRunnable()} disabled={fixing}>
-              {fixing ? "Working on it…" : "Make it runnable"}
-            </Button>
-          )}
+          </div>
         </div>
-      )}
+      </div>
 
-      {code.trim() && (
-        <CodeTutor
-          context={tutorContext(language, code, stdin, expressions, result)}
-          suggestions={suggestionsFor(result)}
-          disabled={signedIn === false}
-        />
-      )}
-
-      <p className="mt-auto text-xs text-slate-400">
-        Ctrl+Enter runs, Ctrl+/ comments a line, Tab and Shift+Tab indent. Programs run on wandbox.org, an outside
-        service, and are stopped after about 30 seconds. Keep passwords and private data out of them.
-      </p>
+      {/* Status bar */}
+      <div className="flex flex-none items-center gap-3 whitespace-nowrap border-t border-white/10 bg-[var(--vl-editor-bar)] px-3 py-1 font-mono text-[11px] text-[var(--vl-editor-dim)]">
+        <span>
+          Ln {cursor.line}, Col {cursor.column}
+          {cursor.selected > 0 && ` (${cursor.selected} selected)`}
+        </span>
+        <span>{languageName}</span>
+        {errorCount > 0 && (
+          <button type="button" onClick={() => goToLine(diagnostics[0].line)} className="text-[#fca5a5] hover:underline">
+            ✕ {errorCount}
+          </button>
+        )}
+        <span className="ml-auto min-w-0 truncate">
+          {running ? "Running…" : fixing ? "Fixing…" : result ? `${HEADLINES[result.status]} · ${seconds(result.duration_ms)}` : "Ready"}
+        </span>
+      </div>
     </div>
   );
 }
