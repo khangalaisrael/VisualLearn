@@ -28,7 +28,7 @@
  * of the whole slide, until cleared.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, createNote, streamChat } from "../../shared/api-client";
 import { activeCaptureLimit, refreshUsage, useUsage } from "../../shared/usage-store";
@@ -49,7 +49,7 @@ import { ObjectCard } from "../components/ObjectCard";
 import { ObjectCardSkeleton } from "../components/ObjectCardSkeleton";
 import { extractFollowUpQuestion } from "../follow-up";
 import { StartScreen, WhatsNewCard } from "../components/StartScreen";
-import { ChevronIcon, CloseIcon, FollowUpIcon } from "../recent/parts";
+import { BackIcon, ChevronIcon, CloseIcon, ForwardIcon, FollowUpIcon } from "../recent/parts";
 
 const PENDING_FIGURE_SELECTION_KEY = "pendingFigureSelection";
 
@@ -70,6 +70,31 @@ interface ChatMessage {
   role: "user" | "assistant" | "divider";
   content: string;
   timestamp: number;
+  /** On a divider: the subtopic of the slide the student moved on from. */
+  previous?: string;
+}
+
+/** The part of a chat that was about one slide. */
+interface SlideSection {
+  label: string;
+  messages: ChatMessage[];
+}
+
+/** A chat that followed the student across slides, cut at each new slide.
+ * There is always at least one section; the last is the current slide's. */
+function sectionsOf(messages: ChatMessage[]): SlideSection[] {
+  const sections: SlideSection[] = [];
+  let current: SlideSection = { label: "", messages: [] };
+  for (const message of messages) {
+    if (message.role !== "divider") {
+      current.messages.push(message);
+      continue;
+    }
+    sections.push({ ...current, label: current.label || message.previous || "" });
+    current = { label: message.content, messages: [] };
+  }
+  sections.push(current);
+  return sections;
 }
 
 const PRESET_QUESTIONS = ["Explain this slide", "Summarize", "Give an example", "Simplify"];
@@ -166,6 +191,9 @@ export function AskTab({
 }): JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "idle" });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Which slide's part of the chat is on screen: null is the current slide,
+  // a number is an earlier one being looked back at.
+  const [viewing, setViewing] = useState<number | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -246,18 +274,22 @@ export function AskTab({
         const continues = !sameSlide && result.series !== null && result.series.id === shown?.series?.id;
         setState({ status: "loaded", result });
         setFigureSelection(null);
+        setViewing(null);
         if (continues) {
           setMessages((prev) => {
             if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
             const divider: ChatMessage = {
               id: crypto.randomUUID(),
               role: "divider",
               content: result.series?.subtopic ?? "",
               timestamp: Date.now(),
+              // Slides captured one after another with no question in between
+              // leave a single marker, for the newest of them: it still follows
+              // the slide the last questions were about.
+              previous: last.role === "divider" ? last.previous : (shown?.series?.subtopic ?? ""),
             };
-            // Slides captured one after another with no question in between
-            // leave a single marker, for the newest of them.
-            return [...(prev[prev.length - 1].role === "divider" ? prev.slice(0, -1) : prev), divider];
+            return [...(last.role === "divider" ? prev.slice(0, -1) : prev), divider];
           });
         } else if (!sameSlide) {
           setMessages([]);
@@ -312,6 +344,7 @@ export function AskTab({
     );
     setFigureSelection(null);
     setChatError(null);
+    setViewing(null);
     conversationIdRef.current = restore.conversationId;
   }, [restore]);
 
@@ -357,6 +390,13 @@ export function AskTab({
     });
   }, [captureLimit, blockedByInvite]);
 
+  // The chat is shown one slide at a time: the current slide's part, or an
+  // earlier one the student stepped back to. The server still has it all.
+  const sections = useMemo(() => sectionsOf(messages), [messages]);
+  const shownIndex = viewing !== null && viewing < sections.length - 1 ? viewing : sections.length - 1;
+  const onCurrentSlide = shownIndex === sections.length - 1;
+  const visible = sections[shownIndex].messages;
+
   const askQuestion = useCallback(
     async (question: string) => {
       if (state.status !== "loaded" || !question || isStreaming) {
@@ -364,6 +404,8 @@ export function AskTab({
       }
       const { presentation_id, slide_id } = state.result;
       lastQuestionRef.current = question;
+      // A question is always about the current slide: leave any earlier one being looked at.
+      setViewing(null);
       setChatError(null);
       setChatLimited(false);
       setIsStreaming(true);
@@ -617,24 +659,52 @@ export function AskTab({
             </div>
           )}
 
-          {messages.length === 0 ? (
+          {sections.length > 1 && (
+            <nav aria-label="Slides in this chat" className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+              <button
+                type="button"
+                disabled={shownIndex === 0}
+                onClick={() => setViewing(shownIndex - 1)}
+                className="flex flex-none items-center gap-1 rounded-sm px-2 py-1 text-xs font-medium text-slate-600 transition-colors duration-[120ms] hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                <BackIcon />
+                Previous
+              </button>
+              <p className="min-w-0 flex-1 truncate text-center text-xs text-slate-500" aria-live="polite">
+                Slide {shownIndex + 1} of {sections.length}
+                {sections[shownIndex].label ? `: ${sections[shownIndex].label}` : ""}
+              </p>
+              <button
+                type="button"
+                disabled={onCurrentSlide}
+                onClick={() => setViewing(shownIndex + 1 === sections.length - 1 ? null : shownIndex + 1)}
+                className="flex flex-none items-center gap-1 rounded-sm px-2 py-1 text-xs font-medium text-slate-600 transition-colors duration-[120ms] hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                Next
+                <ForwardIcon />
+              </button>
+            </nav>
+          )}
+          {!onCurrentSlide && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+              You are looking back at an earlier slide. New questions are about the current one.
+              <button
+                type="button"
+                onClick={() => setViewing(null)}
+                className="rounded-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              >
+                Back to the current slide
+              </button>
+            </p>
+          )}
+
+          {visible.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-400">
               Ask anything about this slide, or start with a suggestion below.
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {messages.map((message, index) => {
-                if (message.role === "divider") {
-                  return (
-                    <li key={message.id} className="flex items-center gap-3 self-stretch text-xs text-slate-400">
-                      <span className="h-px flex-1 bg-slate-200" />
-                      <span className="max-w-[70%] truncate">
-                        New slide{message.content ? `: ${message.content}` : ""}
-                      </span>
-                      <span className="h-px flex-1 bg-slate-200" />
-                    </li>
-                  );
-                }
+              {visible.map((message, index) => {
                 const isPendingAssistant = !message.content && isStreaming && message.role === "assistant";
                 const followUpQuestion =
                   message.role === "assistant" && !isPendingAssistant
@@ -671,7 +741,7 @@ export function AskTab({
                         type="button"
                         disabled={savedNotes[message.id] === "saving" || savedNotes[message.id] === "saved"}
                         onClick={() => {
-                          const asked = messages.slice(0, index).reverse().find((m) => m.role === "user");
+                          const asked = visible.slice(0, index).reverse().find((m) => m.role === "user");
                           void saveAnswer(message, asked?.content ?? "Saved answer");
                         }}
                         className="rounded-sm px-2 py-1 text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700 disabled:hover:bg-transparent"
