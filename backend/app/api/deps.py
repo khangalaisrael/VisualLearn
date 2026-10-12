@@ -33,6 +33,7 @@ from app.services.rate_limiter import (
     quiz_limits,
     study_aid_limits,
 )
+from app.services.code_fixer import ClaudeCodeFixer, CodeFixer, PlaceholderCodeFixer
 from app.services.code_runner import CodeRunner, WandboxCodeRunner
 from app.services.quiz_generator import ClaudeQuizGenerator, PlaceholderQuizGenerator, QuizGenerator
 from app.services.resource_finder import ClaudeResourceFinder, ResourceFinder
@@ -176,6 +177,21 @@ _study_aid_generator = _build_study_aid_generator()
 async def get_study_aid_generator() -> StudyAidGenerator:
     """Tests override this (tests/backend/conftest.py) so they never call a provider."""
     return _study_aid_generator
+
+
+def _build_code_fixer() -> CodeFixer:
+    settings = get_settings()
+    if settings.anthropic_api_key:
+        return ClaudeCodeFixer(api_key=settings.anthropic_api_key, model=settings.anthropic_chat_model)
+    return PlaceholderCodeFixer()
+
+
+_code_fixer = _build_code_fixer()
+
+
+async def get_code_fixer() -> CodeFixer:
+    """Tests override this (tests/backend/conftest.py) so they never call a provider."""
+    return _code_fixer
 
 
 async def get_code_runner() -> CodeRunner:

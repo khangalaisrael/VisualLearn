@@ -19,6 +19,7 @@ from app.api.deps import (
     get_resource_finder,
     get_series_sorter,
     get_slide_analyzer,
+    get_code_fixer,
     get_code_runner,
     get_study_aid_generator,
 )
@@ -32,6 +33,7 @@ from app.services.chat_service import ChatChunk
 from app.services.quiz_generator import PlaceholderQuizGenerator
 from app.services.series_sorter import PlaceholderSeriesSorter
 from app.services.slide_analyzer import PlaceholderSlideAnalyzer
+from app.services.code_fixer import PlaceholderCodeFixer
 from app.services.code_runner import PlaceholderCodeRunner
 from app.services.study_aid_generator import PlaceholderStudyAidGenerator
 
@@ -137,6 +139,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_quiz_generator] = lambda: PlaceholderQuizGenerator()
     app.dependency_overrides[get_study_aid_generator] = lambda: PlaceholderStudyAidGenerator()
     app.dependency_overrides[get_code_runner] = lambda: PlaceholderCodeRunner()
+    app.dependency_overrides[get_code_fixer] = lambda: PlaceholderCodeFixer()
     # No web research unless a test installs its own finder.
     app.dependency_overrides[get_resource_finder] = lambda: None
 

@@ -71,7 +71,7 @@ _PAGE = """<!doctype html>
 
 <h2>Who processes your data</h2>
 <ul>
-<li><strong>Anthropic</strong> — the AI service that reads captured slides and writes answers. Your screenshot, the extracted content and your questions are sent to it. Its use of that data is governed by Anthropic's own terms and privacy policy.</li>
+<li><strong>Anthropic</strong> — the AI service that reads captured slides and writes answers. Your screenshot, the extracted content and your questions are sent to it, and so is code from the Code tab when you ask the tutor about it or press <em>Make it runnable</em>. Its use of that data is governed by Anthropic's own terms and privacy policy.</li>
 <li><strong>Google</strong> — only for sign-in.</li>
 <li><strong>Wandbox</strong> (wandbox.org) — only when you press <em>Run</em> in the Code tab. The program you wrote and the input you gave it are sent there to be compiled and run. Nothing else is sent: not your name, email or slides. We do not store the programs you run.</li>
 <li><strong>Render</strong> hosts the server and <strong>Neon</strong> hosts the database.</li>

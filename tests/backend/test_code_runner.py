@@ -6,20 +6,25 @@ runner from conftest, and the Wandbox client is given a fake transport.
 
 import json
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_code_runner
+from app.api.deps import get_code_fixer, get_code_runner
 from app.core.config import get_settings
 from app.main import app
 from app.models.orm import Session as SessionRow
-from app.models.orm import User
+from app.models.orm import UsageEvent, User
+from app.services.code_fixer import MAX_ERROR_CHARS, ClaudeCodeFixer, FixedCode, format_request, parse_fix
 from app.services.code_runner import (
     MAX_OUTPUT_CHARS,
+    CodeRunnerBusy,
     CodeRunnerUnavailable,
     WandboxCodeRunner,
     parse_result,
@@ -64,7 +69,7 @@ async def test_running_code_needs_an_account_a_known_language_and_some_code(
 ) -> None:
     assert (await client.post(URL, json={"language": "java", "code": "class A {}"}, headers=API_KEY)).status_code == 401
     headers = await _sign_in(db_session, "a@example.com")
-    assert (await client.post(URL, json={"language": "python", "code": "print(1)"}, headers=headers)).status_code == 422
+    assert (await client.post(URL, json={"language": "ruby", "code": "puts 1"}, headers=headers)).status_code == 422
     assert (await client.post(URL, json={"language": "java", "code": "   "}, headers=headers)).status_code == 422
     assert (await client.post(URL, json={"language": "java", "code": "x" * 20_001}, headers=headers)).status_code == 422
 
@@ -144,3 +149,146 @@ async def test_the_wandbox_client_reports_failures_as_unavailable() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request, r=response: r)) as fake:
             with pytest.raises(CodeRunnerUnavailable):
                 await WandboxCodeRunner("https://sandbox.test/run", 5, client=fake).run("haskell", "main = pure ()", "")
+
+
+# --- C++ and Python -----------------------------------------------------------------------
+
+
+async def test_every_language_is_accepted(client: AsyncClient, db_session: AsyncSession) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    for language in ("haskell", "java", "cpp", "python"):
+        response = await client.post(URL, json={"language": language, "code": "x", "stdin": "1"}, headers=headers)
+        assert response.status_code == 200 and response.json()["stdout"] == f"{language}:1"
+
+
+async def test_cpp_is_compiled_as_cpp20_and_python_takes_no_options() -> None:
+    sent: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=_payload(program_output="1"))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as fake:
+        runner = WandboxCodeRunner("https://sandbox.test/run", 5, client=fake)
+        await runner.run("cpp", "int main() {}", "")
+        await runner.run("python", "print(1)", "")
+    assert sent[0] == {"compiler": "gcc-13.2.0", "code": "int main() {}", "stdin": "", "compiler-option-raw": "-std=c++20"}
+    assert sent[1] == {"compiler": "cpython-3.13.8", "code": "print(1)", "stdin": ""}
+    assert prepare_source("cpp", "public class X") == "public class X"  # only Java loses `public`
+
+
+# --- making code runnable -------------------------------------------------------------------
+
+FIX_URL = "/api/v1/code/make-runnable"
+
+
+async def test_code_is_made_runnable_and_the_call_is_recorded(client: AsyncClient, db_session: AsyncSession) -> None:
+    class _Fixer:
+        model_name = "claude-haiku-5-5"
+
+        def __init__(self) -> None:
+            self.seen: tuple | None = None
+
+        async def make_runnable(self, language, code, stdin, last_run):
+            self.seen = (language, code, stdin, last_run)
+            return FixedCode(code="main = print (double 21)\n", note="Added a main.")
+
+    fixer = _Fixer()
+    app.dependency_overrides[get_code_fixer] = lambda: fixer
+    headers = await _sign_in(db_session, "a@example.com")
+    body = {"language": "haskell", "code": "double x = x + x", "stdin": "", "last_run": "no main"}
+    response = await client.post(FIX_URL, json=body, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"code": "main = print (double 21)\n", "note": "Added a main."}
+    assert fixer.seen == ("haskell", "double x = x + x", "", "no main")
+    assert (await db_session.execute(select(UsageEvent.action))).scalars().all() == ["code_fix"]
+
+
+async def test_making_code_runnable_needs_an_account_and_code_and_counts_as_chat(
+    client: AsyncClient, db_session: AsyncSession, run_limit
+) -> None:
+    body = {"language": "java", "code": "int f() { return 1; }"}
+    assert (await client.post(FIX_URL, json=body, headers=API_KEY)).status_code == 401
+    headers = await _sign_in(db_session, "a@example.com")
+    assert (await client.post(FIX_URL, json={**body, "code": " "}, headers=headers)).status_code == 422
+
+    # A request counts when it is made, so the allowance is checked with a fresh account.
+    other = await _sign_in(db_session, "b@example.com")
+    original = run_limit.rate_limit_chat_messages_per_day
+    run_limit.rate_limit_chat_messages_per_day = 1
+    try:
+        assert [(await client.post(FIX_URL, json=body, headers=other)).status_code for _ in range(2)] == [200, 429]
+    finally:
+        run_limit.rate_limit_chat_messages_per_day = original
+
+
+async def test_a_fixer_that_fails_is_reported_plainly(client: AsyncClient, db_session: AsyncSession) -> None:
+    class _Broken:
+        model_name = "x"
+
+        async def make_runnable(self, language, code, stdin, last_run):
+            raise ValueError("no code")
+
+    app.dependency_overrides[get_code_fixer] = lambda: _Broken()
+    headers = await _sign_in(db_session, "a@example.com")
+    response = await client.post(FIX_URL, json={"language": "python", "code": "def f(:"}, headers=headers)
+    assert response.status_code == 502 and "could not be completed" in response.json()["detail"]
+
+
+def test_the_fix_request_and_answer() -> None:
+    plain = format_request("cpp", "int f();", "", "")
+    assert plain == "Language: C++\n\n<code>\nint f();\n</code>"
+    full = format_request("python", "print(x)", "3", "NameError" + "!" * (MAX_ERROR_CHARS + 10))
+    assert "<input_the_program_reads>\n3\n" in full and full.count("!") == MAX_ERROR_CHARS - len("NameError")
+
+    assert parse_fix({"code": "\nprint(1)\n\n", "note": "  Added   a call. "}) == FixedCode("print(1)\n", "Added a call.")
+    for bad in ({"code": "  ", "note": "x"}, {"code": "x" * 20_001, "note": "x"}):
+        with pytest.raises(ValueError):
+            parse_fix(bad)
+
+
+async def test_the_claude_fixer_sends_the_prompt_and_reads_json() -> None:
+    fake = AsyncMock()
+    fake.messages.create.return_value = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=json.dumps({"code": "print(1)", "note": "ok"}))], stop_reason="end_turn"
+    )
+    fixed = await ClaudeCodeFixer(client=fake, model="claude-haiku-5-5").make_runnable("python", "print(1", "", "SyntaxError")
+    assert fixed == FixedCode("print(1)\n", "ok")
+    call = fake.messages.create.call_args.kwargs
+    assert call["system"].startswith("You turn a student's code into a complete program")
+    assert call["output_config"]["format"]["type"] == "json_schema"
+    assert "Language: Python" in call["messages"][0]["content"] and "<last_run>\nSyntaxError" in call["messages"][0]["content"]
+
+    fake.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type="text", text='{"code": "pri')], stop_reason="max_tokens")
+    with pytest.raises(ValueError, match="ran out of room"):
+        await ClaudeCodeFixer(client=fake, model="claude-haiku-5-5").make_runnable("python", "x", "", "")
+
+
+# --- a sandbox that is turning requests away ----------------------------------------------------
+
+
+async def test_a_busy_sandbox_is_asked_again_and_then_reported_as_busy(client: AsyncClient, db_session: AsyncSession) -> None:
+    answers = [httpx.Response(429, text="slow down"), httpx.Response(200, json=_payload(program_output="7"))]
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return answers[min(calls, len(answers)) - 1]
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as fake:
+        result = await WandboxCodeRunner("https://sandbox.test/run", 5, client=fake, retry_delays=(0, 0)).run("python", "print(7)", "")
+    assert (result.stdout, calls) == ("7", 2)  # refused once, then served
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(429))) as fake:
+        with pytest.raises(CodeRunnerBusy):
+            await WandboxCodeRunner("https://sandbox.test/run", 5, client=fake, retry_delays=(0, 0)).run("python", "print(7)", "")
+
+    class _Busy:
+        async def run(self, language, code, stdin):
+            raise CodeRunnerBusy("busy")
+
+    app.dependency_overrides[get_code_runner] = lambda: _Busy()
+    headers = await _sign_in(db_session, "a@example.com")
+    response = await client.post(URL, json={"language": "python", "code": "print(7)"}, headers=headers)
+    assert response.status_code == 503 and "busy right now" in response.json()["detail"]

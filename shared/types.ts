@@ -364,7 +364,7 @@ export interface StudyAidOut extends StudyAidSummary {
 }
 
 // POST /code/run: compile and run a Haskell or Java program in a hosted sandbox.
-export type CodeLanguage = "haskell" | "java";
+export type CodeLanguage = "haskell" | "java" | "cpp" | "python";
 
 export interface CodeRunRequest {
   language: CodeLanguage;
@@ -381,6 +381,13 @@ export interface CodeRunResponse {
   // The compiler's errors and warnings.
   compiler_output: string;
   duration_ms: number;
+}
+
+// POST /code/make-runnable: complete or correct code so that it runs.
+export interface CodeFixResponse {
+  code: string;
+  // What was added or changed, in a sentence or two.
+  note: string;
 }
 
 export interface StudyAidListResponse {

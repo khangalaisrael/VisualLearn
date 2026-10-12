@@ -367,7 +367,7 @@ class StudyAidCreateRequest(BaseModel):
     kind: StudyAidKind
 
 
-CodeLanguage = Literal["haskell", "java"]
+CodeLanguage = Literal["haskell", "java", "cpp", "python"]
 
 
 class CodeRunRequest(BaseModel):
@@ -385,6 +385,22 @@ class CodeRunResponse(BaseModel):
     # The compiler's errors and warnings.
     compiler_output: str
     duration_ms: int
+
+
+class CodeFixRequest(BaseModel):
+    """Make this code a complete program that runs. `last_run` is what the
+    last run reported (compiler errors, a crash), when there was one."""
+
+    language: CodeLanguage
+    code: str = Field(max_length=20_000)
+    stdin: str = Field(default="", max_length=10_000)
+    last_run: str = Field(default="", max_length=20_000)
+
+
+class CodeFixResponse(BaseModel):
+    code: str
+    # What was added or changed, in a sentence or two.
+    note: str
 
 
 class StudyAidProgressRequest(BaseModel):

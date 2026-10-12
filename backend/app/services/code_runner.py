@@ -7,6 +7,7 @@ talks to the sandbox itself: the per-user limit is enforced here, and the
 service can be replaced without a new extension build.
 """
 
+import asyncio
 import re
 import time
 from dataclasses import dataclass
@@ -14,17 +15,24 @@ from typing import Literal, Protocol
 
 import httpx
 
-Language = Literal["haskell", "java"]
+Language = Literal["haskell", "java", "cpp", "python"]
 RunStatus = Literal["ok", "compile_error", "runtime_error", "timeout"]
 
-LANGUAGES: tuple[Language, ...] = ("haskell", "java")
+LANGUAGES: tuple[Language, ...] = ("haskell", "java", "cpp", "python")
 MAX_CODE_CHARS = 20_000
 MAX_STDIN_CHARS = 10_000
 # What comes back is shown in a narrow panel; a runaway loop can print megabytes.
 MAX_OUTPUT_CHARS = 20_000
 
 # The sandbox's names for the compilers (GET https://wandbox.org/api/list.json).
-_COMPILERS: dict[Language, str] = {"haskell": "ghc-9.10.1", "java": "openjdk-jdk-22+36"}
+_COMPILERS: dict[Language, str] = {
+    "haskell": "ghc-9.10.1",
+    "java": "openjdk-jdk-22+36",
+    "cpp": "gcc-13.2.0",
+    "python": "cpython-3.13.8",
+}
+# Extra compiler flags, one per line, as the sandbox takes them.
+_COMPILER_OPTIONS: dict[Language, str] = {"cpp": "-std=c++20"}
 # The sandbox ends a program that runs too long with SIGKILL.
 _KILLED_STATUS = "137"
 # GHC's progress lines ("[1 of 2] Compiling Main ...", "[2 of 2] Linking ...") are not messages for the student.
@@ -47,6 +55,15 @@ class RunResult:
 
 class CodeRunnerUnavailable(Exception):
     """The sandbox could not be reached, or did not answer as expected."""
+
+
+class CodeRunnerBusy(CodeRunnerUnavailable):
+    """The sandbox is turning requests away for now (it limits how fast one
+    address may send programs, and every user of ours shares this server's)."""
+
+
+# How long to wait before asking a busy sandbox again; it recovers within seconds.
+_BUSY_RETRY_DELAYS = (2.0, 5.0)
 
 
 class CodeRunner(Protocol):
@@ -96,22 +113,42 @@ def parse_result(language: Language, payload: dict, duration_ms: int) -> RunResu
 
 
 class WandboxCodeRunner:
-    def __init__(self, url: str, timeout_seconds: float, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        url: str,
+        timeout_seconds: float,
+        client: httpx.AsyncClient | None = None,
+        retry_delays: tuple[float, ...] = _BUSY_RETRY_DELAYS,
+    ) -> None:
         self._url = url
         self._timeout = timeout_seconds
         self._client = client
+        self._retry_delays = retry_delays
+
+    async def _post(self, body: dict) -> httpx.Response:
+        if self._client is not None:
+            return await self._client.post(self._url, json=body, timeout=self._timeout)
+        async with httpx.AsyncClient() as client:
+            return await client.post(self._url, json=body, timeout=self._timeout)
 
     async def run(self, language: Language, code: str, stdin: str) -> RunResult:
         body = {"compiler": _COMPILERS[language], "code": prepare_source(language, code), "stdin": stdin}
+        if language in _COMPILER_OPTIONS:
+            body["compiler-option-raw"] = _COMPILER_OPTIONS[language]
         started = time.perf_counter()
         try:
-            if self._client is not None:
-                response = await self._client.post(self._url, json=body, timeout=self._timeout)
-            else:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(self._url, json=body, timeout=self._timeout)
+            response = await self._post(body)
+            for delay in self._retry_delays:
+                if response.status_code != 429:
+                    break
+                await asyncio.sleep(delay)
+                response = await self._post(body)
+            if response.status_code == 429:
+                raise CodeRunnerBusy("the sandbox is refusing requests for now")
             response.raise_for_status()
             payload = response.json()
+        except CodeRunnerBusy:
+            raise
         except (httpx.HTTPError, ValueError) as exc:
             raise CodeRunnerUnavailable(str(exc)) from exc
         if not isinstance(payload, dict) or "status" not in payload:
