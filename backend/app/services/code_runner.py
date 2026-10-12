@@ -60,6 +60,20 @@ class CodeRunnerBusy(CodeRunnerUnavailable):
     address may send programs, and every user of ours shares this server's)."""
 
 
+# When the sandbox is overloaded it can also answer normally but with its own
+# failure in place of the compiler's output ("OCI runtime error: crun: clone:
+# Resource temporarily unavailable"). That is not the student's mistake.
+_SANDBOX_FAULT = re.compile(r"OCI runtime error|\bcrun: |Resource temporarily unavailable|cannot fork", re.IGNORECASE)
+
+
+def is_sandbox_fault(payload: dict) -> bool:
+    """The sandbox failed to start the program at all (nothing was printed)."""
+    if payload.get("program_output"):
+        return False
+    text = f"{payload.get('compiler_error') or ''}\n{payload.get('program_error') or ''}"
+    return bool(_SANDBOX_FAULT.search(text))
+
+
 # How long to wait before asking a busy sandbox again; it recovers within seconds.
 _BUSY_RETRY_DELAYS = (2.0, 5.0)
 
@@ -129,28 +143,33 @@ class WandboxCodeRunner:
         async with httpx.AsyncClient() as client:
             return await client.post(self._url, json=body, timeout=self._timeout)
 
+    async def _attempt(self, body: dict) -> dict | None:
+        """The sandbox's answer, or None when it is too busy to give a real one."""
+        response = await self._post(body)
+        if response.status_code == 429:
+            return None
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or "status" not in payload:
+            raise CodeRunnerUnavailable("unexpected answer from the sandbox")
+        return None if is_sandbox_fault(payload) else payload
+
     async def run(self, language: Language, code: str, stdin: str) -> RunResult:
         body = {"compiler": _COMPILERS[language], "code": prepare_source(language, code), "stdin": stdin}
         if language in _COMPILER_OPTIONS:
             body["compiler-option-raw"] = _COMPILER_OPTIONS[language]
         started = time.perf_counter()
         try:
-            response = await self._post(body)
+            payload = await self._attempt(body)
             for delay in self._retry_delays:
-                if response.status_code != 429:
+                if payload is not None:
                     break
                 await asyncio.sleep(delay)
-                response = await self._post(body)
-            if response.status_code == 429:
-                raise CodeRunnerBusy("the sandbox is refusing requests for now")
-            response.raise_for_status()
-            payload = response.json()
-        except CodeRunnerBusy:
-            raise
+                payload = await self._attempt(body)
         except (httpx.HTTPError, ValueError) as exc:
             raise CodeRunnerUnavailable(str(exc)) from exc
-        if not isinstance(payload, dict) or "status" not in payload:
-            raise CodeRunnerUnavailable("unexpected answer from the sandbox")
+        if payload is None:
+            raise CodeRunnerBusy("the sandbox is overloaded or refusing requests for now")
         return parse_result(language, payload, int((time.perf_counter() - started) * 1000))
 
 

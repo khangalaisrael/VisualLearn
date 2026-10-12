@@ -388,3 +388,28 @@ def test_haskell_expressions_that_only_look_like_commands_or_statements() -> Non
     assert "  print (load 5)\n" in main  # a call to the student's own `load`
     assert main.count("(not needed here") == 1  # only the bare `reload`
     assert "  line <- getLine\n" in main and "  (a, b) <- pure (1, 2)\n" in main
+
+
+async def test_the_sandbox_failing_to_start_a_program_is_busy_not_a_compile_error() -> None:
+    fault = _payload(status="1", compiler_error="Error: OCI runtime error: crun: clone: Resource temporarily unavailable")
+    answers = [httpx.Response(200, json=fault), httpx.Response(200, json=_payload(program_output="ok"))]
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return answers[min(calls, len(answers)) - 1]
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as fake:
+        result = await WandboxCodeRunner("https://sandbox.test/run", 5, client=fake, retry_delays=(0, 0)).run("cpp", "int main() {}", "")
+    assert (result.status, result.stdout, calls) == ("ok", "ok", 2)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=fault))) as fake:
+        with pytest.raises(CodeRunnerBusy):
+            await WandboxCodeRunner("https://sandbox.test/run", 5, client=fake, retry_delays=(0, 0)).run("cpp", "int main() {}", "")
+
+    # A student's own program that mentions such words, and printed something, is left alone.
+    mine = _payload(program_output="Resource temporarily unavailable\n")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=mine))) as fake:
+        result = await WandboxCodeRunner("https://sandbox.test/run", 5, client=fake, retry_delays=(0, 0)).run("python", "print(1)", "")
+    assert result.status == "ok"
