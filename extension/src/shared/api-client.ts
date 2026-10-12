@@ -15,6 +15,7 @@ import type {
   HealthResponse,
   LectureListResponse,
   LimitKind,
+  CodeFixResponse,
   CodeLanguage,
   CodeRunResponse,
   MoveSlideRequest,
@@ -611,6 +612,22 @@ export function updateSeries(seriesId: string, changes: SeriesUpdateRequest): Pr
  * crash is a normal answer (see `status`), not a thrown error. */
 export function runCode(language: CodeLanguage, code: string, stdin: string): Promise<CodeRunResponse> {
   return authedJson("/code/run", jsonBody("POST", { language, code, stdin }), "Couldn't run your code", QUIZ_ATTEMPT_TIMEOUT_MS);
+}
+
+/** Has the tutor complete or correct code so that it runs. `lastRun` is what
+ * the last run reported, when it failed. Counts as a chat message. */
+export function makeRunnable(
+  language: CodeLanguage,
+  code: string,
+  stdin: string,
+  lastRun: string
+): Promise<CodeFixResponse> {
+  return authedJson(
+    "/code/make-runnable",
+    jsonBody("POST", { language, code, stdin, last_run: lastRun }),
+    "Couldn't complete your code",
+    QUIZ_ATTEMPT_TIMEOUT_MS
+  );
 }
 
 /** Sorts the captures the user already has again, a few per call: call it

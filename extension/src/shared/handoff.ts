@@ -6,11 +6,13 @@
  * anything over.
  */
 
-export type CodeLanguage = "haskell" | "java";
+export type CodeLanguage = "haskell" | "java" | "cpp" | "python";
 
 export const CODE_LANGUAGES: { id: CodeLanguage; name: string }[] = [
   { id: "haskell", name: "Haskell" },
   { id: "java", name: "Java" },
+  { id: "cpp", name: "C++" },
+  { id: "python", name: "Python" },
 ];
 
 export type Handoff = { kind: "code"; language: CodeLanguage; code: string } | { kind: "chat"; question: string };
@@ -39,6 +41,8 @@ export function runnableLanguage(language: string | null | undefined): CodeLangu
   const name = language?.toLowerCase().trim();
   if (name === "haskell" || name === "hs") return "haskell";
   if (name === "java") return "java";
+  if (name === "cpp" || name === "c++" || name === "cc" || name === "cxx") return "cpp";
+  if (name === "python" || name === "py" || name === "python3") return "python";
   return null;
 }
 

@@ -1,6 +1,7 @@
 /**
- * Code: write a Haskell or Java program, run it, and read what it printed or
- * what the compiler said. Programs run in a hosted sandbox reached through
+ * Code: write a program (Haskell, Java, C++ or Python), run it, and read what
+ * it printed or what the compiler said. "Make it runnable" has the tutor
+ * complete a fragment or correct a program that failed, then runs the result. Programs run in a hosted sandbox reached through
  * the backend (POST /code/run), never in the browser or on our server. The
  * draft for each language is kept on this device, and the result can be sent
  * to Chat to have it explained.
@@ -20,7 +21,7 @@ import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState }
 
 import type { CodeRunResponse } from "@shared/types";
 
-import { ApiError, getAuthState, runCode, signInWithGoogle } from "../../shared/api-client";
+import { ApiError, getAuthState, makeRunnable, runCode, signInWithGoogle } from "../../shared/api-client";
 import { CODE_LANGUAGES, type CodeLanguage, askInChat } from "../../shared/handoff";
 import { type Edit, editFor } from "../code/editing";
 import { Button } from "../components/Button";
@@ -43,6 +44,8 @@ const DEFAULT_FONT_SIZE = 14;
 const STARTERS: Record<CodeLanguage, string> = {
   haskell: `double :: Int -> Int\ndouble x = x + x\n\nmain :: IO ()\nmain = print (double 21)\n`,
   java: `public class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello, world");\n  }\n}\n`,
+  cpp: `#include <iostream>\n\nint twice(int n) {\n  return n * 2;\n}\n\nint main() {\n  std::cout << twice(21) << std::endl;\n}\n`,
+  python: `def twice(n):\n    return n * 2\n\nprint(twice(21))\n`,
 };
 
 type Drafts = Record<CodeLanguage, string>;
@@ -82,11 +85,13 @@ function tutorQuestion(language: CodeLanguage, code: string, stdin: string, resu
   return parts.join("\n\n");
 }
 
-const FILE_NAMES: Record<CodeLanguage, string> = { haskell: "Main.hs", java: "Main.java" };
+const FILE_NAMES: Record<CodeLanguage, string> = { haskell: "Main.hs", java: "Main.java", cpp: "main.cpp", python: "main.py" };
 // A letter in a coloured chip, not a logo.
 const BADGES: Record<CodeLanguage, { mark: string; className: string }> = {
   haskell: { mark: "λ", className: "bg-[#c4b5fd] text-[#1e1b4b]" },
   java: { mark: "J", className: "bg-[#fdba74] text-[#1e1b4b]" },
+  cpp: { mark: "C", className: "bg-[#93c5fd] text-[#1e1b4b]" },
+  python: { mark: "Py", className: "bg-[#fde68a] text-[#1e1b4b] text-[10px]" },
 };
 // Shared by the textarea and the highlighted copy under it: they must line up exactly.
 // (Size and line height are set together in `textStyle`, since the size can be changed.)
@@ -134,6 +139,10 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   // How far the textarea is scrolled; the highlighted copy and the line numbers follow it.
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
+  // "Make it runnable": while the tutor works, and afterwards what it changed
+  // and the student's own version, so it can be put back.
+  const [fixing, setFixing] = useState(false);
+  const [fix, setFix] = useState<{ note: string; language: CodeLanguage; previous: string } | null>(null);
 
   const code = drafts[language];
 
@@ -142,8 +151,9 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
       .get([DRAFTS_KEY, LANGUAGE_KEY, FONT_SIZE_KEY])
       .then((stored) => {
         const saved = stored[DRAFTS_KEY] as Partial<Drafts> | undefined;
-        if (saved) setDrafts((current) => ({ haskell: saved.haskell ?? current.haskell, java: saved.java ?? current.java }));
-        if (stored[LANGUAGE_KEY] === "java" || stored[LANGUAGE_KEY] === "haskell") setLanguage(stored[LANGUAGE_KEY]);
+        if (saved) setDrafts((current) => ({ ...current, ...saved }));
+        const chosen = CODE_LANGUAGES.find((item) => item.id === stored[LANGUAGE_KEY]);
+        if (chosen) setLanguage(chosen.id);
         if (FONT_SIZES.includes(stored[FONT_SIZE_KEY] as number)) setFontSize(stored[FONT_SIZE_KEY] as number);
       })
       .catch(() => undefined)
@@ -198,17 +208,49 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
     if (next !== undefined) setFontSize(next);
   };
 
-  const execute = async () => {
-    if (run.status === "running" || !code.trim()) return;
+  const languageName = CODE_LANGUAGES.find((item) => item.id === language)?.name ?? language;
+
+  /** Runs `source` (the editor's code unless given). */
+  const execute = async (source: string = code) => {
+    if (run.status === "running" || !source.trim()) return;
     setRun({ status: "running" });
     try {
-      setRun({ status: "done", result: await runCode(language, code, stdin) });
+      setRun({ status: "done", result: await runCode(language, source, stdin) });
     } catch (caught) {
       setRun({
         status: "failed",
         message: caught instanceof Error ? caught.message : String(caught),
         limited: caught instanceof ApiError && caught.status === 429,
       });
+    }
+  };
+
+  /** Has the tutor complete or correct the code, puts the result in the editor and runs it. */
+  const makeItRunnable = async () => {
+    if (fixing || run.status === "running" || !code.trim()) return;
+    const failed = run.status === "done" && run.result.status !== "ok" ? run.result : null;
+    const lastRun = failed
+      ? failed.status === "timeout"
+        ? "The program was stopped because it ran for too long."
+        : [failed.compiler_output, failed.stderr].filter(Boolean).join("\n")
+      : "";
+    setFixing(true);
+    setFix(null);
+    try {
+      const fixed = await makeRunnable(language, code, stdin, lastRun);
+      setFix({ note: fixed.note, language, previous: code });
+      setCode(fixed.code);
+      setFixing(false);
+      if (editorRef.current) editorRef.current.scrollTop = editorRef.current.scrollLeft = 0;
+      await execute(fixed.code);
+    } catch (caught) {
+      setRun({
+        status: "failed",
+        message: caught instanceof Error ? caught.message : String(caught),
+        limited: caught instanceof ApiError && caught.status === 429,
+      });
+    } finally {
+      setFixing(false);
     }
   };
 
@@ -252,35 +294,42 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
     <div className="scrollbar-thin flex flex-1 flex-col gap-3 overflow-y-auto p-4">
       <div className="flex flex-col gap-0.5">
         <h1 className="text-base font-semibold text-slate-800">Code</h1>
-        <p className="text-sm text-slate-500">Write Haskell or Java, run it, and see what it prints.</p>
+        <p className="text-sm text-slate-500">Write a program, run it, and see what it prints.</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 rounded-sm bg-slate-100 p-1" role="group" aria-label="Language">
+        <select
+          value={language}
+          aria-label="Language"
+          onChange={(event) => {
+            setLanguage(event.target.value as CodeLanguage);
+            setRun({ status: "idle" });
+            if (editorRef.current) editorRef.current.scrollTop = editorRef.current.scrollLeft = 0;
+          }}
+          className="rounded-sm border border-slate-300 bg-white py-1 pl-2 pr-7 text-xs font-medium text-slate-700 focus:border-indigo-400"
+        >
           {CODE_LANGUAGES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-pressed={language === item.id}
-              onClick={() => {
-                setLanguage(item.id);
-                setRun({ status: "idle" });
-                if (editorRef.current) editorRef.current.scrollTop = editorRef.current.scrollLeft = 0;
-              }}
-              className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors duration-[120ms] ${
-                language === item.id ? "bg-white text-slate-800 shadow-subtle" : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
+            <option key={item.id} value={item.id}>
               {item.name}
-            </button>
+            </option>
           ))}
-        </div>
+        </select>
+        <button
+          type="button"
+          onClick={() => void makeItRunnable()}
+          disabled={fixing || run.status === "running" || !code.trim() || signedIn === false}
+          title="Have the tutor complete this code, or correct it if it failed, so that it runs"
+          className="rounded-sm px-2 py-1 text-xs font-medium text-indigo-600 transition-colors duration-[120ms] hover:bg-indigo-50 disabled:opacity-50 disabled:hover:bg-transparent dark:text-indigo-300"
+        >
+          {fixing ? "Working on it…" : "Make it runnable"}
+        </button>
         <button
           type="button"
           onClick={() => {
             if (code.trim() && code !== STARTERS[language] && !window.confirm("Replace your code with the starting example?")) return;
             setCode(STARTERS[language]);
             setRun({ status: "idle" });
+            setFix(null);
           }}
           className="rounded-sm px-2 py-1 text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700"
         >
@@ -310,7 +359,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
         </div>
       </div>
 
-      <div className="vl-editor overflow-hidden rounded-md border border-[#3730a3] shadow-subtle focus-within:ring-2 focus-within:ring-indigo-300">
+      <div className="vl-editor flex-none overflow-hidden rounded-md border border-[#3730a3] shadow-subtle focus-within:ring-2 focus-within:ring-indigo-300">
         <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] py-1.5 pl-3 pr-1.5">
           <span
             className={`flex h-5 w-5 flex-none items-center justify-center rounded-sm font-mono text-xs font-bold ${BADGES[language].className}`}
@@ -322,7 +371,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           <button
             type="button"
             onClick={() => void execute()}
-            disabled={run.status === "running" || !code.trim() || signedIn === false}
+            disabled={run.status === "running" || fixing || !code.trim() || signedIn === false}
             className="flex flex-none items-center gap-1.5 rounded-sm bg-[var(--vl-editor-warm)] px-3 py-1 text-xs font-semibold text-[#1e1b4b] transition-colors duration-[120ms] hover:bg-[#fef3c7] active:bg-[#fcd34d] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RunIcon />
@@ -351,7 +400,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               onChange={(event) => setCode(event.target.value)}
               onKeyDown={onEditorKey}
               onScroll={(event) => setScroll({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}
-              aria-label={`Your ${language === "java" ? "Java" : "Haskell"} code`}
+              aria-label={`Your ${languageName} code`}
               wrap="off"
               spellCheck={false}
               autoCapitalize="off"
@@ -377,6 +426,31 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           className="mt-2 w-full resize-y rounded-sm border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-800 placeholder:font-sans placeholder:text-slate-400 focus:border-indigo-400"
         />
       </details>
+
+      {fixing && (
+        <p className="animate-pulse text-xs text-slate-400" role="status">
+          The tutor is completing your code. This takes a few seconds.
+        </p>
+      )}
+
+      {fix && fix.language === language && (
+        <div role="status" className="flex flex-col items-start gap-2 rounded-md border border-amber-100 bg-amber-50/70 p-3 dark:border-indigo-100 dark:bg-indigo-50/40">
+          <p className="text-sm leading-relaxed text-slate-700">
+            <span className="font-semibold">Made runnable.</span> {fix.note}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setCode(fix.previous);
+              setFix(null);
+              setRun({ status: "idle" });
+            }}
+            className="rounded-sm text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+          >
+            Put my version back
+          </button>
+        </div>
+      )}
 
       {signedIn === false && (
         <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-slate-200 p-3">
@@ -404,7 +478,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
 
       {result && (
         <div className="flex flex-col gap-2">
-          <section className="vl-editor overflow-hidden rounded-md border border-[#3730a3] shadow-subtle" aria-label="Result">
+          <section className="vl-editor flex-none overflow-hidden rounded-md border border-[#3730a3] shadow-subtle" aria-label="Result">
             <div className="flex items-center gap-2 bg-[var(--vl-editor-bar)] px-3 py-1.5">
               <span className={`h-2 w-2 flex-none rounded-full ${STATUS_DOTS[result.status]}`} aria-hidden="true" />
               <p role="status" className="text-xs text-[var(--vl-editor-text)]">
@@ -435,13 +509,16 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               {nothingPrinted && <p className="font-mono text-xs text-[var(--vl-editor-dim)]">The program printed nothing.</p>}
             </div>
           </section>
-          <Button
-            variant="secondary"
-            className="self-start"
-            onClick={() => askInChat(tutorQuestion(language, code, stdin, result))}
-          >
-            {result.status === "ok" ? "Ask the tutor to explain this" : "Ask the tutor about this error"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {result.status !== "ok" && (
+              <Button onClick={() => void makeItRunnable()} disabled={fixing}>
+                {fixing ? "Working on it…" : "Make it runnable"}
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => askInChat(tutorQuestion(language, code, stdin, result))}>
+              {result.status === "ok" ? "Ask the tutor to explain this" : "Ask the tutor about this error"}
+            </Button>
+          </div>
         </div>
       )}
 

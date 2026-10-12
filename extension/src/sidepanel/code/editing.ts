@@ -11,8 +11,6 @@
 
 import type { CodeLanguage } from "../../shared/handoff";
 
-export const INDENT = "  ";
-
 export interface EditorState {
   value: string;
   /** Selection start and end; equal when nothing is selected. */
@@ -38,23 +36,47 @@ export interface Edit {
 }
 
 interface LanguageRules {
+  /** One level of indentation. */
+  indent: string;
   comment: string;
   /** The text before the cursor (right-trimmed) ends a line that opens a block. */
   opensBlock: (before: string) => boolean;
   /** Characters closed automatically when typed. */
   pairs: Record<string, string>;
+  /** The line (trimmed) ends its block: the next line goes back a level. */
+  closesBlock?: (line: string) => boolean;
 }
 
 const BRACKETS: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
 
+// A block, an argument list or array carried onto the next line, a `case x:`
+// label or an access label, or a lambda arrow.
+const opensBraceBlock = (before: string): boolean => /[{([:]$/.test(before) || /->$/.test(before);
+
 const RULES: Record<CodeLanguage, LanguageRules> = {
   java: {
+    indent: "  ",
     comment: "//",
-    // A block, an argument list or array carried onto the next line, or a `case x:` label.
-    opensBlock: (before) => /[{([:]$/.test(before) || /->$/.test(before),
+    opensBlock: opensBraceBlock,
     pairs: { ...BRACKETS, '"': '"', "'": "'" },
   },
+  cpp: {
+    indent: "  ",
+    comment: "//",
+    opensBlock: opensBraceBlock,
+    pairs: { ...BRACKETS, '"': '"', "'": "'" },
+  },
+  python: {
+    // Four spaces, as Python's own style guide asks.
+    indent: "    ",
+    comment: "#",
+    // `def f():`, `if x:`, `else:`, or an open bracket carried onto the next line.
+    opensBlock: (before) => /[:([{]$/.test(before),
+    pairs: { ...BRACKETS, '"': '"', "'": "'" },
+    closesBlock: (line) => /^(return|pass|break|continue|raise)\b/.test(line),
+  },
   haskell: {
+    indent: "  ",
     comment: "--",
     // A definition continued on the next line, or a layout keyword. `==`, `<=`,
     // `>=` and `/=` end in "=" too, but are comparisons, not definitions.
@@ -88,7 +110,12 @@ function onEnter(state: EditorState, rules: LanguageRules): Edit {
   const indent = leadingSpace(value.slice(from, start));
   const before = value.slice(from, start).trimEnd();
   const opens = before.length > 0 && rules.opensBlock(before);
-  const inner = indent + (opens ? INDENT : "");
+  // After `return` and the like (Python), the block is over.
+  if (!opens && rules.closesBlock?.(before.trim()) && indent.length >= rules.indent.length) {
+    const back = indent.slice(rules.indent.length);
+    return caret(start + 1 + back.length, start, end, `\n${back}`);
+  }
+  const inner = indent + (opens ? rules.indent : "");
   const closer = BRACKETS[before.slice(-1)];
   // Enter between a bracket and its partner: the partner goes on its own line.
   if (opens && closer !== undefined && value[end] === closer) {
@@ -98,7 +125,7 @@ function onEnter(state: EditorState, rules: LanguageRules): Edit {
 }
 
 /** Indents or unindents every line the selection touches. */
-function shiftLines(state: EditorState, outdent: boolean): Edit | null {
+function shiftLines(state: EditorState, outdent: boolean, unit: string): Edit | null {
   const { value, start, end } = state;
   const from = lineStart(value, start);
   // A selection that ends at the very start of a line does not include that line.
@@ -106,8 +133,10 @@ function shiftLines(state: EditorState, outdent: boolean): Edit | null {
   const to = lineEnd(value, last);
   const lines = value.slice(from, to).split("\n");
   const changed = lines.map((line) => {
-    if (!outdent) return line.length > 0 ? INDENT + line : line;
-    if (line.startsWith(INDENT)) return line.slice(INDENT.length);
+    if (!outdent) return line.length > 0 ? unit + line : line;
+    if (line.startsWith(unit)) return line.slice(unit.length);
+    // Less than a full level left: take what there is.
+    if (/^ +/.test(line)) return line.replace(/^ +/, "");
     return line.startsWith("\t") || line.startsWith(" ") ? line.slice(1) : line;
   });
   const insert = changed.join("\n");
@@ -165,7 +194,7 @@ function onBackspace(state: EditorState, rules: LanguageRules): Edit | null {
   const from = lineStart(value, start);
   const before = value.slice(from, start);
   if (before.length > 0 && /^ +$/.test(before)) {
-    const remove = before.length % INDENT.length || INDENT.length;
+    const remove = before.length % rules.indent.length || rules.indent.length;
     return caret(start - remove, start - remove, start, "");
   }
   return null;
@@ -183,8 +212,8 @@ function onCharacter(state: EditorState, key: string, rules: LanguageRules): Edi
   if (key === "}" && start === end) {
     const from = lineStart(value, start);
     const before = value.slice(from, start);
-    if (before.length >= INDENT.length && /^ +$/.test(before)) {
-      return caret(start - INDENT.length + 1, start - INDENT.length, start, "}");
+    if (before.length >= rules.indent.length && /^ +$/.test(before)) {
+      return caret(start - rules.indent.length + 1, start - rules.indent.length, start, "}");
     }
   }
   const partner = rules.pairs[key];
@@ -210,9 +239,9 @@ export function editFor(state: EditorState, press: KeyPress, language: CodeLangu
   if (press.key === "Enter") return press.shift ? null : onEnter(state, rules);
   if (press.key === "Tab") {
     const multiline = state.value.slice(state.start, state.end).includes("\n");
-    if (press.shift || multiline) return shiftLines(state, press.shift);
+    if (press.shift || multiline) return shiftLines(state, press.shift, rules.indent);
     const column = state.start - lineStart(state.value, state.start);
-    const spaces = INDENT.length - (column % INDENT.length);
+    const spaces = rules.indent.length - (column % rules.indent.length);
     return caret(state.start + spaces, state.start, state.end, " ".repeat(spaces));
   }
   if (press.key === "Backspace") return onBackspace(state, rules);
