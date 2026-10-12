@@ -17,10 +17,16 @@ import bash from "highlight.js/lib/languages/bash";
 import c from "highlight.js/lib/languages/c";
 import cpp from "highlight.js/lib/languages/cpp";
 import csharp from "highlight.js/lib/languages/csharp";
+import go from "highlight.js/lib/languages/go";
+import haskell from "highlight.js/lib/languages/haskell";
 import java from "highlight.js/lib/languages/java";
 import javascript from "highlight.js/lib/languages/javascript";
 import json from "highlight.js/lib/languages/json";
+import matlab from "highlight.js/lib/languages/matlab";
+import plaintext from "highlight.js/lib/languages/plaintext";
 import python from "highlight.js/lib/languages/python";
+import r from "highlight.js/lib/languages/r";
+import rust from "highlight.js/lib/languages/rust";
 import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 
@@ -37,6 +43,11 @@ const REGISTERED_LANGUAGES = [
   "sql",
   "bash",
   "json",
+  "haskell",
+  "go",
+  "rust",
+  "r",
+  "matlab",
 ];
 
 hljs.registerLanguage("python", python);
@@ -49,6 +60,12 @@ hljs.registerLanguage("csharp", csharp);
 hljs.registerLanguage("sql", sql);
 hljs.registerLanguage("bash", bash);
 hljs.registerLanguage("json", json);
+hljs.registerLanguage("haskell", haskell);
+hljs.registerLanguage("go", go);
+hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("r", r);
+hljs.registerLanguage("matlab", matlab);
+hljs.registerLanguage("plaintext", plaintext);
 
 interface CodeBlockProps {
   code: string;
@@ -61,8 +78,12 @@ function highlight(code: string, language?: string | null): { html: string; lang
     const result = hljs.highlight(code, { language: normalized });
     return { html: result.value, language: normalized };
   }
-  // No language given (or one we don't recognize) — auto-detect among the
-  // languages actually registered above, rather than guessing at plain text.
+  // A language was named but is not one we colour: keep its name and show the
+  // code plain. Guessing here once labelled Haskell as "java".
+  if (normalized) {
+    return { html: hljs.highlight(code, { language: "plaintext" }).value, language: normalized };
+  }
+  // No language given: auto-detect among the languages registered above.
   const auto = hljs.highlightAuto(code, REGISTERED_LANGUAGES);
   return { html: auto.value, language: auto.language ?? null };
 }

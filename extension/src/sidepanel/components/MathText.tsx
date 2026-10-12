@@ -20,7 +20,8 @@ import { Fragment, type ReactNode, useMemo } from "react";
 import { CodeBlock } from "./CodeBlock";
 
 interface Segment {
-  kind: "text" | "math" | "code";
+  // "code" is a fenced block; "inline" is `code` inside a sentence.
+  kind: "text" | "math" | "code" | "inline";
   content: string;
   displayMode: boolean;
   language?: string;
@@ -55,6 +56,24 @@ function splitMathSegments(text: string): Segment[] {
 // and the math pass only ever sees what's left over.
 const CODE_FENCE_PATTERN = /```(\w*)\n?([\s\S]*?)```/g;
 
+// `name` inside a sentence. Also carved out before math, for the same
+// reason: `$PATH` or `a $ b` in code is not a formula. Both backticks must
+// be on one line, so a stray one never swallows the rest of the answer.
+const INLINE_CODE_PATTERN = /`([^`\n]+)`/g;
+
+function splitInlineCode(text: string): Segment[] {
+  const segments: Segment[] = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(INLINE_CODE_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) segments.push(...splitMathSegments(text.slice(lastIndex, index)));
+    segments.push({ kind: "inline", content: match[1], displayMode: false });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < text.length) segments.push(...splitMathSegments(text.slice(lastIndex)));
+  return segments;
+}
+
 function splitSegments(text: string): Segment[] {
   const segments: Segment[] = [];
   let lastIndex = 0;
@@ -62,7 +81,7 @@ function splitSegments(text: string): Segment[] {
   for (const match of text.matchAll(CODE_FENCE_PATTERN)) {
     const index = match.index ?? 0;
     if (index > lastIndex) {
-      segments.push(...splitMathSegments(text.slice(lastIndex, index)));
+      segments.push(...splitInlineCode(text.slice(lastIndex, index)));
     }
     const [, language, code] = match;
     segments.push({
@@ -74,7 +93,7 @@ function splitSegments(text: string): Segment[] {
     lastIndex = index + match[0].length;
   }
   if (lastIndex < text.length) {
-    segments.push(...splitMathSegments(text.slice(lastIndex)));
+    segments.push(...splitInlineCode(text.slice(lastIndex)));
   }
   return segments;
 }
@@ -89,8 +108,11 @@ const HEADING_CLASSES = [
   "block text-sm font-semibold text-slate-700",
 ] as const;
 
-/** One piece of a line: plain text (which may hold ** markers) or a formula. */
-type Token = { kind: "text"; text: string } | { kind: "math"; latex: string; displayMode: boolean };
+/** One piece of a line: plain text (which may hold ** markers), a formula, or `code`. */
+type Token =
+  | { kind: "text"; text: string }
+  | { kind: "math"; latex: string; displayMode: boolean }
+  | { kind: "code"; code: string };
 
 /** A run of prose as lines of tokens, or a fenced code block. */
 type Block = { kind: "prose"; lines: Token[][] } | { kind: "code"; code: string; language?: string };
@@ -117,6 +139,10 @@ function toBlocks(segments: Segment[]): Block[] {
     const current: Token[][] = lines;
     if (segment.kind === "math") {
       current[current.length - 1].push({ kind: "math", latex: segment.content, displayMode: segment.displayMode });
+      continue;
+    }
+    if (segment.kind === "inline") {
+      current[current.length - 1].push({ kind: "code", code: segment.content });
       continue;
     }
     segment.content.split("\n").forEach((part, index) => {
@@ -182,6 +208,17 @@ function renderInline(tokens: Token[], keyPrefix: string): ReactNode[] {
     if (token.kind === "math") {
       const formula = <KatexSpan key={`${keyPrefix}-m${key++}`} latex={token.latex} displayMode={token.displayMode} />;
       (bold ?? nodes).push(formula);
+      continue;
+    }
+    if (token.kind === "code") {
+      (bold ?? nodes).push(
+        <code
+          key={`${keyPrefix}-c${key++}`}
+          className="rounded-sm bg-slate-100 px-1 py-0.5 font-mono text-[0.92em] text-slate-800"
+        >
+          {token.code}
+        </code>
+      );
       continue;
     }
     if (!applyBold) {
