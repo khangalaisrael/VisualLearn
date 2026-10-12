@@ -609,9 +609,20 @@ export function updateSeries(seriesId: string, changes: SeriesUpdateRequest): Pr
 }
 
 /** Compiles and runs a program in the hosted sandbox. A compile error or a
- * crash is a normal answer (see `status`), not a thrown error. */
-export function runCode(language: CodeLanguage, code: string, stdin: string): Promise<CodeRunResponse> {
-  return authedJson("/code/run", jsonBody("POST", { language, code, stdin }), "Couldn't run your code", QUIZ_ATTEMPT_TIMEOUT_MS);
+ * crash is a normal answer (see `status`), not a thrown error. `expressions`
+ * (Haskell and Python) are evaluated after the code, as in an interpreter. */
+export function runCode(
+  language: CodeLanguage,
+  code: string,
+  stdin: string,
+  expressions: string = ""
+): Promise<CodeRunResponse> {
+  return authedJson(
+    "/code/run",
+    jsonBody("POST", { language, code, stdin, expressions }),
+    "Couldn't run your code",
+    QUIZ_ATTEMPT_TIMEOUT_MS
+  );
 }
 
 /** Has the tutor complete or correct code so that it runs. `lastRun` is what

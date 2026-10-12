@@ -1,7 +1,9 @@
 /**
  * Code: write a program (Haskell, Java, C++ or Python), run it, and read what
  * it printed or what the compiler said. "Make it runnable" has the tutor
- * complete a fragment or correct a program that failed, then runs the result. Programs run in a hosted sandbox reached through
+ * complete a fragment or correct a program that failed, then runs the result.
+ * Haskell and Python also take expressions to try, as a lecture does in GHCi
+ * or the Python shell: code from a slide rarely has a main of its own. Programs run in a hosted sandbox reached through
  * the backend (POST /code/run), never in the browser or on our server. The
  * draft for each language is kept on this device, and the result can be sent
  * to Chat to have it explained.
@@ -37,6 +39,13 @@ export interface IncomingCode {
 const DRAFTS_KEY = "codeDrafts";
 const LANGUAGE_KEY = "codeLanguage";
 const FONT_SIZE_KEY = "codeFontSize";
+const TRIES_KEY = "codeTries";
+
+// Languages a lecture uses through an interpreter prompt, and how that is described.
+const TRY_HELP: Partial<Record<CodeLanguage, { where: string; example: string }>> = {
+  haskell: { where: "GHCi", example: "isPrime 10\nprimes 30" },
+  python: { where: "the Python shell", example: "twice(21)\n[twice(n) for n in range(3)]" },
+};
 // Text sizes the editor offers, in pixels, and the one it starts on.
 const FONT_SIZES = [12, 13, 14, 15, 16, 18];
 const DEFAULT_FONT_SIZE = 14;
@@ -68,7 +77,13 @@ function seconds(ms: number): string {
 }
 
 /** The question sent to Chat about a run: the program, then what happened. */
-function tutorQuestion(language: CodeLanguage, code: string, stdin: string, result: CodeRunResponse): string {
+function tutorQuestion(
+  language: CodeLanguage,
+  code: string,
+  stdin: string,
+  expressions: string,
+  result: CodeRunResponse
+): string {
   const name = CODE_LANGUAGES.find((item) => item.id === language)?.name ?? language;
   const parts = [
     result.status === "ok"
@@ -78,6 +93,7 @@ function tutorQuestion(language: CodeLanguage, code: string, stdin: string, resu
         : `This ${name} program fails. Explain the error in plain words and show me how to fix it.`,
     "```" + language + "\n" + code.trimEnd() + "\n```",
   ];
+  if (expressions.trim()) parts.push("Expressions I tried, one per line:\n```\n" + expressions.trimEnd() + "\n```");
   if (stdin.trim()) parts.push("Input:\n```\n" + stdin.trimEnd() + "\n```");
   if (result.compiler_output) parts.push("Compiler:\n```\n" + result.compiler_output + "\n```");
   if (result.stderr) parts.push("Error output:\n```\n" + result.stderr.trimEnd() + "\n```");
@@ -132,6 +148,8 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   const [language, setLanguage] = useState<CodeLanguage>("haskell");
   const [drafts, setDrafts] = useState<Drafts>(STARTERS);
   const [stdin, setStdin] = useState("");
+  // Expressions to try after the code, per language (see TRY_HELP).
+  const [tries, setTries] = useState<Partial<Record<CodeLanguage, string>>>({});
   const [run, setRun] = useState<RunState>({ status: "idle" });
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -148,10 +166,11 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
 
   useEffect(() => {
     chrome.storage.local
-      .get([DRAFTS_KEY, LANGUAGE_KEY, FONT_SIZE_KEY])
+      .get([DRAFTS_KEY, LANGUAGE_KEY, FONT_SIZE_KEY, TRIES_KEY])
       .then((stored) => {
         const saved = stored[DRAFTS_KEY] as Partial<Drafts> | undefined;
         if (saved) setDrafts((current) => ({ ...current, ...saved }));
+        if (stored[TRIES_KEY]) setTries(stored[TRIES_KEY] as Partial<Record<CodeLanguage, string>>);
         const chosen = CODE_LANGUAGES.find((item) => item.id === stored[LANGUAGE_KEY]);
         if (chosen) setLanguage(chosen.id);
         if (FONT_SIZES.includes(stored[FONT_SIZE_KEY] as number)) setFontSize(stored[FONT_SIZE_KEY] as number);
@@ -165,11 +184,11 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
     if (!loaded) return;
     const timer = setTimeout(() => {
       chrome.storage.local
-        .set({ [DRAFTS_KEY]: drafts, [LANGUAGE_KEY]: language, [FONT_SIZE_KEY]: fontSize })
+        .set({ [DRAFTS_KEY]: drafts, [LANGUAGE_KEY]: language, [FONT_SIZE_KEY]: fontSize, [TRIES_KEY]: tries })
         .catch(() => undefined);
     }, 400);
     return () => clearTimeout(timer);
-  }, [drafts, language, fontSize, loaded]);
+  }, [drafts, language, fontSize, tries, loaded]);
 
   const refreshAuth = useCallback(() => {
     void getAuthState().then((auth) => setSignedIn(auth.sessionToken !== null));
@@ -209,13 +228,15 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   };
 
   const languageName = CODE_LANGUAGES.find((item) => item.id === language)?.name ?? language;
+  const tryHelp = TRY_HELP[language];
+  const expressions = tryHelp ? (tries[language] ?? "") : "";
 
   /** Runs `source` (the editor's code unless given). */
   const execute = async (source: string = code) => {
     if (run.status === "running" || !source.trim()) return;
     setRun({ status: "running" });
     try {
-      setRun({ status: "done", result: await runCode(language, source, stdin) });
+      setRun({ status: "done", result: await runCode(language, source, stdin, expressions) });
     } catch (caught) {
       setRun({
         status: "failed",
@@ -413,6 +434,34 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
         </div>
       </div>
 
+      {tryHelp && (
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-600">Try expressions</span>
+          <span className="text-xs leading-relaxed text-slate-500">
+            One per line, as you would type them in {tryHelp.where}. Each is evaluated after your code and its value
+            shown, so the code does not need a main.
+          </span>
+          <textarea
+            value={tries[language] ?? ""}
+            onChange={(event) => setTries((current) => ({ ...current, [language]: event.target.value }))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                void execute();
+              }
+            }}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            rows={3}
+            maxLength={4000}
+            aria-label="Expressions to try"
+            placeholder={tryHelp.example}
+            className="w-full resize-y rounded-sm border border-slate-300 bg-white px-3 py-2 font-mono text-xs leading-5 text-slate-800 placeholder:text-slate-400 focus:border-indigo-400"
+          />
+        </label>
+      )}
+
       <details className="rounded-sm border border-slate-200 px-3 py-2">
         <summary className="cursor-pointer text-xs font-medium text-slate-600">Program input{stdin ? " (set)" : ""}</summary>
         <textarea
@@ -422,7 +471,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           rows={3}
           maxLength={10000}
           aria-label="Program input"
-          placeholder="What the program reads, such as numbers it asks for. One value per line."
+          placeholder="Text a running program reads, such as numbers it asks for. One value per line."
           className="mt-2 w-full resize-y rounded-sm border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-800 placeholder:font-sans placeholder:text-slate-400 focus:border-indigo-400"
         />
       </details>
@@ -509,13 +558,20 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               {nothingPrinted && <p className="font-mono text-xs text-[var(--vl-editor-dim)]">The program printed nothing.</p>}
             </div>
           </section>
+          {result.status === "compile_error" && tryHelp && !expressions.trim() && /main.{0,3} is not defined/.test(result.compiler_output) && (
+            <p className="rounded-md border border-amber-100 bg-amber-50/70 p-3 text-sm leading-relaxed text-slate-700 dark:border-indigo-100 dark:bg-indigo-50/40">
+              This code has no <code className="font-mono text-[0.92em]">main</code>, so there is nothing to run yet. Type what
+              you want to try under <span className="font-medium">Try expressions</span> (for example a function call), or
+              press Make it runnable.
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             {result.status !== "ok" && (
               <Button onClick={() => void makeItRunnable()} disabled={fixing}>
                 {fixing ? "Working on it…" : "Make it runnable"}
               </Button>
             )}
-            <Button variant="secondary" onClick={() => askInChat(tutorQuestion(language, code, stdin, result))}>
+            <Button variant="secondary" onClick={() => askInChat(tutorQuestion(language, code, stdin, expressions, result))}>
               {result.status === "ok" ? "Ask the tutor to explain this" : "Ask the tutor about this error"}
             </Button>
           </div>
