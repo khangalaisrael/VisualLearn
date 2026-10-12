@@ -16,6 +16,7 @@ import { type LibraryCapture, type LibrarySeries, countLabel, relativeTime } fro
 import { BackIcon, CloseIcon, ICON_BUTTON, MoreIcon, SlideRow } from "./parts";
 import { FlashcardsView } from "./FlashcardsView";
 import { QuizView } from "./QuizView";
+import { SeriesLinks } from "./SeriesLinks";
 import { SeriesQuizzes } from "./SeriesQuizzes";
 import { SeriesStudy } from "./SeriesStudy";
 import { StudyDoc } from "./StudyDoc";
@@ -276,7 +277,12 @@ export function SeriesDetail({
         />
       )}
 
-      {active === "study" && <SeriesStudy seriesId={series.id} onOpen={setAid} />}
+      {active === "study" && (
+        <div className="flex flex-col gap-3">
+          <SeriesStudy seriesId={series.id} onOpen={setAid} />
+          <SeriesLinks seriesTitle={series.title} subtopics={series.captures.map((capture) => capture.subtopic)} />
+        </div>
+      )}
 
       <ul className={active === "quizzes" || active === "study" ? "hidden" : "flex flex-col gap-1"}>
         {shown.map((capture) => (
