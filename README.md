@@ -74,3 +74,11 @@ Two more direct-request changes: (1) the content script's automatic DOM-mutation
 See [backend/README.md](./backend/README.md) and [extension/README.md](./extension/README.md) for setup, [tools/README.md](./tools/README.md) for the dev test harness, and [docs/ROADMAP.md](./docs/ROADMAP.md) Milestone 3 for what's next.
 
 Milestone 1 (Foundation) — repo scaffold, `GET /health`, the extension shell — is unchanged from before and still complete.
+
+## License
+
+Copyright (C) 2026 khangalaisrael
+
+VisionLearn AI is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License, version 3, as published by the Free Software Foundation. See [LICENSE](./LICENSE).
+
+In short: anyone may use, change and share this code, but if they distribute a modified version or run one as a service that other people use, they must publish their source code under the same license.
