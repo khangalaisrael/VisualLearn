@@ -174,7 +174,7 @@ All need the API key plus a session whose verified Google email is in `ADMIN_EMA
 - `GET /admin/users` → `{ median_cost_usd, users: [{ user_id, email, captures_30d, chats_30d, input_tokens, output_tokens, cost_30d_usd, limit_hits_30d, last_active, is_outlier }] }`, highest spend first. Signed-out and deleted-account usage is pooled in one row with `user_id: null`. An outlier spent more than twice the median of everyone with spend, and at least $0.05 (needs three spenders). Admin accounts (`is_admin: true`) are excluded from the median and never flagged.
 - `GET /admin/waitlist` → `{ unique_users, total_clicks, entries: [{ email, clicks, first_click, last_click, sources }] }`, latest first.
 
-The extension shows this on a full-tab options page (`src/admin/`), reachable from Settings only when `GET /usage` says `is_admin`.
+The extension shows this on a full-tab page (`src/admin/`), opened from Settings only when `GET /usage` says `is_admin`.
 
 `GET /privacy` (public, HTML) is the privacy policy the Chrome Web Store listing links to.
 
