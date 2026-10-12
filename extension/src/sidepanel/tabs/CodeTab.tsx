@@ -223,6 +223,8 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
     if (!incoming) return;
     setLanguage(incoming.language);
     setDrafts((current) => ({ ...current, [incoming.language]: incoming.code }));
+    // Expressions written for the code that was here do not belong to the new code.
+    setTries((current) => ({ ...current, [incoming.language]: "" }));
     setRun({ status: "idle" });
   }, [incoming]);
 
@@ -246,12 +248,12 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   const tryHelp = TRY_HELP[language];
   const expressions = tryHelp ? (tries[language] ?? "") : "";
 
-  /** Runs `source` (the editor's code unless given). */
-  const execute = async (source: string = code) => {
+  /** Runs `source` (the editor's code unless given), with the expressions to try unless told not to. */
+  const execute = async (source: string = code, tryExpressions: boolean = true) => {
     if (run.status === "running" || !source.trim()) return;
     setRun({ status: "running" });
     try {
-      setRun({ status: "done", result: await runCode(language, source, stdin, expressions) });
+      setRun({ status: "done", result: await runCode(language, source, stdin, tryExpressions ? expressions : "") });
     } catch (caught) {
       setRun({
         status: "failed",
@@ -278,7 +280,9 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
       setCode(fixed.code);
       setFixing(false);
       if (editorRef.current) editorRef.current.scrollTop = editorRef.current.scrollLeft = 0;
-      await execute(fixed.code);
+      // The completed program is run as a program: it has a main of its own now,
+      // and the expressions may have been written for something else.
+      await execute(fixed.code, false);
     } catch (caught) {
       setRun({
         status: "failed",
@@ -364,6 +368,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           onClick={() => {
             if (code.trim() && code !== STARTERS[language] && !window.confirm("Replace your code with the starting example?")) return;
             setCode(STARTERS[language]);
+            setTries((current) => ({ ...current, [language]: "" }));
             setRun({ status: "idle" });
             setFix(null);
           }}
