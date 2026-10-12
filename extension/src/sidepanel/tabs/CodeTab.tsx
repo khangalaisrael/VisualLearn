@@ -50,7 +50,7 @@ const TRY_HELP: Partial<Record<CodeLanguage, { where: string; example: string }>
 };
 // Text sizes the editor offers, in pixels, and the one it starts on.
 const FONT_SIZES = [12, 13, 14, 15, 16, 18];
-const DEFAULT_FONT_SIZE = 14;
+const DEFAULT_FONT_SIZE = 12;
 
 const STARTERS: Record<CodeLanguage, string> = {
   haskell: `double :: Int -> Int\ndouble x = x + x\n\nmain :: IO ()\nmain = print (double 21)\n`,
