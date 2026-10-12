@@ -10,6 +10,7 @@ from html import escape
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
+from app.api.landing import LOGO_DATA_URI
 from app.core.config import get_settings
 
 router = APIRouter(tags=["privacy"])
@@ -22,6 +23,7 @@ _PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VisionLearn AI — Privacy Policy</title>
+<link rel="icon" href="__LOGO__">
 <style>
   :root { --bg:#ffffff; --text:#1e293b; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --soft:#f8fafc; }
   @media (prefers-color-scheme: dark) {
@@ -125,6 +127,7 @@ def render_policy() -> str:
     )
     return (
         _PAGE.replace("__UPDATED__", LAST_UPDATED)
+        .replace("__LOGO__", LOGO_DATA_URI)
         .replace("__DAYS__", str(settings.chat_retention_days))
         .replace("__CONTACT__", contact)
     )

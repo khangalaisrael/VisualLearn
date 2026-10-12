@@ -30,7 +30,7 @@ export function WelcomeScreen({ onDone }: { onDone: () => void }): JSX.Element {
 
   return (
     <div className="flex h-screen w-full flex-col items-center justify-center gap-6 bg-gradient-to-b from-indigo-50/60 to-white px-8 text-center">
-      <img src="/icons/icon-128.png" alt="" className="h-16 w-16 rounded-md shadow-subtle" />
+      <img src="/icons/logo.svg" alt="" className="h-16 w-16" />
 
       <div className="flex flex-col gap-2">
         <h1 className="text-lg font-semibold tracking-tight text-slate-900">Welcome to VisionLearn AI</h1>
