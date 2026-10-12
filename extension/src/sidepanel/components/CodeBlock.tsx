@@ -30,6 +30,7 @@ import rust from "highlight.js/lib/languages/rust";
 import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 
+import { canHandOff, openInCodeTab, runnableLanguage } from "../../shared/handoff";
 import { Button } from "./Button";
 
 const REGISTERED_LANGUAGES = [
@@ -91,6 +92,8 @@ function highlight(code: string, language?: string | null): { html: string; lang
 export function CodeBlock({ code, language }: CodeBlockProps): JSX.Element {
   const [copied, setCopied] = useState(false);
   const { html, language: detected } = highlight(code, language);
+  // Haskell and Java can be opened in the Code tab and run there.
+  const runnable = canHandOff() ? runnableLanguage(detected) : null;
 
   const copy = () => {
     void navigator.clipboard.writeText(code).then(() => {
@@ -103,9 +106,16 @@ export function CodeBlock({ code, language }: CodeBlockProps): JSX.Element {
     <div className="overflow-hidden rounded-sm border border-slate-200 bg-slate-50">
       <div className="flex items-center justify-between border-b border-slate-200 bg-slate-100/80 px-3 py-1">
         <span className="font-mono text-[11px] uppercase tracking-wide text-slate-500">{detected ?? "code"}</span>
-        <Button variant="secondary" className="px-2 py-0.5 text-xs" onClick={copy}>
-          {copied ? "Copied" : "Copy"}
-        </Button>
+        <span className="flex items-center gap-1">
+          {runnable && (
+            <Button variant="secondary" className="px-2 py-0.5 text-xs print:hidden" onClick={() => openInCodeTab(runnable, code)}>
+              Run
+            </Button>
+          )}
+          <Button variant="secondary" className="px-2 py-0.5 text-xs" onClick={copy}>
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </span>
       </div>
       <pre className="overflow-x-auto px-3 py-2">
         {/* eslint-disable-next-line react/no-danger -- hljs.highlight's own output, not user-supplied HTML */}

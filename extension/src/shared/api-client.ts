@@ -15,6 +15,8 @@ import type {
   HealthResponse,
   LectureListResponse,
   LimitKind,
+  CodeLanguage,
+  CodeRunResponse,
   MoveSlideRequest,
   ResortResponse,
   NoteCreateRequest,
@@ -603,6 +605,12 @@ function jsonBody(method: string, body: unknown): RequestInit {
 /** Renames a series, changes its category, or picks its cover capture. */
 export function updateSeries(seriesId: string, changes: SeriesUpdateRequest): Promise<void> {
   return authedJson(`/series/${seriesId}`, jsonBody("PATCH", changes), "Couldn't update that series");
+}
+
+/** Compiles and runs a program in the hosted sandbox. A compile error or a
+ * crash is a normal answer (see `status`), not a thrown error. */
+export function runCode(language: CodeLanguage, code: string, stdin: string): Promise<CodeRunResponse> {
+  return authedJson("/code/run", jsonBody("POST", { language, code, stdin }), "Couldn't run your code", QUIZ_ATTEMPT_TIMEOUT_MS);
 }
 
 /** Sorts the captures the user already has again, a few per call: call it

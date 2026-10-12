@@ -1,26 +1,31 @@
 /**
  * Side panel shell. Chrome's own title bar already shows the product name,
  * so there is no in-app header: one row of navigation with the places a
- * student works (Ask about a slide, Chat without one, Recent, Notes), today's
- * capture count, and Settings. Ask and Chat stay mounted while another view
- * is open so a conversation in progress is not lost.
+ * student works (Ask about a slide, Chat without one, Code, Recent, Notes),
+ * today's capture count, and Settings. Ask, Chat and Code stay mounted while
+ * another view is open so a conversation or a program in progress is not
+ * lost. Code from an answer and questions from the Code tab are handed
+ * between tabs through shared/handoff.ts.
  */
 
 import { useEffect, useState } from "react";
 
+import { onHandoff } from "../shared/handoff";
 import { AskTab, type RestoredChat } from "./tabs/AskTab";
-import { ChatTab } from "./tabs/ChatTab";
+import { ChatTab, type IncomingQuestion } from "./tabs/ChatTab";
+import { CodeTab, type IncomingCode } from "./tabs/CodeTab";
 import { NotesTab } from "./tabs/NotesTab";
 import { RecentTab } from "./tabs/RecentTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { UsageMeter } from "./components/UsageMeter";
 import { WelcomeScreen } from "./WelcomeScreen";
 
-type View = "ask" | "chat" | "recent" | "notes" | "settings";
+type View = "ask" | "chat" | "code" | "recent" | "notes" | "settings";
 
 const TABS: { view: View; label: string }[] = [
   { view: "ask", label: "Ask" },
   { view: "chat", label: "Chat" },
+  { view: "code", label: "Code" },
   { view: "recent", label: "Recent" },
   { view: "notes", label: "Notes" },
 ];
@@ -55,6 +60,24 @@ export function App(): JSX.Element {
   // before the welcome screen on a first-ever open.
   const [showWelcome, setShowWelcome] = useState<boolean | null>(null);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+  // The latest thing handed from one tab to another.
+  const [incomingCode, setIncomingCode] = useState<IncomingCode | null>(null);
+  const [incomingQuestion, setIncomingQuestion] = useState<IncomingQuestion | null>(null);
+
+  useEffect(
+    () =>
+      onHandoff((handoff) => {
+        const id = Date.now();
+        if (handoff.kind === "code") {
+          setIncomingCode({ id, language: handoff.language, code: handoff.code });
+          setView("code");
+        } else {
+          setIncomingQuestion({ id, question: handoff.question });
+          setView("chat");
+        }
+      }),
+    []
+  );
 
   useEffect(() => {
     chrome.storage.local.get([HAS_SEEN_WELCOME_KEY, SEEN_WHATS_NEW_KEY]).then((stored) => {
@@ -100,7 +123,7 @@ export function App(): JSX.Element {
             type="button"
             onClick={() => go(tab.view)}
             aria-current={view === tab.view ? "page" : undefined}
-            className={`rounded-sm px-2.5 py-1.5 text-sm font-medium transition-colors duration-[120ms] ${
+            className={`rounded-sm px-2.5 py-1.5 text-sm font-medium transition-colors duration-[120ms] max-[350px]:px-1.5 ${
               view === tab.view
                 ? "bg-indigo-50 text-indigo-700 dark:text-indigo-300"
                 : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
@@ -110,8 +133,8 @@ export function App(): JSX.Element {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-1">
-          {/* At the panel's narrowest the four tabs need the room; the count is also on the Ask screen's limit card. */}
-          <span className="max-[350px]:hidden">
+          {/* Five tabs need the room in a narrow panel; the count is also on the Ask screen's limit card. */}
+          <span className="max-[400px]:hidden">
             <UsageMeter />
           </span>
           <button
@@ -148,7 +171,10 @@ export function App(): JSX.Element {
         />
       </div>
       <div className={view === "chat" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
-        <ChatTab />
+        <ChatTab incoming={incomingQuestion} />
+      </div>
+      <div className={view === "code" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
+        <CodeTab incoming={incomingCode} active={view === "code"} />
       </div>
       {view === "recent" && (
         <div className="flex flex-1 flex-col overflow-hidden">
