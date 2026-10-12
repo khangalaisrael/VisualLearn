@@ -27,7 +27,7 @@ from app.models.schemas import (
 )
 from app.repositories.usage_events import UsageEventRepository
 from app.services.retention import retention_cutoff
-from app.services.series_source import read_series
+from app.services.series_source import count_readable_slides, read_series
 from app.services.study_aid_generator import StudyAidGenerator
 from app.services.usage import estimate_cost_usd, start_accumulator
 
@@ -70,6 +70,7 @@ def _summary(aid: StudyAid) -> dict:
         "created_at": aid.created_at,
         "card_count": len(cards) if cards is not None else None,
         "known_count": len(aid.progress or []) if cards is not None else None,
+        "slide_count": aid.slide_count,
     }
 
 
@@ -118,7 +119,15 @@ async def create_study_aid(
     await db.execute(
         delete(StudyAid).where(StudyAid.user_id == user_id, StudyAid.series_id == series.id, StudyAid.kind == body.kind)
     )
-    aid = StudyAid(user_id=user_id, series_id=series.id, kind=body.kind, title=generated.title, content=content, progress=[])
+    aid = StudyAid(
+        user_id=user_id,
+        series_id=series.id,
+        kind=body.kind,
+        title=generated.title,
+        content=content,
+        progress=[],
+        slide_count=len(source.text.slides),
+    )
     db.add(aid)
     await UsageEventRepository(db).record(
         user_id=user_id,
@@ -148,7 +157,10 @@ async def list_study_aids(
             .order_by(StudyAid.created_at.desc())
         )
     ).scalars()
-    return StudyAidListResponse(aids=[StudyAidSummary(**_summary(aid)) for aid in aids])
+    return StudyAidListResponse(
+        aids=[StudyAidSummary(**_summary(aid)) for aid in aids],
+        series_slide_count=await count_readable_slides(db, series),
+    )
 
 
 @router.get("/study-aids/{aid_id}", response_model=StudyAidOut)

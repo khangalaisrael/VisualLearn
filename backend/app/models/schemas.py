@@ -341,6 +341,9 @@ class StudyAidSummary(BaseModel):
     # Flashcards only: how many cards, and how many the student marked as known.
     card_count: int | None = None
     known_count: int | None = None
+    # How many slides it was written from; null when that was not recorded
+    # (an aid from before it was, written from at most the newest 12).
+    slide_count: int | None = None
 
 
 class StudyAidOut(StudyAidSummary):
@@ -355,6 +358,9 @@ class StudyAidOut(StudyAidSummary):
 
 class StudyAidListResponse(BaseModel):
     aids: list[StudyAidSummary]
+    # How many slides an aid written now would be written from: more than an
+    # aid's own `slide_count` means the series has grown past it.
+    series_slide_count: int = 0
 
 
 class StudyAidCreateRequest(BaseModel):

@@ -259,6 +259,8 @@ class StudyAid(Base):
     title: Mapped[str] = mapped_column(String(160))
     content: Mapped[dict] = mapped_column(JSON)
     progress: Mapped[list] = mapped_column(JSON, default=list)
+    # How many slides it was written from; null for aids from before this was recorded.
+    slide_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

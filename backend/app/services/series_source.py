@@ -47,6 +47,20 @@ def slide_text(slide: Slide, objects: Sequence[ObjectRecord]) -> str:
     return f"{heading}{slide.summary or ''}\n{body}"[:MAX_SLIDE_CHARS].strip()
 
 
+async def count_readable_slides(db: AsyncSession, series: Series) -> int:
+    """How many slides `read_series` would hand over as `slides` right now."""
+    kinds = list(
+        (
+            await db.execute(
+                select(Slide.content_kind).where(Slide.series_id == series.id, Slide.created_at >= retention_cutoff())
+            )
+        ).scalars()
+    )
+    lectures = sum(1 for kind in kinds if kind != "practice")
+    # As in `read_series`: a series of nothing but practice slides is read from those.
+    return lectures or min(len(kinds), MAX_PRACTICE_SLIDES)
+
+
 async def read_series(db: AsyncSession, series: Series) -> SeriesSource | None:
     """None when the series has no unexpired slides to read."""
     slides = list(

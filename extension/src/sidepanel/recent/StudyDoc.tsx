@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { StudyAidOut } from "@shared/types";
+import type { StudyAidOut, StudyAidSummary } from "@shared/types";
 
 import { createNote } from "../../shared/api-client";
 import { openPrintView } from "../../shared/print";
@@ -12,13 +12,20 @@ import { BackIcon } from "./parts";
 
 type SaveState = "idle" | "saving" | "saved" | "failed";
 
+/** The title a saved copy gets. An aid keeps one title however often it is
+ * rewritten, so the slide count tells saved copies apart. */
+export function noteTitle(aid: StudyAidSummary): string {
+  if (aid.slide_count === null) return aid.title;
+  return `${aid.title} (${aid.slide_count} ${aid.slide_count === 1 ? "slide" : "slides"})`;
+}
+
 export function StudyDoc({ aid, onBack }: { aid: StudyAidOut; onBack: () => void }): JSX.Element {
   const [save, setSave] = useState<SaveState>("idle");
 
   const saveToNotes = async () => {
     setSave("saving");
     try {
-      await createNote({ title: aid.title, body: aid.markdown ?? "", source: "ai", series_id: aid.series_id });
+      await createNote({ title: noteTitle(aid), body: aid.markdown ?? "", source: "ai", series_id: aid.series_id });
       setSave("saved");
     } catch {
       setSave("failed");

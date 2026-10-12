@@ -348,6 +348,9 @@ export interface StudyAidSummary {
   // Flashcards only: how many cards, and how many are marked as known.
   card_count: number | null;
   known_count: number | null;
+  // How many slides it was written from; null when that was not recorded
+  // (an aid from before it was, written from at most the newest 12).
+  slide_count: number | null;
 }
 
 export interface StudyAidOut extends StudyAidSummary {
@@ -362,6 +365,8 @@ export interface StudyAidOut extends StudyAidSummary {
 
 export interface StudyAidListResponse {
   aids: StudyAidSummary[];
+  // How many slides an aid written now would be written from.
+  series_slide_count: number;
 }
 
 export interface AdminDay {

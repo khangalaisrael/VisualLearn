@@ -315,3 +315,52 @@ async def test_a_study_aid_is_written_from_every_slide_of_a_long_series(
         await _make(client, headers, series_id, kind)
     assert [len(source.slides) for source in recorder.sources] == [count, count, count]
     assert recorder.sources[0].slides[-1].startswith(f"Summary {count - 1}")  # in capture order
+
+
+# --- knowing when an aid has fallen behind its series --------------------------------
+
+
+async def test_an_aid_records_how_many_slides_it_was_written_from(
+    client: AsyncClient, db_session: AsyncSession, aid_limit: None
+) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    series_id = await _series(client, headers)
+    made = await _make(client, headers, series_id, "guide")
+    assert made["slide_count"] == 1
+
+    url = f"/api/v1/series/{series_id}/study-aids"
+    listed = (await client.get(url, headers=headers)).json()
+    assert (listed["series_slide_count"], listed["aids"][0]["slide_count"]) == (1, 1)
+
+    # Two more slides are captured: the guide now covers 1 of 3.
+    first = (await db_session.execute(select(Slide))).scalar_one()
+    for n in (1, 2):
+        db_session.add(
+            Slide(
+                presentation_id=first.presentation_id,
+                slide_number=n + 1,
+                image_hash=f"{n:064d}",
+                status="analyzed",
+                summary=f"Summary {n}",
+                series_id=first.series_id,
+                content_kind="lecture",
+            )
+        )
+    await db_session.commit()
+    listed = (await client.get(url, headers=headers)).json()
+    assert (listed["series_slide_count"], listed["aids"][0]["slide_count"]) == (3, 1)
+
+    # Writing it again brings it up to date.
+    assert (await _make(client, headers, series_id, "guide"))["slide_count"] == 3
+
+
+async def test_an_aid_from_before_the_count_was_kept_reports_none(
+    client: AsyncClient, db_session: AsyncSession, aid_limit: None
+) -> None:
+    headers = await _sign_in(db_session, "a@example.com")
+    series_id = await _series(client, headers)
+    await _make(client, headers, series_id, "cheatsheet")
+    await db_session.execute(update(StudyAid).values(slide_count=None))
+    await db_session.commit()
+    listed = (await client.get(f"/api/v1/series/{series_id}/study-aids", headers=headers)).json()
+    assert listed["aids"][0]["slide_count"] is None and listed["series_slide_count"] == 1
