@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     # networks could otherwise chat without a combined limit.
     global_chat_messages_per_day: int = 1000
     global_captures_per_day: int = 250
-    rate_limit_chat_messages_per_day: int = 100
+    rate_limit_chat_messages_per_day: int = 40
 
     # Sorting a capture into a series runs inside the capture request; past
     # this many seconds the capture is returned unsorted and sorted later.

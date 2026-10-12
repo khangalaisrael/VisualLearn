@@ -406,3 +406,11 @@ async def test_admin_chat_ignores_and_is_not_counted_in_the_global_chat_cap(
         select(func.count()).select_from(RateLimitEvent).where(RateLimitEvent.key == f"user:{user_id}", RateLimitEvent.action == "chat")
     )
     assert counted.scalar_one() == 0
+
+
+def test_the_shipped_chat_allowances() -> None:
+    """Chat is the largest running cost, so its defaults are changed on purpose, not by accident."""
+    from app.core.config import Settings
+
+    assert Settings.model_fields["rate_limit_chat_messages_per_day"].default == 40
+    assert Settings.model_fields["rate_limit_anonymous_chat_messages_per_day"].default == 20
