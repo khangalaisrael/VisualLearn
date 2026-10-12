@@ -120,3 +120,32 @@ async def test_modes_that_need_retrieval_are_still_refused(client: AsyncClient, 
     headers = await _sign_in(db_session, "a@example.com")
     for mode in ("presentation", "auto"):
         assert (await _chat(client, headers, "x", query_mode=mode)).status_code == 400
+
+
+async def test_a_long_chat_resends_only_its_recent_messages(client: AsyncClient, db_session: AsyncSession) -> None:
+    from app.api.v1.chat import MAX_HISTORY_MESSAGES
+
+    headers = await _sign_in(db_session, "long@example.com")
+    first = await _chat(client, headers, "q0")
+    conversation_id = _conversation_id(first)
+    turns = MAX_HISTORY_MESSAGES // 2 + 2
+    for index in range(1, turns):
+        response = await _chat(client, headers, f"q{index}", conversation_id=conversation_id)
+        assert response.status_code == 200, response.text
+
+    history = FakeChatService.captured_histories[-1]
+    assert len(history) == MAX_HISTORY_MESSAGES
+    # The oldest turns are left out whole: the history still opens on a question.
+    assert history[0] == ("user", f"q{turns - 1 - MAX_HISTORY_MESSAGES // 2}")
+    assert history[-1] == ("assistant", "Fake answer.")
+
+
+def test_recent_history_never_starts_on_an_answer() -> None:
+    from app.api.v1.chat import recent_history
+
+    history = [("user", "a"), ("assistant", "A"), ("user", "b"), ("assistant", "B")]
+    assert recent_history(history, limit=4) == history
+    assert recent_history(history, limit=3) == [("user", "b"), ("assistant", "B")]
+    assert recent_history(history, limit=2) == [("user", "b"), ("assistant", "B")]
+    assert recent_history([], limit=4) == []
+    assert recent_history(history, limit=0) == []

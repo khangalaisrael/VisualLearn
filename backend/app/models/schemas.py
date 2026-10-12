@@ -457,6 +457,9 @@ class ChatUsage(BaseModel):
     # here rather than omitting the field (docs/API_CONTRACT.md §3 always
     # includes it in the `done` event).
     cache_read_input_tokens: int = 0
+    # Tokens written to the prompt cache on this turn (Anthropic only, 0 for
+    # OpenAI). Like cache reads, they are not part of `input_tokens`.
+    cache_creation_input_tokens: int = 0
 
 
 class ErrorResponse(BaseModel):

@@ -166,6 +166,24 @@ async def _get_slide(db: AsyncSession, request: ChatRequest, presentation_id: uu
     return slide
 
 
+# How many earlier messages (questions and answers together) a chat turn
+# resends. Each turn pays for every earlier message again, so a very long
+# conversation would cost more with every question; ten exchanges keep the
+# thread of a tutoring conversation, and the slide itself is always in the
+# system prompt whatever is left out here.
+MAX_HISTORY_MESSAGES = 20
+
+
+def recent_history(history: list[tuple[str, str]], limit: int = MAX_HISTORY_MESSAGES) -> list[tuple[str, str]]:
+    """The last `limit` messages of a conversation, starting on a question:
+    when the cut falls on an answer, that answer is dropped too, so the
+    model never sees a reply without the question it answered."""
+    recent = history[-limit:] if limit > 0 else []
+    while recent and recent[0][0] != "user":
+        recent = recent[1:]
+    return recent
+
+
 _SERIES_CONTEXT_SLIDES = 5
 _PREVIOUS_SLIDE_TEXT_CHARS = 800
 
@@ -490,7 +508,7 @@ async def _stream_response(
         # Fetched before this turn's user message is persisted, so it's
         # exactly the prior turns — this message is passed separately below.
         prior_messages = await messages.list_by_conversation(conversation_id)
-        history = [(m.role, m.content) for m in prior_messages]
+        history = recent_history([(m.role, m.content) for m in prior_messages])
 
         await messages.create(
             conversation_id=conversation_id,
@@ -521,7 +539,11 @@ async def _stream_response(
                     input_tokens=chunk.usage.input_tokens,
                     output_tokens=chunk.usage.output_tokens,
                     est_cost_usd=estimate_cost_usd(
-                        chat_service.model_name, chunk.usage.input_tokens, chunk.usage.output_tokens
+                        chat_service.model_name,
+                        chunk.usage.input_tokens,
+                        chunk.usage.output_tokens,
+                        cache_creation_input_tokens=chunk.usage.cache_creation_input_tokens,
+                        cache_read_input_tokens=chunk.usage.cache_read_input_tokens,
                     ),
                     conversation_id=conversation_id,
                 )

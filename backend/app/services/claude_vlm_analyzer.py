@@ -57,7 +57,11 @@ class ClaudeVLMAnalyzer:
         response = await self._client.messages.create(
             model=self.model_name,
             max_tokens=_MAX_TOKENS,
-            system=self._system_prompt,
+            # The instructions are identical on every capture, so they are
+            # marked for prompt caching: captures within 5 minutes of each
+            # other (a student paging through a lecture) read them back at a
+            # tenth of the input price.
+            system=[{"type": "text", "text": self._system_prompt, "cache_control": {"type": "ephemeral"}}],
             output_config={
                 # Analysis is high-volume and latency-sensitive (<8s target,
                 # docs/ARCHITECTURE.md §6) — "medium" per docs/PROMPTS.md §2.

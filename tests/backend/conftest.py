@@ -96,10 +96,12 @@ class FakeChatService:
 
     model_name = "fake-chat-model"
     captured_system_prompts: list[str] = []
+    captured_histories: list[list[tuple[str, str]]] = []
 
     async def stream_chat(self, *, system_prompt: str, message: str, effort: str, history: list = ()):
         FakeChatService.captured_system_prompts.append(system_prompt)
-        del message, effort, history
+        FakeChatService.captured_histories.append(list(history))
+        del message, effort
         yield ChatChunk(delta="Fake ", done=False)
         yield ChatChunk(delta="answer.", done=False)
         yield ChatChunk(delta=None, done=True, usage=ChatUsage(input_tokens=10, output_tokens=2, cache_read_input_tokens=0))
@@ -112,6 +114,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     # single test might make (e.g. upload the same image twice).
     fake_redis = FakeRedis()
     FakeChatService.captured_system_prompts = []
+    FakeChatService.captured_histories = []
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session

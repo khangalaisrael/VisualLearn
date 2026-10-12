@@ -127,7 +127,7 @@ data: {
   "conversation_id": str,
   "message_id": str,
   "referenced_object_ids": [str],
-  "usage": { "input_tokens": int, "output_tokens": int, "cache_read_input_tokens": int }
+  "usage": { "input_tokens": int, "output_tokens": int, "cache_read_input_tokens": int, "cache_creation_input_tokens": int }
 }
 
 event: error
