@@ -22,8 +22,10 @@ from app.main import app
 from app.models.orm import Session as SessionRow
 from app.models.orm import UsageEvent, User
 from app.services.code_fixer import MAX_ERROR_CHARS, ClaudeCodeFixer, FixedCode, format_request, parse_fix
+from app.services.code_tryout import MAX_EXPRESSIONS, with_expressions
 from app.services.code_runner import (
     MAX_OUTPUT_CHARS,
+    RunResult,
     CodeRunnerBusy,
     CodeRunnerUnavailable,
     WandboxCodeRunner,
@@ -292,3 +294,87 @@ async def test_a_busy_sandbox_is_asked_again_and_then_reported_as_busy(client: A
     headers = await _sign_in(db_session, "a@example.com")
     response = await client.post(URL, json={"language": "python", "code": "print(7)"}, headers=headers)
     assert response.status_code == 503 and "busy right now" in response.json()["detail"]
+
+
+# --- trying expressions, as in GHCi or the Python shell ---------------------------------------
+
+_PRIMES = "isPrime :: Int -> Bool\nisPrime x = not $ any (\\d -> x `mod` d == 0) [2..(x - 1)]\n"
+
+
+def test_haskell_expressions_become_the_missing_main() -> None:
+    assert with_expressions("haskell", _PRIMES, "  \n") == _PRIMES  # nothing to try: untouched
+    source = with_expressions("haskell", _PRIMES, "ghci> isPrime 10\n\nisPrime 13\n")
+    assert source.startswith(_PRIMES.rstrip("\n"))
+    assert source.endswith(
+        "\n\nmain :: IO ()\nmain = do\n"
+        '  putStrLn "ghci> isPrime 10"\n  print (isPrime 10)\n'
+        '  putStrLn "ghci> isPrime 13"\n  print (isPrime 13)\n'
+    )
+
+
+def test_haskell_prompts_commands_statements_and_actions() -> None:
+    tried = "\n".join(
+        [
+            "Prelude> :load primeSearch.hs",
+            "load primeSearch.hs",
+            "*Main> let n = 7",
+            "λ> putStrLn \"hi\"",
+            'show "a\\b"',
+            ":t isPrime",
+        ]
+    )
+    main = with_expressions("haskell", _PRIMES, tried).split("main = do\n")[1]
+    assert main.count("(not needed here: your code is already loaded)") == 3  # the two loads and :t
+    assert "  let n = 7\n" in main and '  putStrLn "hi"\n' in main
+    assert '  putStrLn "ghci> show \\"a\\\\b\\""\n  print (show "a\\b")\n' in main
+    assert "print (:" not in main and "print (load" not in main and "print (let" not in main
+
+
+def test_haskell_code_that_has_its_own_main_keeps_it_under_another_name() -> None:
+    code = "module Main where\n\nmain :: IO ()\nmain = putStrLn \"mine\"\n\nremain = 1\n"
+    source = with_expressions("haskell", code, "import Data.List (sort)\nmain\nsort [3, 1, 2]")
+    assert source.startswith("module Main where\nimport Data.List (sort)\n")
+    assert 'studentMain :: IO ()\nstudentMain = putStrLn "mine"' in source and "remain = 1" in source
+    assert source.count("\nmain :: IO ()") == 1
+    assert '  putStrLn "ghci> main"\n  studentMain\n' in source and "  print (sort [3, 1, 2])\n" in source
+    # Without a module header the import goes first.
+    assert with_expressions("haskell", "x = 1\n", "import Data.Char\nx").startswith("import Data.Char\nx = 1")
+
+
+def test_python_expressions_are_evaluated_after_the_code() -> None:
+    source = with_expressions("python", "def twice(n):\n    return n * 2\n", ">>> twice(21)\nx = 3\n... \n'é'")
+    assert source.startswith("def twice(n):\n    return n * 2\n\n\ndef _try_expressions(".replace("\n\n\ndef", "\n\ndef"))
+    assert source.rstrip().endswith('_try_expressions(["twice(21)", "x = 3", "\'\\u00e9\'"])')
+    # The generated program really behaves like the shell.
+    import contextlib
+    import io
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        exec(compile(source, "<test>", "exec"), {"__name__": "__main__"})
+    assert out.getvalue() == ">>> twice(21)\n42\n>>> x = 3\n>>> 'é'\n'é'\n"
+
+
+def test_expressions_are_capped_and_only_for_languages_with_a_prompt() -> None:
+    many = with_expressions("haskell", "x = 1\n", "\n".join(["x"] * (MAX_EXPRESSIONS + 5)))
+    assert many.count("print (x)") == MAX_EXPRESSIONS
+    assert with_expressions("java", "class A {}", "") == "class A {}"
+    with pytest.raises(ValueError):
+        with_expressions("java", "class A {}", "1 + 1")
+
+
+async def test_the_endpoint_sends_the_expressions_with_the_code(client: AsyncClient, db_session: AsyncSession) -> None:
+    class _Seen:
+        code = ""
+
+        async def run(self, language, code, stdin):
+            _Seen.code = code
+            return RunResult(status="ok", stdout="", stderr="", compiler_output="", duration_ms=1)
+
+    app.dependency_overrides[get_code_runner] = lambda: _Seen()
+    headers = await _sign_in(db_session, "a@example.com")
+    body = {"language": "haskell", "code": _PRIMES, "expressions": "isPrime 10"}
+    assert (await client.post(URL, json=body, headers=headers)).status_code == 200
+    assert _Seen.code.endswith('main = do\n  putStrLn "ghci> isPrime 10"\n  print (isPrime 10)\n')
+    response = await client.post(URL, json={"language": "java", "code": "class A {}", "expressions": "1 + 1"}, headers=headers)
+    assert response.status_code == 422 and "Haskell and Python only" in response.json()["detail"]

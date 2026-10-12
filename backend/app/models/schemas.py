@@ -375,6 +375,9 @@ class CodeRunRequest(BaseModel):
     code: str = Field(max_length=20_000)
     # What the program reads from standard input.
     stdin: str = Field(default="", max_length=10_000)
+    # Haskell and Python only: expressions to evaluate after the code, one per
+    # line, as they would be typed in GHCi or the Python shell.
+    expressions: str = Field(default="", max_length=4_000)
 
 
 class CodeRunResponse(BaseModel):

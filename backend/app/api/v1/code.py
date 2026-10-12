@@ -26,6 +26,7 @@ from app.models.schemas import CodeFixRequest, CodeFixResponse, CodeRunRequest, 
 from app.repositories.usage_events import UsageEventRepository
 from app.services.code_fixer import CodeFixer
 from app.services.code_runner import CodeRunner, CodeRunnerBusy, CodeRunnerUnavailable
+from app.services.code_tryout import TRYOUT_LANGUAGES, with_expressions
 from app.services.usage import estimate_cost_usd, start_accumulator
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,12 @@ async def run_code(
         raise HTTPException(status_code=401, detail="Sign in to run code.")
     if not body.code.strip():
         raise HTTPException(status_code=422, detail="There is no code to run.")
+    if body.expressions.strip() and body.language not in TRYOUT_LANGUAGES:
+        raise HTTPException(status_code=422, detail="Expressions can be tried in Haskell and Python only.")
     try:
-        result = await runner.run(body.language, body.code, body.stdin)
+        result = await runner.run(
+            body.language, with_expressions(body.language, body.code, body.expressions), body.stdin
+        )
     except CodeRunnerBusy as exc:
         logger.warning("code_run_busy language=%s", body.language)
         raise HTTPException(

@@ -371,6 +371,9 @@ export interface CodeRunRequest {
   code: string;
   // What the program reads from standard input.
   stdin: string;
+  // Haskell and Python only: expressions to evaluate after the code, one per
+  // line, as they would be typed in GHCi or the Python shell.
+  expressions?: string;
 }
 
 export interface CodeRunResponse {
