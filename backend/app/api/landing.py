@@ -62,9 +62,9 @@ _HEAD = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
-<meta name="description" content="A Chrome extension that reads the slide on your screen — equations, diagrams, code — and explains it. Ask follow-up questions about exactly what you see.">
+<meta name="description" content="A Chrome extension that reads the slide on your screen — equations, diagrams, code — and explains it, then helps you study from it: quizzes, study guides, flashcards, notes and a place to run the code.">
 <meta property="og:title" content="VisionLearn AI">
-<meta property="og:description" content="Understand any lecture slide: equations, diagrams and code, explained from what's on your screen.">
+<meta property="og:description" content="Understand any lecture slide, then study from it: explanations, quizzes, study guides, flashcards and runnable code, from what's on your screen.">
 <meta property="og:type" content="website">
 <style>__STYLE__</style>
 </head>
@@ -91,7 +91,7 @@ _HOME = """
 <section class="hero">
   <span class="pill">__PILL__</span>
   <h1>Understand any lecture slide.</h1>
-  <p class="lead">VisionLearn reads the slide on your screen — equations, diagrams, graphs and code — explains it, and lets you ask follow-up questions about exactly what you're looking at.</p>
+  <p class="lead">VisionLearn reads the slide on your screen — equations, diagrams, graphs and code — and explains it. Then it helps you study from what you captured: quizzes, study guides, flashcards, notes, and a place to run the code.</p>
   <div class="cta">
     <a class="btn" href="/install">__CTA__</a>
     <span class="note">Free for students · Chrome extension</span>
@@ -102,7 +102,8 @@ _HOME = """
   <h2>How it works</h2>
   <div class="step"><div class="num">1</div><div><strong>Open a lecture slide</strong> in a Chrome tab: a PDF, a Google Slides deck, your university's lecture site.</div></div>
   <div class="step"><div class="num">2</div><div><strong>Press Capture</strong> in the side panel, or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>. Nothing is read until you do.</div></div>
-  <div class="step"><div class="num">3</div><div><strong>Ask anything about it.</strong> "Why is this n log n?" "Walk me through the graph." Answers are grounded in what's on screen.</div></div>
+  <div class="step"><div class="num">3</div><div><strong>Ask anything about it.</strong> "Why is this n log n?" "Walk me through the graph." Answers are grounded in what's on screen, and the chat remembers the slides that came before in the same lecture.</div></div>
+  <div class="step"><div class="num">4</div><div><strong>Study from it.</strong> Your slides are filed by topic. Each topic can quiz you, write you a study guide or flashcards, and hold your notes.</div></div>
 </section>
 
 <section>
@@ -111,16 +112,28 @@ _HOME = """
     <div class="card"><h3>Equations</h3><p>Read and typeset properly, with plain-language explanations alongside.</p></div>
     <div class="card"><h3>Diagrams and graphs</h3><p>Nodes, edges and structure picked out, so you can ask about a single figure.</p></div>
     <div class="card"><h3>Code and tables</h3><p>Syntax-highlighted code and tidy tables instead of a blob of text.</p></div>
-    <div class="card"><h3>Your lectures, organised</h3><p>Captures are grouped by lecture, with thumbnails and the chats you had about each.</p></div>
+    <div class="card"><h3>Your lectures, sorted by topic</h3><p>Slides from one lecture are filed together as a series you can search, with the chats you had about each.</p></div>
   </div>
 </section>
 
 <section>
+  <h2>Study from what you captured</h2>
+  <div class="grid">
+    <div class="card"><h3>Quizzes with a tutor</h3><p>Multiple-choice quizzes written from your own slides, up to twenty questions. Get one wrong and the tutor walks you through it.</p></div>
+    <div class="card"><h3>Study guides, cheat sheets, flashcards</h3><p>Written from a whole series, to read before a test or save as a PDF.</p></div>
+    <div class="card"><h3>Notes you keep</h3><p>Save any answer as a note, or write your own. Notes stay until you delete them.</p></div>
+    <div class="card"><h3>Run the code</h3><p>Haskell, Java, C++ and Python run in the side panel. Try expressions as you would in GHCi or the Python shell, and ask the tutor about an error.</p></div>
+    <div class="card"><h3>Chat without a slide</h3><p>A question that is not about anything on screen has its own tab.</p></div>
+    <div class="card"><h3>Find more online</h3><p>Every topic comes with links that search YouTube and the web for it.</p></div>
+  </div>
+  <p class="note">Sorting, quizzes, study aids, notes and running code need you to sign in with Google.</p>
+</section>
+<section>
   <h2>Built to be fair and private</h2>
   <div class="grid">
-    <div class="card"><h3>Free, with a daily limit</h3><p>__DAILY__ captures a day and __MONTHLY__ a month when you sign in with Google, so it stays free for everyone. Without signing in you get __ANON_DAILY__ a day.</p></div>
+    <div class="card"><h3>Free, with a daily limit</h3><p>__DAILY__ captures a day and __MONTHLY__ a month when you sign in with Google, so it stays free for everyone. Without signing in you get __ANON_DAILY__ a day. Signed in, you also get __CHAT__ chat messages, __QUIZZES__ quizzes and __AIDS__ study aids a day.</p></div>
     <div class="card"><h3>Only when you press Capture</h3><p>No browsing history, no background reading, no ads or trackers.</p></div>
-    <div class="card"><h3>Your data, your control</h3><p>History is kept __DAYS__ days. Thumbnails never leave your device. Delete anything, or your whole account, at any time.</p></div>
+    <div class="card"><h3>Your data, your control</h3><p>Slides and chats are kept __DAYS__ days, notes until you delete them. Thumbnails never leave your device. Delete anything, or your whole account, at any time.</p></div>
   </div>
 </section>
 
@@ -145,7 +158,7 @@ _INSTALL = """
   <div class="step"><div class="num">3</div><div><strong>Turn on Developer mode</strong> with the switch in the top-right corner.</div></div>
   <div class="step"><div class="num">4</div><div>Click <strong>Load unpacked</strong> and choose the extracted folder (the one that contains a file called <code>manifest.json</code>).</div></div>
   <div class="step"><div class="num">5</div><div>Click the puzzle-piece icon in Chrome's toolbar and <strong>pin VisionLearn AI</strong>. Click it any time to open the side panel.</div></div>
-  <div class="step"><div class="num">6</div><div><strong>Try it:</strong> open a lecture slide, press <em>Capture</em> (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>) and ask a question. Signing in with Google is optional; it keeps your history across devices.</div></div>
+  <div class="step"><div class="num">6</div><div><strong>Try it:</strong> open a lecture slide, press <em>Capture</em> (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>) and ask a question. Signing in with Google is optional for capturing and asking; you need it for series, quizzes, notes and running code, and it keeps your history across devices.</div></div>
 </section>
 
 <section>
@@ -174,6 +187,9 @@ def _fill(template: str) -> str:
         .replace("__ANON_DAILY__", str(settings.rate_limit_anonymous_captures_per_day))
         .replace("__MONTHLY__", str(settings.rate_limit_captures_per_month))
         .replace("__DAYS__", str(settings.chat_retention_days))
+        .replace("__CHAT__", str(settings.rate_limit_chat_messages_per_day))
+        .replace("__QUIZZES__", str(settings.rate_limit_quizzes_per_day))
+        .replace("__AIDS__", str(settings.rate_limit_study_aids_per_day))
         .replace("__EMAIL__", email)
     )
 
@@ -198,8 +214,8 @@ def render_landing() -> str:
         box = (
             "<p><strong>Free to try, no payment needed.</strong></p>"
             '<p>Follow the <a href="/install">two-minute install guide</a> to add it to Chrome.</p>'
-            '<p class="note">The Chrome Web Store listing is coming soon. Sign in with Google is optional, '
-            "and only needed to keep your history across devices.</p>"
+            '<p class="note">The Chrome Web Store listing is coming soon. Sign in with Google is optional for capturing and asking. '
+            "You need it for the study features, and it keeps your history across devices.</p>"
         )
     else:
         cta = "Get early access"
@@ -207,7 +223,7 @@ def render_landing() -> str:
             "<p><strong>The Chrome Web Store listing is coming soon.</strong></p>"
             "<p>VisionLearn is being shared with a few students first. Want to try it? Email "
             '<a href="mailto:__EMAIL__">__EMAIL__</a> and we\'ll send you the extension.</p>'
-            '<p class="note">Sign in with Google is optional, and only needed to keep your history across devices.</p>'
+            '<p class="note">Sign in with Google is optional for capturing and asking. You need it for the study features, and it keeps your history across devices.</p>'
         )
     pill = "Invite-only beta" if settings.invite_only else "A small student project"
     return _page(

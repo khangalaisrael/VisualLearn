@@ -26,6 +26,10 @@ async def test_home_page_is_public_and_describes_the_product(client: AsyncClient
     html = response.text
     assert "Understand any lecture slide" in html
     assert 'href="/privacy"' in html  # the policy Google and the Web Store link to
+    # What the extension does beyond explaining a slide.
+    for feature in ("Quizzes with a tutor", "Study guides, cheat sheets, flashcards", "Notes you keep", "Run the code"):
+        assert feature in html
+    assert "Haskell, Java, C++ and Python" in html
 
 
 async def test_home_page_quotes_the_real_limits_and_retention(client: AsyncClient) -> None:
@@ -35,6 +39,10 @@ async def test_home_page_quotes_the_real_limits_and_retention(client: AsyncClien
     assert f"{settings.rate_limit_captures_per_month} a month" in html
     assert f"kept {settings.chat_retention_days} days" in html
     assert f"Without signing in you get {settings.rate_limit_anonymous_captures_per_day} a day" in html
+    assert (
+        f"{settings.rate_limit_chat_messages_per_day} chat messages, {settings.rate_limit_quizzes_per_day} quizzes "
+        f"and {settings.rate_limit_study_aids_per_day} study aids a day"
+    ) in html
     assert "__" not in html  # no unfilled placeholder left behind
 
 
