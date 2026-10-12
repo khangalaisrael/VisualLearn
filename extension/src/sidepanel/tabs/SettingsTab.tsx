@@ -196,7 +196,7 @@ export function SettingsTab(): JSX.Element {
           <p className="text-xs text-slate-500">Spend, usage per user, outliers and Pro waitlist demand.</p>
           <Button
             variant="secondary"
-            onClick={() => void chrome.runtime.openOptionsPage()}
+            onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL("src/admin/index.html") })}
             className="self-start text-xs"
           >
             Open admin dashboard

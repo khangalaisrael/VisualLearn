@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "package:store": "node scripts/package-store.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
