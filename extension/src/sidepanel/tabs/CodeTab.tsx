@@ -8,8 +8,12 @@
  * The editor is a plain textarea laid over a highlighted copy of the same
  * text: the textarea's own text is transparent, so what is seen is the
  * coloured copy while typing, selection and the caret stay native. Both must
- * keep the same font, padding and line height (EDITOR_TEXT), and the copy
- * follows the textarea's scroll position.
+ * keep the same font, padding and line height (EDITOR_TEXT and `textStyle`),
+ * and the copy follows the textarea's scroll position.
+ *
+ * What a key does beyond typing itself (indentation, bracket pairs, comments)
+ * is decided in code/editing.ts and applied here with the browser's own
+ * insert command, so Ctrl+Z undoes it like any other typing.
  */
 
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +22,7 @@ import type { CodeRunResponse } from "@shared/types";
 
 import { ApiError, getAuthState, runCode, signInWithGoogle } from "../../shared/api-client";
 import { CODE_LANGUAGES, type CodeLanguage, askInChat } from "../../shared/handoff";
+import { type Edit, editFor } from "../code/editing";
 import { Button } from "../components/Button";
 import { highlight } from "../components/CodeBlock";
 
@@ -30,7 +35,10 @@ export interface IncomingCode {
 
 const DRAFTS_KEY = "codeDrafts";
 const LANGUAGE_KEY = "codeLanguage";
-const INDENT = "  ";
+const FONT_SIZE_KEY = "codeFontSize";
+// Text sizes the editor offers, in pixels, and the one it starts on.
+const FONT_SIZES = [12, 13, 14, 15, 16, 18];
+const DEFAULT_FONT_SIZE = 14;
 
 const STARTERS: Record<CodeLanguage, string> = {
   haskell: `double :: Int -> Int\ndouble x = x + x\n\nmain :: IO ()\nmain = print (double 21)\n`,
@@ -81,7 +89,8 @@ const BADGES: Record<CodeLanguage, { mark: string; className: string }> = {
   java: { mark: "J", className: "bg-[#fdba74] text-[#1e1b4b]" },
 };
 // Shared by the textarea and the highlighted copy under it: they must line up exactly.
-const EDITOR_TEXT = "m-0 whitespace-pre px-3 py-2 font-mono text-xs leading-5 [tab-size:2]";
+// (Size and line height are set together in `textStyle`, since the size can be changed.)
+const EDITOR_TEXT = "m-0 whitespace-pre px-3 py-2 font-mono [tab-size:2]";
 const STATUS_DOTS: Record<CodeRunResponse["status"], string> = {
   ok: "bg-[#86efac]",
   compile_error: "bg-[#fca5a5]",
@@ -89,7 +98,22 @@ const STATUS_DOTS: Record<CodeRunResponse["status"], string> = {
   timeout: "bg-[#fde68a]",
 };
 const TERMINAL_LABEL = "text-[11px] font-medium text-[#8b8fd6]";
-const TERMINAL_TEXT = "max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5";
+const TERMINAL_TEXT = "max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono";
+
+/** Makes one change to the textarea through the browser's own editing command,
+ * which keeps it on the undo stack and reports it to React as typing. */
+function applyEdit(area: HTMLTextAreaElement, edit: Edit): void {
+  if (edit.from !== edit.to || edit.insert !== "") {
+    area.setSelectionRange(edit.from, edit.to);
+    const done = edit.insert === "" ? document.execCommand("delete") : document.execCommand("insertText", false, edit.insert);
+    if (!done) {
+      // No editing command here: change the text directly and tell React.
+      area.setRangeText(edit.insert, edit.from, edit.to, "end");
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+  area.setSelectionRange(edit.selectStart, edit.selectEnd);
+}
 
 function RunIcon(): JSX.Element {
   return (
@@ -109,16 +133,18 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   // How far the textarea is scrolled; the highlighted copy and the line numbers follow it.
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
+  const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
 
   const code = drafts[language];
 
   useEffect(() => {
     chrome.storage.local
-      .get([DRAFTS_KEY, LANGUAGE_KEY])
+      .get([DRAFTS_KEY, LANGUAGE_KEY, FONT_SIZE_KEY])
       .then((stored) => {
         const saved = stored[DRAFTS_KEY] as Partial<Drafts> | undefined;
         if (saved) setDrafts((current) => ({ haskell: saved.haskell ?? current.haskell, java: saved.java ?? current.java }));
         if (stored[LANGUAGE_KEY] === "java" || stored[LANGUAGE_KEY] === "haskell") setLanguage(stored[LANGUAGE_KEY]);
+        if (FONT_SIZES.includes(stored[FONT_SIZE_KEY] as number)) setFontSize(stored[FONT_SIZE_KEY] as number);
       })
       .catch(() => undefined)
       .finally(() => setLoaded(true));
@@ -128,10 +154,12 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   useEffect(() => {
     if (!loaded) return;
     const timer = setTimeout(() => {
-      chrome.storage.local.set({ [DRAFTS_KEY]: drafts, [LANGUAGE_KEY]: language }).catch(() => undefined);
+      chrome.storage.local
+        .set({ [DRAFTS_KEY]: drafts, [LANGUAGE_KEY]: language, [FONT_SIZE_KEY]: fontSize })
+        .catch(() => undefined);
     }, 400);
     return () => clearTimeout(timer);
-  }, [drafts, language, loaded]);
+  }, [drafts, language, fontSize, loaded]);
 
   const refreshAuth = useCallback(() => {
     void getAuthState().then((auth) => setSignedIn(auth.sessionToken !== null));
@@ -163,6 +191,12 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   // A trailing newline has no height of its own in a <pre>; the space gives the last line one.
   const highlighted = useMemo(() => highlight(code, language).html + " ", [code, language]);
   const lineCount = useMemo(() => code.split("\n").length, [code]);
+  // One size and one line height for the text, its coloured copy and the line numbers.
+  const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.55)}px` };
+  const resize = (step: number) => {
+    const next = FONT_SIZES[FONT_SIZES.indexOf(fontSize) + step];
+    if (next !== undefined) setFontSize(next);
+  };
 
   const execute = async () => {
     if (run.status === "running" || !code.trim()) return;
@@ -184,18 +218,22 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
       void execute();
       return;
     }
-    // Tab indents. Escape then Tab still moves focus on, for keyboard users.
-    if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      event.preventDefault();
-      const area = event.currentTarget;
-      const { selectionStart, selectionEnd, value } = area;
-      setCode(value.slice(0, selectionStart) + INDENT + value.slice(selectionEnd));
-      requestAnimationFrame(() => {
-        area.selectionStart = area.selectionEnd = selectionStart + INDENT.length;
-      });
-    } else if (event.key === "Escape") {
+    // Escape leaves the editor, so Tab (which indents here) can move on again.
+    if (event.key === "Escape") {
       event.currentTarget.blur();
+      return;
     }
+    // While an input method is composing a character, keys belong to it.
+    if (event.nativeEvent.isComposing) return;
+    const area = event.currentTarget;
+    const edit = editFor(
+      { value: area.value, start: area.selectionStart, end: area.selectionEnd },
+      { key: event.key, shift: event.shiftKey, mod: event.ctrlKey || event.metaKey, alt: event.altKey },
+      language
+    );
+    if (edit === null) return;
+    event.preventDefault();
+    applyEdit(area, edit);
   };
 
   const signIn = async () => {
@@ -248,6 +286,28 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
         >
           Reset
         </button>
+        <div className="ml-auto flex items-center gap-1" role="group" aria-label="Text size">
+          <button
+            type="button"
+            onClick={() => resize(-1)}
+            disabled={fontSize === FONT_SIZES[0]}
+            aria-label="Smaller text"
+            title="Smaller text"
+            className="flex h-7 w-7 items-center justify-center rounded-sm text-xs font-semibold text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            A−
+          </button>
+          <button
+            type="button"
+            onClick={() => resize(1)}
+            disabled={fontSize === FONT_SIZES[FONT_SIZES.length - 1]}
+            aria-label="Larger text"
+            title="Larger text"
+            className="flex h-7 w-7 items-center justify-center rounded-sm text-base font-semibold text-slate-500 transition-colors duration-[120ms] hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            A+
+          </button>
+        </div>
       </div>
 
       <div className="vl-editor overflow-hidden rounded-md border border-[#3730a3] shadow-subtle focus-within:ring-2 focus-within:ring-indigo-300">
@@ -270,7 +330,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           </button>
         </div>
         <div className="relative flex h-72 min-h-[7rem] resize-y overflow-hidden bg-[var(--vl-editor-bg)]">
-          <div className="flex-none select-none overflow-hidden border-r border-white/10 py-2 pl-2 pr-2 text-right font-mono text-xs leading-5 text-[var(--vl-editor-dim)]" aria-hidden="true">
+          <div className="flex-none select-none overflow-hidden border-r border-white/10 py-2 pl-2 pr-2 text-right font-mono text-[var(--vl-editor-dim)]" style={textStyle} aria-hidden="true">
             <div style={{ transform: `translateY(${-scroll.top}px)` }}>
               {Array.from({ length: lineCount }, (_, index) => (
                 <div key={index}>{index + 1}</div>
@@ -281,7 +341,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
             <pre
               aria-hidden="true"
               className={`${EDITOR_TEXT} hljs pointer-events-none absolute left-0 top-0 text-[var(--vl-editor-text)]`}
-              style={{ transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}
+              style={{ ...textStyle, transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}
               // eslint-disable-next-line react/no-danger -- hljs.highlight's own output, which escapes the code
               dangerouslySetInnerHTML={{ __html: highlighted }}
             />
@@ -297,6 +357,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               autoCapitalize="off"
               autoCorrect="off"
               maxLength={20000}
+              style={textStyle}
               className={`${EDITOR_TEXT} scrollbar-thin absolute inset-0 h-full w-full resize-none overflow-auto border-0 bg-transparent text-transparent caret-[var(--vl-editor-warm)] outline-none focus:ring-0`}
             />
           </div>
@@ -354,7 +415,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               {result.compiler_output && (
                 <div className="flex flex-col gap-1">
                   <h2 className={TERMINAL_LABEL}>{result.status === "compile_error" ? "Compiler errors" : "Compiler messages"}</h2>
-                  <pre className={`${TERMINAL_TEXT} ${result.status === "compile_error" ? "text-[#fca5a5]" : "text-[var(--vl-editor-warm)]"}`}>
+                  <pre style={textStyle} className={`${TERMINAL_TEXT} ${result.status === "compile_error" ? "text-[#fca5a5]" : "text-[var(--vl-editor-warm)]"}`}>
                     {result.compiler_output}
                   </pre>
                 </div>
@@ -362,13 +423,13 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
               {result.stdout && (
                 <div className="flex flex-col gap-1">
                   <h2 className={TERMINAL_LABEL}>Output</h2>
-                  <pre className={`${TERMINAL_TEXT} text-[var(--vl-editor-text)]`}>{result.stdout}</pre>
+                  <pre style={textStyle} className={`${TERMINAL_TEXT} text-[var(--vl-editor-text)]`}>{result.stdout}</pre>
                 </div>
               )}
               {result.stderr && (
                 <div className="flex flex-col gap-1">
                   <h2 className={TERMINAL_LABEL}>Error output</h2>
-                  <pre className={`${TERMINAL_TEXT} text-[#fca5a5]`}>{result.stderr}</pre>
+                  <pre style={textStyle} className={`${TERMINAL_TEXT} text-[#fca5a5]`}>{result.stderr}</pre>
                 </div>
               )}
               {nothingPrinted && <p className="font-mono text-xs text-[var(--vl-editor-dim)]">The program printed nothing.</p>}
@@ -385,8 +446,8 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
       )}
 
       <p className="mt-auto text-xs text-slate-400">
-        Programs run on wandbox.org, an outside service, and are stopped after about 30 seconds. Keep passwords and
-        private data out of them. Ctrl+Enter runs.
+        Ctrl+Enter runs, Ctrl+/ comments a line, Tab and Shift+Tab indent. Programs run on wandbox.org, an outside
+        service, and are stopped after about 30 seconds. Keep passwords and private data out of them.
       </p>
     </div>
   );
