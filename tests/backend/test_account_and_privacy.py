@@ -104,3 +104,19 @@ async def test_privacy_page_shows_the_configured_contact_email_escaped(client: A
         settings.privacy_contact_email = original
     assert "<script>x</script>" not in text
     assert "help@example.com" in text
+
+
+async def test_privacy_page_carries_the_store_policy_disclosures(client: AsyncClient) -> None:
+    """What the Chrome Web Store asks a listing's privacy policy to say."""
+    text = (await client.get("/privacy")).text
+    # The affirmative Limited Use statement, with its link.
+    assert "Chrome Web Store User Data Policy" in text and "Limited Use requirements" in text
+    # Every kind of data the extension handles is listed, including code and notes.
+    for kind in ("Programs you write or run", "Notes, quizzes and study aids", "Screenshot of your current tab"):
+        assert kind in text
+    # Every party the data goes to is named.
+    for party in ("Anthropic", "Wandbox", "Google", "Render", "Neon"):
+        assert party in text
+    assert "single purpose" in text and "study lecture slides" in text
+    assert "not directed at children under 13" in text
+    assert "__" not in text

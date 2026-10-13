@@ -15,7 +15,7 @@ from app.core.config import get_settings
 
 router = APIRouter(tags=["privacy"])
 
-LAST_UPDATED = "12 October 2026"
+LAST_UPDATED = "13 October 2026"
 
 _PAGE = """<!doctype html>
 <html lang="en">
@@ -55,7 +55,7 @@ _PAGE = """<!doctype html>
 </div>
 
 <h2>What VisionLearn does</h2>
-<p>VisionLearn has one purpose: to help you understand lecture slides. When you press <em>Capture</em>, it takes a screenshot of the visible part of your current tab, reads what is on it (text, equations, diagrams, code), and lets you ask questions about it.</p>
+<p>VisionLearn has one purpose: to help students understand and study lecture slides. When you press <em>Capture</em>, it takes a screenshot of the visible part of your current tab, reads what is on it (text, equations, diagrams, code), and lets you ask questions about it. From the slides you have captured it can also sort them by topic, write quizzes, study guides and flashcards, keep your notes, and run the code that is on a slide.</p>
 
 <h2>What we collect, and why</h2>
 <table>
@@ -64,6 +64,8 @@ _PAGE = """<!doctype html>
 <tr><td><strong>The title and address of the page you captured</strong> (the address without anything after a <code>?</code> or <code>#</code>)</td><td>To group your captures by lecture in <em>Recent</em> (for example "CSC2001 lecture 1"). Page titles can contain whatever the page owner wrote, so avoid capturing pages whose title you consider private.</td></tr>
 <tr><td><strong>What the slide contains</strong> (extracted text, equations, summaries)</td><td>To show you the result and to answer your questions about it. This may include whatever appears on the slide, including course material.</td></tr>
 <tr><td><strong>Your questions and the answers</strong></td><td>To hold the conversation and, if you are signed in, to show it again in <em>Recent chats</em>.</td></tr>
+<tr><td><strong>Notes, quizzes and study aids</strong> you save or ask for, if you are signed in</td><td>To show them to you again. Notes are kept until you delete them; quizzes and study aids are deleted with the slides they were written from.</td></tr>
+<tr><td><strong>Programs you write or run</strong> in the Code tab, and what they print</td><td>To run them. Your program and its input are sent to our server and on to Wandbox, which compiles and runs it and returns the output. <strong>We do not store the program</strong>; your draft stays in your browser. If you ask the tutor about your code or press <em>Make it runnable</em>, the code is also sent to Anthropic, and a question about it is kept with your chat like any other question.</td></tr>
 <tr><td><strong>Google account email and Google's account identifier</strong>, only if you sign in</td><td>To keep your chats private to you and available across devices. We receive nothing else from your Google account.</td></tr>
 <tr><td><strong>Usage records</strong>: which action you took (capture or chat), how many AI tokens it used and its estimated cost, and when you reached a limit</td><td>To keep running costs sustainable, spot abuse and see how much people want a paid plan. Not used for advertising.</td></tr>
 <tr><td><strong>Pro waitlist</strong>: a record that you clicked <em>Join the Pro waitlist</em>, linked to your Google email</td><td>Only if you click it. We may email you once about a possible paid plan.</td></tr>
@@ -98,6 +100,15 @@ _PAGE = """<!doctype html>
 <li><strong>Use it without signing in.</strong> Without an account there are no saved chats, and anonymous captures expire on the schedule above.</li>
 <li><strong>Small thumbnails</strong> of your captures are kept only in your browser, on your device, and are never sent to us. They are removed after __DAYS__ days, when you delete the capture, when you delete your account, or when you uninstall the extension.</li>
 <li>Uninstalling the extension removes everything stored in your browser.</li>
+</ul>
+
+<h2>Chrome Web Store user data policy</h2>
+<p>The use of information received through VisionLearn adheres to the <a href="https://developer.chrome.com/docs/webstore/program-policies/policies">Chrome Web Store User Data Policy</a>, including its Limited Use requirements. In particular:</p>
+<ul>
+<li>We use your data only to provide the features described on this page, which serve the extension's single purpose of helping students understand and study lecture slides.</li>
+<li>We transfer it only to the services listed under <em>Who processes your data</em>, and only as needed to provide those features, to keep the service secure, or to comply with the law.</li>
+<li>We do not sell it, and we do not use or transfer it for advertising or to judge creditworthiness or for lending.</li>
+<li>No one at VisionLearn reads your slides, chats, notes or programs. The owner's dashboard shows only account emails, counts and costs. The exceptions are where you ask us to look at something to help you, where it is needed for security or to investigate abuse, where the law requires it, and where the data has been aggregated and made anonymous.</li>
 </ul>
 
 <h2>Security</h2>

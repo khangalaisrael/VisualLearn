@@ -105,7 +105,7 @@ Each series can write you:
 • a deck of flashcards
 
 RUN THE CODE
-Code on a slide can be opened in the Code tab, made runnable with one click, edited and run in Python, Haskell, Java or C++. Try expressions as you would in GHCi or the Python shell, and ask the tutor about an error.
+Code on a slide can be opened in the Code tab, made runnable with one click, edited and run in Python, Haskell, Java or C++. Try expressions as you would in GHCi or the Python shell, and ask the tutor about an error. When you press Run, your program is sent to an online compiler service (Wandbox) and its output is returned; it is not stored by VisionLearn.
 
 NOTES AND OPEN CHAT
 Save any answer as a note, write your own, or ask a question that is not about a slide.
@@ -155,7 +155,8 @@ of them with screenshots from your own use at 1280×800 or 640×400.
 - **Personally identifiable information**: the Google account email, when the user signs in.
 - **Web history**: the title and address of a page the user captures (without its query string).
 - **Website content**: the screenshot of the captured tab and the text read from it.
-- **Personal communications**: the questions the user types to the tutor, kept with the chat.
+- **Personal communications**: the questions the user types to the tutor, kept with the chat, and code they ask the tutor about.
+- **User activity / website content**: if the dashboard offers a category for text the user types, such as the code they run, tick it too. The program is sent to a third-party compiler (Wandbox) and is not stored by VisionLearn.
 
 If unsure about a box, tick it: declaring too much costs nothing, declaring too little can get the
 item removed. Then tick all three certifications (no selling data, no use unrelated to the single
@@ -177,6 +178,7 @@ purpose, no use for creditworthiness or lending).
   3. Press Capture, then ask a question about the slide.
   The server may take up to a minute to answer the first request after a quiet period; the panel says so while it waits.
   Signing in with Google unlocks sorting, quizzes, study aids, notes and running code.
+  The Code tab runs code from captured slides (or code you type) in Python, Haskell, Java and C++.
   ```
 
 ## 10. Submit
