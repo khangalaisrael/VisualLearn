@@ -45,7 +45,19 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding-block: 0.2em;
+  margin: 0.5em 0;
   scrollbar-width: thin;
+}
+
+/* Code is shown exactly as typed: JetBrains Mono's ligatures would draw
+   "->" as an arrow and ">>=" as one glyph, which a student then cannot copy
+   by eye. Outside @layer for the same reason as .katex-display above. */
+code,
+pre,
+kbd,
+.font-mono,
+.hljs {
+  font-variant-ligatures: none;
 }
 
 /* Paper margins for the print page (src/print/), the one page that is printed. */
