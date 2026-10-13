@@ -1,0 +1,104 @@
+{
+  "_about": "What each slide image in this folder plainly shows. `types`: object types the analysis must find (a|b accepts either). `text`: strings that must appear somewhere in what it read (a list inside the list accepts any one of them). `code`: lines a code object in that language must contain. See tools/quality/README.md.",
+  "cases": [
+    {
+      "image": "merge-sort-steps.png",
+      "types": ["title", "paragraph", "diagram|graph"],
+      "text": [
+        "Merge Sort",
+        "split the array into two halves",
+        "sort each half recursively",
+        "merge the two sorted halves in linear time",
+        "an array of length 0 or 1 is already sorted",
+        "38 27 43 3 9 82 10"
+      ]
+    },
+    {
+      "image": "merge-sort-python.png",
+      "types": ["title", "code", "paragraph"],
+      "text": ["Merge Sort in Python", "equal keys keep their order", ["Θ(n) extra memory", "\\Theta(n) extra memory"]],
+      "code": {
+        "language": "python",
+        "lines": [
+          "def merge_sort(a):",
+          "if len(a) <= 1:",
+          "mid = len(a) // 2",
+          "left = merge_sort(a[:mid])",
+          "right = merge_sort(a[mid:])",
+          "return merge(left, right)",
+          "def merge(left, right):",
+          "out, i, j = [], 0, 0",
+          "while i < len(left) and j < len(right):",
+          "if left[i] <= right[j]:",
+          "out.append(left[i]); i += 1",
+          "return out + left[i:] + right[j:]"
+        ]
+      }
+    },
+    {
+      "image": "merge-sort-recurrence.png",
+      "types": ["title", "equation", "diagram|graph"],
+      "text": [
+        "Running Time of Merge Sort",
+        ["2T(n/2)", "2T(\\frac{n}{2})", "2T\\left(\\frac{n}{2}\\right)"],
+        ["T(1) = Θ(1)", "T(1) = \\Theta(1)"],
+        "cn/4",
+        ["n log n", "n \\log n"]
+      ]
+    },
+    {
+      "image": "master-theorem-table.png",
+      "types": ["title", "equation", "table"],
+      "text": [
+        "The Master Theorem",
+        ["aT(n/b) + f(n)", "aT(\\frac{n}{b}) + f(n)", "aT\\left(\\frac{n}{b}\\right) + f(n)"],
+        "Condition on f(n)",
+        ["T(n) = Θ(f(n))", "T(n) = \\Theta(f(n))"],
+        "case 2"
+      ]
+    },
+    {
+      "image": "haskell-map-filter.png",
+      "types": ["title", "code"],
+      "text": ["map and filter", "[2,4,6,8,10]"],
+      "code": {
+        "language": "haskell",
+        "lines": [
+          "map :: (a -> b) -> [a] -> [b]",
+          "map f (x:xs) = f x : map f xs",
+          "filter :: (a -> Bool) -> [a] -> [a]",
+          "| p x = x : filter p xs",
+          "| otherwise = filter p xs",
+          "map (*2) [1,2,3]",
+          "filter even [1..10]"
+        ]
+      }
+    },
+    {
+      "image": "haskell-foldr.png",
+      "types": ["title", "equation", "code", "diagram|graph"],
+      "text": ["foldr: Folding from the Right", ["x_1 \\oplus (x_2 \\oplus (x_3 \\oplus z))", "x1 ⊕ (x2 ⊕ (x3 ⊕ z))", "x₁ ⊕ (x₂ ⊕ (x₃ ⊕ z))"]],
+      "code": {
+        "language": "haskell",
+        "lines": [
+          "foldr :: (a -> b -> b) -> b -> [a] -> b",
+          "foldr _ z [] = z",
+          "foldr f z (x:xs) = f x (foldr f z xs)",
+          "sum = foldr (+) 0",
+          "product = foldr (*) 1"
+        ]
+      }
+    },
+    {
+      "image": "eigenvalues.png",
+      "types": ["title", "paragraph", "equation"],
+      "text": [
+        "Eigenvalues and Eigenvectors",
+        ["Av = λv", "Av = \\lambda v"],
+        ["det(A - λI) = 0", "\\det(A - \\lambda I) = 0", "det(A − λI) = 0"],
+        "characteristic polynomial",
+        ["(λ - 1)(λ - 3)", "(λ − 1)(λ − 3)", "(\\lambda - 1)(\\lambda - 3)"]
+      ]
+    }
+  ]
+}

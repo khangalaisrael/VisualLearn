@@ -46,3 +46,13 @@ Seeds slide/object rows directly via the repositories (bypassing
 `/slides/analyze` and the VLM) so failures point at the chat prompt, not
 at VLM extraction quality — that's a separate, already-observed source
 of variance (see `AlgorithmsMVP.md` Phase 4's missing-edge-weight note).
+
+## `quality/`
+
+The slide-reading quality test: runs the real slide analysis on slides
+whose contents are known, scores how much it read correctly, reports what
+each slide cost, and compares two settings side by side. Run it before
+shipping anything that changes how slides are read (a cheaper effort, a
+smaller image, a new model or prompt) to show it doesn't read slides
+worse. Costs real API money, so it's run by hand, not in CI. See
+[quality/README.md](quality/README.md).

@@ -115,6 +115,16 @@ async def test_analyze_sends_structured_output_request_with_correct_media_type()
     assert image_block["source"]["type"] == "base64"
 
 
+async def test_effort_can_be_set_for_the_quality_tool() -> None:
+    fake_client = AsyncMock()
+    fake_client.messages.create.return_value = _fake_response({"summary": "s", "objects": []})
+
+    await ClaudeVLMAnalyzer(client=fake_client, effort="low").analyze(_png_bytes())
+
+    _, kwargs = fake_client.messages.create.call_args
+    assert kwargs["output_config"]["effort"] == "low"
+
+
 def test_constructor_requires_api_key_or_client() -> None:
     try:
         ClaudeVLMAnalyzer()

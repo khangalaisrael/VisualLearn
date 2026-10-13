@@ -40,6 +40,7 @@ class ClaudeVLMAnalyzer:
         *,
         model: str = _DEFAULT_MODEL,
         client: anthropic.AsyncAnthropic | None = None,
+        effort: str = "medium",
     ) -> None:
         if client is None:
             if not api_key:
@@ -47,6 +48,9 @@ class ClaudeVLMAnalyzer:
             client = anthropic.AsyncAnthropic(api_key=api_key)
         self._client = client
         self.model_name = model
+        # Only the quality tool (tools/quality) sets another value, to measure
+        # whether a cheaper setting reads slides as well.
+        self._effort = effort
         self._system_prompt = load_prompt("analysis.v4")
         self._graph_localization_prompt = load_prompt("graph_localization.v1")
 
@@ -65,7 +69,7 @@ class ClaudeVLMAnalyzer:
             output_config={
                 # Analysis is high-volume and latency-sensitive (<8s target,
                 # docs/ARCHITECTURE.md §6) — "medium" per docs/PROMPTS.md §2.
-                "effort": "medium",
+                "effort": self._effort,
                 "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA},
             },
             messages=[
