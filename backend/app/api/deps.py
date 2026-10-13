@@ -209,6 +209,7 @@ async def get_code_runner() -> CodeRunner:
             settings.code_runner_url,
             settings.code_run_timeout_seconds,
             max_concurrent=settings.code_runner_max_concurrent,
+            max_per_minute=settings.code_runner_max_per_minute,
             queue_wait_seconds=settings.code_runner_queue_wait_seconds,
             cooldown_seconds=settings.code_runner_cooldown_seconds,
             cache_seconds=settings.code_runner_cache_seconds,

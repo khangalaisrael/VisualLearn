@@ -584,3 +584,35 @@ async def test_haskell_is_linked_dynamically_for_speed_and_falls_back_if_that_st
     async with client:
         assert (await runner.run("haskell", "main = pritn 1", "")).status == "compile_error"
     assert sandbox.calls == 1
+
+
+async def test_sends_are_spaced_to_stay_under_the_services_minute() -> None:
+    now, slept = [0.0], []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds  # the time that was waited passes
+
+    sandbox = _Sandbox()
+    runner, client = _runner(sandbox, now, max_per_minute=3, sleep=sleep, queue_wait_seconds=120)
+    async with client:
+        for n in range(4):  # four different programs, one after another, with no time between them
+            assert (await runner.run("java", f"class A{n} {{}}", "")).status == "ok"
+    assert sandbox.calls == 4
+    assert slept == [60.0]  # only the fourth had to wait, for the first one's minute to pass
+
+
+async def test_a_turn_that_would_come_too_late_is_busy_and_nothing_is_sent() -> None:
+    now, slept = [0.0], []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds
+
+    sandbox = _Sandbox()
+    runner, client = _runner(sandbox, now, max_per_minute=1, sleep=sleep, queue_wait_seconds=10)
+    async with client:
+        await runner.run("java", "class A {}", "")
+        with pytest.raises(CodeRunnerBusy):  # its turn is 60 s away, its patience 10
+            await runner.run("java", "class B {}", "")
+    assert (sandbox.calls, slept) == (1, [])

@@ -130,6 +130,9 @@ class Settings(BaseSettings):
     # flight at once, how long one may wait for a place, how long to leave it
     # alone after it has refused us, and how long an identical run is remembered.
     code_runner_max_concurrent: int = 3
+    # Wandbox allows 10 requests per minute per address, shared by all users of
+    # this server; one below that leaves room for a retry.
+    code_runner_max_per_minute: int = 9
     code_runner_queue_wait_seconds: float = 20.0
     code_runner_cooldown_seconds: float = 15.0
     code_runner_cache_seconds: float = 120.0

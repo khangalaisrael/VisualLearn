@@ -75,7 +75,7 @@ _PAGE = """<!doctype html>
 <ul>
 <li><strong>Anthropic</strong> — the AI service that reads captured slides and writes answers. Your screenshot, the extracted content and your questions are sent to it, and so is code from the Code tab when you ask the tutor about it or press <em>Make it runnable</em>. Its use of that data is governed by Anthropic's own terms and privacy policy.</li>
 <li><strong>Google</strong> — only for sign-in.</li>
-<li><strong>Wandbox</strong> (wandbox.org) — only when you press <em>Run</em> in the Code tab. The program you wrote and the input you gave it are sent there to be compiled and run. Nothing else is sent: not your name, email or slides. We do not store the programs you run.</li>
+<li><strong>Wandbox</strong> (wandbox.org) — only when you press <em>Run</em> in the Code tab. The program you wrote and the input you gave it are sent there to be compiled and run. Nothing else is sent: not your name, email or slides, and it sees our server's address, not yours. Wandbox keeps a log of the programs it runs (the code, its input and that address) under its own rules, which we do not control. We do not store the programs you run. Do not put passwords or personal data in a program.</li>
 <li><strong>Render</strong> hosts the server and <strong>Neon</strong> hosts the database.</li>
 </ul>
 <p>We do not sell your data, use it for advertising, or share it with anyone else, and we use it only to provide the features described here.</p>

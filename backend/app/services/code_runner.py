@@ -11,8 +11,8 @@ import asyncio
 import hashlib
 import re
 import time
-from collections import OrderedDict
-from collections.abc import Callable
+from collections import OrderedDict, deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
@@ -93,6 +93,12 @@ def is_sandbox_fault(payload: dict) -> bool:
     return bool(_SANDBOX_FAULT.search(text))
 
 
+# Wandbox allows 10 compile requests per minute from one address, as a sliding
+# window (feline/src/rate_limit.rs in github.com/melpon/wandbox, added
+# 2026-09-20). All of this server's users share one address. We stay below it
+# and queue, rather than being refused and backing off.
+_WINDOW_SECONDS = 60.0
+
 # How long to wait before asking a busy sandbox again; it recovers within seconds.
 _BUSY_RETRY_DELAYS = (2.0, 5.0)
 
@@ -152,8 +158,9 @@ class WandboxCodeRunner:
     """Runs programs on Wandbox, a free service that turns away a sender who
     is too fast. Everything here is to stay a considerate one:
 
-    - at most `max_concurrent` programs are in flight, and one that cannot
-      get a place within `queue_wait_seconds` is reported as busy;
+    - at most `max_per_minute` requests are sent in any minute (the service
+      allows 10), and at most `max_concurrent` programs are in flight; one
+      that cannot get its turn within `queue_wait_seconds` is reported as busy;
     - once the service has refused us, no more are sent for `cooldown_seconds`
       (they are reported as busy straight away instead of hammering it);
     - an answer is kept for `cache_seconds`, so running the same program with
@@ -170,11 +177,13 @@ class WandboxCodeRunner:
         retry_delays: tuple[float, ...] = _BUSY_RETRY_DELAYS,
         *,
         max_concurrent: int = 3,
+        max_per_minute: int = 9,
         queue_wait_seconds: float = 20.0,
         cooldown_seconds: float = 15.0,
         cache_seconds: float = 120.0,
         cache_entries: int = 200,
         clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._url = url
         self._timeout = timeout_seconds
@@ -188,6 +197,10 @@ class WandboxCodeRunner:
         self._cache_entries = cache_entries
         self._cache: OrderedDict[str, tuple[float, RunResult]] = OrderedDict()
         self._clock = clock
+        self._sleep = sleep
+        self._per_minute = max(1, max_per_minute)
+        self._sent: deque[float] = deque()
+        self._pace_lock = asyncio.Lock()
 
     def _key(self, body: dict) -> str:
         parts = (body["compiler"], body.get("compiler-option-raw", ""), body["code"], body["stdin"])
@@ -216,14 +229,32 @@ class WandboxCodeRunner:
         if self._clock() < self._cool_until:
             raise CodeRunnerBusy("the sandbox has just refused us; waiting before asking again")
 
+    async def _pace(self, deadline: float) -> None:
+        """Waits for a turn: sends are spaced so that no minute holds more than
+        `max_per_minute` of them. Turns are taken in order. Gives up, as busy,
+        when the turn would come after `deadline`."""
+        async with self._pace_lock:
+            while True:
+                now = self._clock()
+                while self._sent and now - self._sent[0] >= _WINDOW_SECONDS:
+                    self._sent.popleft()
+                if len(self._sent) < self._per_minute:
+                    self._sent.append(now)
+                    return
+                wait = self._sent[0] + _WINDOW_SECONDS - now
+                if now + wait > deadline:
+                    raise CodeRunnerBusy("too many programs are waiting to run")
+                await self._sleep(wait)
+
     async def _post(self, body: dict) -> httpx.Response:
         if self._client is not None:
             return await self._client.post(self._url, json=body, timeout=self._timeout)
         async with httpx.AsyncClient() as client:
             return await client.post(self._url, json=body, timeout=self._timeout)
 
-    async def _attempt(self, body: dict) -> dict | None:
+    async def _attempt(self, body: dict, deadline: float) -> dict | None:
         """The sandbox's answer, or None when it is too busy to give a real one."""
+        await self._pace(deadline)
         response = await self._post(body)
         if response.status_code == 429:
             return None
@@ -233,14 +264,14 @@ class WandboxCodeRunner:
             raise CodeRunnerUnavailable("unexpected answer from the sandbox")
         return None if is_sandbox_fault(payload) else payload
 
-    async def _send(self, body: dict) -> dict:
+    async def _send(self, body: dict, deadline: float) -> dict:
         try:
-            payload = await self._attempt(body)
+            payload = await self._attempt(body, deadline)
             for delay in self._retry_delays:
                 if payload is not None:
                     break
-                await asyncio.sleep(delay)
-                payload = await self._attempt(body)
+                await self._sleep(delay)
+                payload = await self._attempt(body, deadline)
         except (httpx.HTTPError, ValueError) as exc:
             raise CodeRunnerUnavailable(str(exc)) from exc
         if payload is None:
@@ -258,6 +289,8 @@ class WandboxCodeRunner:
         if cached is not None:
             return replace(cached, duration_ms=int((time.perf_counter() - started) * 1000))
         self._check_cooldown()
+        # Everything below, waiting for a place and for a turn, shares this budget.
+        deadline = self._clock() + self._queue_wait
         try:
             await asyncio.wait_for(self._slots.acquire(), timeout=self._queue_wait)
         except TimeoutError as exc:
@@ -270,9 +303,9 @@ class WandboxCodeRunner:
             if cached is not None:
                 return replace(cached, duration_ms=int((time.perf_counter() - started) * 1000))
             sent = time.perf_counter()
-            payload = await self._send(body)
+            payload = await self._send(body, deadline)
             if needs_static_link(language, payload):
-                payload = await self._send({k: v for k, v in body.items() if k != "compiler-option-raw"})
+                payload = await self._send({k: v for k, v in body.items() if k != "compiler-option-raw"}, deadline)
             result = parse_result(language, payload, int((time.perf_counter() - sent) * 1000))
         finally:
             self._slots.release()
