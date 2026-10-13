@@ -218,3 +218,43 @@ async def test_analyze_rejects_unsupported_model_name(client: AsyncClient) -> No
         headers={"X-API-Key": "test-api-key"},
     )
     assert response.status_code == 422
+
+
+async def test_a_slide_the_presentation_has_is_not_analysed_again_after_its_cache_expires(client, db_session) -> None:
+    from sqlalchemy import delete
+
+    from app.api.deps import get_slide_analyzer
+    from app.core.cache import get_redis
+    from app.main import app
+    from app.models.orm import CacheEntry
+    from app.services.slide_analyzer import PlaceholderSlideAnalyzer
+
+    class CountingAnalyzer(PlaceholderSlideAnalyzer):
+        calls = 0
+
+        async def analyze(self, image_bytes: bytes):
+            CountingAnalyzer.calls += 1
+            return await super().analyze(image_bytes)
+
+    app.dependency_overrides[get_slide_analyzer] = lambda: CountingAnalyzer()
+    headers = {"X-API-Key": "test-api-key"}
+    image_bytes = _fake_png_bytes()
+    first = await client.post("/api/v1/slides/analyze", files={"image": ("slide.png", image_bytes, "image/png")}, data={"slide_number": "1"}, headers=headers)
+    presentation_id = first.json()["presentation_id"]
+
+    # The analysis cache forgets the image (Redis and its database copy both expire).
+    await db_session.execute(delete(CacheEntry))
+    await db_session.commit()
+    app.dependency_overrides[get_redis] = lambda: None
+
+    again = await client.post(
+        "/api/v1/slides/analyze",
+        files={"image": ("slide.png", image_bytes, "image/png")},
+        data={"slide_number": "1", "presentation_id": presentation_id},
+        headers=headers,
+    )
+    assert again.status_code == 200
+    assert CountingAnalyzer.calls == 1
+    assert again.json()["slide_id"] == first.json()["slide_id"]
+    assert again.json()["cache_hit"] is True
+    assert again.json()["summary"] == first.json()["summary"]

@@ -134,30 +134,30 @@ async def analyze_slide(
 
     usage = start_accumulator()
     start = time.perf_counter()
-    cached_result = await cache.get(image_hash, analyzer.model_name)
-    if cached_result is not None:
-        result = cached_result
-        cache_hit = True
-    else:
-        result = await analyzer.analyze(image_bytes)
-        await cache.set(image_hash, result, model_used=analyzer.model_name)
-        cache_hit = False
-    elapsed_ms = int((time.perf_counter() - start) * 1000)
-
     objects_repo = ObjectRepository(db)
+    # Checked before the analysis cache: a slide this presentation already has
+    # needs no analysis even when its cache entry has expired.
     existing_slide = await slides.get_by_hash(presentation.id, image_hash)
     if existing_slide is not None:
-        # This exact image was already analyzed for this presentation —
-        # its objects (and their ids) already exist from that first time.
-        # Returned from the objects table, not `result.objects`: the
-        # latter comes from the image-hash cache, which is shared across
-        # presentations and round-trips whatever ids were cached under a
-        # *different* presentation's slide — see ObjectRepository's
-        # docstring for why object identity belongs to this table, not
-        # the cache.
+        # This slide was already analyzed for this presentation — its objects
+        # (and their ids) already exist from that first time. Returned from
+        # the objects table, not from the image-hash cache, which is shared
+        # across presentations and round-trips whatever ids were cached under
+        # a *different* presentation's slide — see ObjectRepository's
+        # docstring for why object identity belongs to this table, not the cache.
         slide = existing_slide
         records = await objects_repo.list_by_slide(slide.id)
+        cache_hit = True
+        result = None
     else:
+        cached_result = await cache.get(image_hash, analyzer.model_name)
+        if cached_result is not None:
+            result = cached_result
+            cache_hit = True
+        else:
+            result = await analyzer.analyze(image_bytes)
+            await cache.set(image_hash, result, model_used=analyzer.model_name)
+            cache_hit = False
         slide = await slides.create(
             presentation_id=presentation.id,
             slide_number=slide_number,
@@ -169,6 +169,7 @@ async def analyze_slide(
         # this is the first time this specific slide gets objects, even
         # if `result` itself came from another presentation's cache hit.
         records = await objects_repo.create_many(slide.id, result.objects)
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
     response_objects = [objects_repo.to_slide_object(record) for record in records]
 
     await UsageEventRepository(db).record(
@@ -207,6 +208,6 @@ async def analyze_slide(
         cache_hit=cache_hit,
         status=slide.status,
         objects=response_objects,
-        summary=result.summary,
+        summary=result.summary if result is not None else (slide.summary or ""),
         series=series_ref(series, slide),
     )
