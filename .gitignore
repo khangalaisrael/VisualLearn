@@ -20,3 +20,6 @@ extension/dist.pem
 # OS
 .DS_Store
 Thumbs.db
+
+# Chrome Web Store packages hold the shared API key (scripts/package-store.mjs)
+extension/*.zip

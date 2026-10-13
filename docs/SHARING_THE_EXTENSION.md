@@ -1,5 +1,7 @@
 # Sharing the extension (until the Chrome Web Store listing exists)
 
+For the Chrome Web Store itself, see [CHROME_WEB_STORE.md](CHROME_WEB_STORE.md).
+
 The site's `/install` page offers a downloadable zip and the steps to add it to Chrome.
 The zip is **not** in this repository and must never be: the build contains the server's
 shared API key (`VITE_LOCAL_API_KEY`), read from a key file outside the repo.

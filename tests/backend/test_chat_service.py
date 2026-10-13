@@ -156,9 +156,51 @@ async def test_claude_chat_service_includes_prior_turns_in_request() -> None:
 
     assert captured_kwargs["messages"] == [
         {"role": "user", "content": "What is Big-O?"},
-        {"role": "assistant", "content": "It describes worst-case growth."},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "It describes worst-case growth.", "cache_control": {"type": "ephemeral"}}
+            ],
+        },
         {"role": "user", "content": "Can you give an example?"},
     ]
+
+
+async def test_claude_chat_service_marks_system_prompt_for_caching() -> None:
+    fake_client = AsyncMock()
+    captured_kwargs: dict = {}
+
+    def _fake_stream(**kwargs):
+        captured_kwargs.update(kwargs)
+        return _FakeClaudeStream([], SimpleNamespace(input_tokens=1, output_tokens=1))
+
+    fake_client.messages.stream = _fake_stream
+
+    service = ClaudeChatService(client=fake_client, model="claude-haiku-5-5")
+    async for _ in service.stream_chat(system_prompt="persona+context", message="hi", effort="low"):
+        pass
+
+    assert captured_kwargs["system"] == [
+        {"type": "text", "text": "persona+context", "cache_control": {"type": "ephemeral"}}
+    ]
+    # A first turn has no earlier turn to mark: the question goes as plain text.
+    assert captured_kwargs["messages"] == [{"role": "user", "content": "hi"}]
+
+
+async def test_claude_chat_service_reports_cache_writes() -> None:
+    fake_client = AsyncMock()
+    fake_client.messages.stream = lambda **kwargs: _FakeClaudeStream(
+        ["ok"],
+        SimpleNamespace(input_tokens=4, output_tokens=2, cache_read_input_tokens=0, cache_creation_input_tokens=900),
+    )
+
+    service = ClaudeChatService(client=fake_client, model="claude-haiku-5-5")
+    chunks = [c async for c in service.stream_chat(system_prompt="p", message="hi", effort="low")]
+
+    final = next(c for c in chunks if c.done)
+    assert final.usage is not None
+    assert final.usage.cache_creation_input_tokens == 900
+    assert final.usage.cache_read_input_tokens == 0
 
 
 def test_claude_chat_service_constructor_requires_api_key_or_client() -> None:

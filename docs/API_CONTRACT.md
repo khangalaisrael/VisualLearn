@@ -115,7 +115,14 @@ ChatRequest:
   slide_id: str | null            # required for "slide"/"figure"/"algorithm"
   object_id: str | null           # required for "figure"
   message: str
+  library: bool = false           # "general" only: answer from the signed-in student's own slides and notes
 ```
+
+With `library: true` on a signed-in "general" request (the Chat tab), the question is
+searched against the student's captured slides and saved notes
+(`services/course_library.py`, BM25 over their text). Only the best few matches are added
+to the prompt (`prompts/chat_course.v1.md`), which cites them as `[S1]`, `[N1]`; the `done`
+event then also carries `sources`.
 
 **Response:** `text/event-stream`, events:
 ```
@@ -127,7 +134,8 @@ data: {
   "conversation_id": str,
   "message_id": str,
   "referenced_object_ids": [str],
-  "usage": { "input_tokens": int, "output_tokens": int, "cache_read_input_tokens": int }
+  "usage": { "input_tokens": int, "output_tokens": int, "cache_read_input_tokens": int, "cache_creation_input_tokens": int },
+  "sources": [ { "ref": "S1", "kind": "slide" | "note", "title": str, "slide_id": str | null, "note_id": str | null } ]   # library requests only
 }
 
 event: error
@@ -174,7 +182,7 @@ All need the API key plus a session whose verified Google email is in `ADMIN_EMA
 - `GET /admin/users` → `{ median_cost_usd, users: [{ user_id, email, captures_30d, chats_30d, input_tokens, output_tokens, cost_30d_usd, limit_hits_30d, last_active, is_outlier }] }`, highest spend first. Signed-out and deleted-account usage is pooled in one row with `user_id: null`. An outlier spent more than twice the median of everyone with spend, and at least $0.05 (needs three spenders). Admin accounts (`is_admin: true`) are excluded from the median and never flagged.
 - `GET /admin/waitlist` → `{ unique_users, total_clicks, entries: [{ email, clicks, first_click, last_click, sources }] }`, latest first.
 
-The extension shows this on a full-tab options page (`src/admin/`), reachable from Settings only when `GET /usage` says `is_admin`.
+The extension shows this on a full-tab page (`src/admin/`), opened from Settings only when `GET /usage` says `is_admin`.
 
 `GET /privacy` (public, HTML) is the privacy policy the Chrome Web Store listing links to.
 

@@ -49,7 +49,7 @@ from app.services.lecture_meta import clean_page_url, clean_title, lecture_key
 from app.services.series import assign_series, series_ref
 from app.services.series_sorter import SeriesSorter
 from app.services.slide_analyzer import SlideAnalyzer
-from app.services.usage import estimate_cost_usd, start_accumulator
+from app.services.usage import accumulated_cost_usd, start_accumulator
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ async def analyze_slide(
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
         cache_hit=cache_hit,
-        est_cost_usd=estimate_cost_usd(analyzer.model_name, usage.input_tokens, usage.output_tokens),
+        est_cost_usd=accumulated_cost_usd(analyzer.model_name, usage),
         slide_id=slide.id,
     )
 

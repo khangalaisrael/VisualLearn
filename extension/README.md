@@ -23,6 +23,12 @@ npm run build    # production build to dist/
 2. Open `chrome://extensions`, enable Developer Mode
 3. "Load unpacked" → select `extension/dist`
 
+## Chrome Web Store package
+
+`npm run package:store` builds the zip uploaded to the Chrome Web Store: the manifest without its
+`key`, the hosted backend's address and the shared API key read from `~/.visionlearn_key`. See
+[docs/CHROME_WEB_STORE.md](../docs/CHROME_WEB_STORE.md) for the whole submission.
+
 ## Backend connection
 
 The extension talks to the local backend at `http://127.0.0.1:8001` by

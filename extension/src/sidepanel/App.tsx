@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 
+import { getSlide } from "../shared/api-client";
 import { onHandoff } from "../shared/handoff";
 import { AskTab, type RestoredChat } from "./tabs/AskTab";
 import { ChatTab } from "./tabs/ChatTab";
@@ -164,7 +165,18 @@ export function App(): JSX.Element {
         />
       </div>
       <div className={view === "chat" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
-        <ChatTab />
+        <ChatTab
+          onOpenSlide={(slideId) => {
+            void getSlide(slideId)
+              .then((slide) => {
+                setRestore({ conversationId: null, slide, messages: [] });
+                go("ask");
+              })
+              // Deleted since (or past the 30 days): the library is the next best place.
+              .catch(() => go("recent"));
+          }}
+          onOpenNotes={() => go("notes")}
+        />
       </div>
       <div className={view === "code" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
         <CodeTab incoming={incomingCode} active={view === "code"} />

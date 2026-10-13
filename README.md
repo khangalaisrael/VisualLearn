@@ -1,8 +1,24 @@
 # VisionLearn AI
 
-A Chrome extension and backend platform that understands STEM lecture slides — text, equations, diagrams, charts, and figures — and lets students query them interactively, grounded in the current slide or an entire indexed presentation.
+[![CI](https://github.com/khangalaisrael/VisualLearn/actions/workflows/ci.yml/badge.svg)](https://github.com/khangalaisrael/VisualLearn/actions/workflows/ci.yml)
 
-This repository currently holds product specs and architecture documentation. No implementation exists yet — see the roadmap for the build schedule.
+A Chrome extension and backend that understand STEM lecture slides (text, equations, diagrams, graphs, tables and code) and help students study from them.
+
+## What it does
+
+- **Capture and ask.** Press Capture (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>) on any slide in a Chrome tab and ask about it. Answers are grounded in what is on screen and remember the earlier slides of the same lecture.
+- **A library sorted by topic.** Signed-in captures are filed into a series per lecture topic, searchable from the side panel.
+- **Study tools.** Each series can write multiple-choice quizzes with a tutor for wrong answers, a study guide, a cheat sheet and flashcards.
+- **Run the code.** Code from a slide can be made runnable, edited and run in Haskell, Python, Java or C++, including GHCi-style expressions.
+- **Notes and open chat.** Save any answer as a note, or ask a question that is not about a slide.
+- **Fair use and privacy.** Nothing is read until you press Capture. Daily limits keep it free; slides and chats are deleted after 30 days.
+
+## Getting started
+
+- Backend: [backend/README.md](./backend/README.md) (Docker Compose: FastAPI, PostgreSQL, Redis).
+- Extension: [extension/README.md](./extension/README.md) (`npm install`, `npm run build`, load `extension/dist` unpacked).
+- Tests: `pip install -e "./backend[dev]"`, then `python -m pytest` from the repository root. CI runs them, the extension typecheck and both builds on every push and pull request.
+- Publishing: [docs/CHROME_WEB_STORE.md](./docs/CHROME_WEB_STORE.md) (Chrome Web Store) and [docs/SHARING_THE_EXTENSION.md](./docs/SHARING_THE_EXTENSION.md) (the zip on the website).
 
 ## Source Specs
 
@@ -29,7 +45,7 @@ Produced from the specs above plus two explicit project-owner decisions (VLM-fir
 - **AI pipeline is VLM-first**: one vision call with structured outputs replaces the originally-scoped separate OCR / math-OCR / layout-detection / vision stages, kept swappable behind a `SlideAnalyzer` interface ([ADR-004](./docs/adr/ADR-004-vlm-first-pipeline.md)). OpenAI is the active provider by default, Claude remains fully supported ([ADR-009](./docs/adr/ADR-009-openai-as-active-vlm-provider.md)).
 - **Deployment is local-first**: single-user Docker Compose (FastAPI + Postgres/pgvector + Redis), no auth, but a multi-tenant-ready schema so hosting is additive later ([ADR-007](./docs/adr/ADR-007-local-first-deployment.md)).
 
-## Proposed Repository Structure
+## Repository Structure
 
 The PRD and MVP Build Spec each sketch a slightly different folder layout. This structure reconciles them into one, chosen for the [ADR-005](./docs/adr/ADR-005-modular-monolith.md) modular-monolith decision — AI capabilities live as services inside `backend/`, not as a separate top-level `ai/` tree, since they are not independently deployed:
 
@@ -74,3 +90,11 @@ Two more direct-request changes: (1) the content script's automatic DOM-mutation
 See [backend/README.md](./backend/README.md) and [extension/README.md](./extension/README.md) for setup, [tools/README.md](./tools/README.md) for the dev test harness, and [docs/ROADMAP.md](./docs/ROADMAP.md) Milestone 3 for what's next.
 
 Milestone 1 (Foundation) — repo scaffold, `GET /health`, the extension shell — is unchanged from before and still complete.
+
+## License
+
+Copyright (C) 2026 khangalaisrael
+
+VisionLearn AI is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License, version 3, as published by the Free Software Foundation. See [LICENSE](./LICENSE).
+
+In short: anyone may use, change and share this code, but if they distribute a modified version or run one as a service that other people use, they must publish their source code under the same license.

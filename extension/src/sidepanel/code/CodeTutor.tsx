@@ -23,6 +23,7 @@ export function CodeTutor({
   context,
   suggestions,
   disabled,
+  question,
 }: {
   /** The code and its last run, described for the tutor. */
   context: string;
@@ -30,6 +31,8 @@ export function CodeTutor({
   suggestions: string[];
   /** Signed out: the box is shown, but nothing can be sent. */
   disabled: boolean;
+  /** A question asked from elsewhere in the Code tab (such as "Explain this error"); `id` changes with each. */
+  question?: { id: number; text: string } | null;
 }): JSX.Element {
   const [messages, setMessages] = useState<TutorMessage[]>([]);
   const [input, setInput] = useState("");
@@ -114,6 +117,14 @@ export function CodeTutor({
     }
   };
 
+  // A question asked from the output panel ("Explain this error"), once per id.
+  const askedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!question || askedRef.current === question.id) return;
+    askedRef.current = question.id;
+    void ask(question.text);
+  }, [question, ask]);
+
   const clear = () => {
     abortRef.current?.abort();
     setMessages([]);
@@ -123,89 +134,93 @@ export function CodeTutor({
   };
 
   return (
-    <section className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-3 shadow-subtle" aria-label="Ask the tutor">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Ask the tutor</h2>
-        {messages.length > 0 && (
-          <button
-            type="button"
-            onClick={clear}
-            className="rounded-sm text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:text-slate-700 hover:underline"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-
-      {messages.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {messages.map((message) =>
-            message.role === "user" ? (
-              <li
-                key={message.id}
-                className="max-w-[90%] self-end whitespace-pre-wrap break-words rounded-md bg-indigo-600 px-3 py-2 text-sm text-white"
-              >
-                {message.content}
-              </li>
-            ) : (
-              <li
-                key={message.id}
-                className="max-w-full overflow-x-auto rounded-md border border-amber-100 bg-amber-50/70 px-3.5 py-3 text-sm leading-relaxed text-slate-700 dark:border-indigo-100 dark:bg-indigo-50/40"
-              >
-                {message.content ? <MathText text={message.content} /> : <span className="text-slate-400">Thinking…</span>}
-              </li>
-            )
-          )}
-        </ul>
-      )}
-      <div ref={endRef} />
-
-      {error &&
-        (error.limited ? (
-          <p role="status" className="rounded-md border border-violet-100 bg-violet-50/50 p-3 text-sm text-slate-600">
-            {error.message}
+    <section className="flex h-full min-h-0 flex-col" aria-label="Ask the tutor">
+      <div className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-2">
+        {messages.length === 0 ? (
+          <p className="text-xs leading-relaxed text-slate-500">
+            Ask about a line, an error, or what to change. Your code and its last result are sent with the question,
+            and each question counts as a chat message.
           </p>
         ) : (
-          <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
-            {error.message}
-          </p>
-        ))}
-
-      {suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {suggestions.map((suggestion) => (
+          <div className="flex justify-end">
             <button
-              key={suggestion}
               type="button"
-              disabled={streaming || disabled}
-              onClick={() => void ask(suggestion)}
-              className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300"
+              onClick={clear}
+              className="rounded-sm text-xs font-medium text-slate-500 transition-colors duration-[120ms] hover:text-slate-700 hover:underline"
             >
-              {suggestion}
+              Clear the conversation
             </button>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
 
-      <div className="flex items-end gap-2">
-        <textarea
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={onKey}
-          rows={2}
-          maxLength={2000}
-          disabled={disabled}
-          aria-label="Ask about this code"
-          placeholder={disabled ? "Sign in to ask the tutor" : "Ask about a line, an error, or what to change"}
-          className="min-w-0 flex-1 resize-y rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 transition-colors duration-[120ms] placeholder:text-slate-400 focus:border-indigo-400 disabled:opacity-50"
-        />
-        <Button onClick={send} disabled={streaming || disabled || !input.trim()}>
-          {streaming ? "Answering…" : "Ask"}
-        </Button>
+        {messages.length > 0 && (
+          <ul className="flex flex-col gap-2">
+            {messages.map((message) =>
+              message.role === "user" ? (
+                <li
+                  key={message.id}
+                  className="max-w-[90%] self-end whitespace-pre-wrap break-words rounded-md bg-indigo-600 px-3 py-2 text-sm text-white"
+                >
+                  {message.content}
+                </li>
+              ) : (
+                <li
+                  key={message.id}
+                  className="max-w-full overflow-x-auto rounded-md border border-amber-100 bg-amber-50/70 px-3.5 py-3 text-sm leading-relaxed text-slate-700 dark:border-indigo-100 dark:bg-indigo-50/40"
+                >
+                  {message.content ? <MathText text={message.content} /> : <span className="text-slate-400">Thinking…</span>}
+                </li>
+              )
+            )}
+          </ul>
+        )}
+        <div ref={endRef} />
+
+        {error &&
+          (error.limited ? (
+            <p role="status" className="rounded-md border border-violet-100 bg-violet-50/50 p-3 text-sm text-slate-600">
+              {error.message}
+            </p>
+          ) : (
+            <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700 dark:text-red-300">
+              {error.message}
+            </p>
+          ))}
       </div>
-      <p className="text-xs text-slate-400">
-        Your code and its last result are sent with the question. Each question counts as a chat message.
-      </p>
+
+      <div className="flex flex-none flex-col gap-2 border-t border-slate-100 px-3 py-2">
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                disabled={streaming || disabled}
+                onClick={() => void ask(suggestion)}
+                className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700 transition-colors duration-[120ms] hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <textarea
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={onKey}
+            rows={1}
+            maxLength={2000}
+            disabled={disabled}
+            aria-label="Ask about this code"
+            placeholder={disabled ? "Sign in to ask the tutor" : "Ask about your code"}
+            className="max-h-28 min-w-0 flex-1 resize-none rounded-sm border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 transition-colors duration-[120ms] [field-sizing:content] placeholder:text-slate-400 focus:border-indigo-400 disabled:opacity-50"
+          />
+          <Button onClick={send} disabled={streaming || disabled || !input.trim()}>
+            {streaming ? "Answering…" : "Ask"}
+          </Button>
+        </div>
+      </div>
     </section>
   );
 }

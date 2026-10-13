@@ -114,7 +114,7 @@ export function StartScreen({
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-5 px-4 py-8 text-center">
-      <img src="/icons/icon-128.png" alt="" className="h-14 w-14 rounded-md shadow-subtle" />
+      <img src="/icons/logo.svg" alt="" className="h-14 w-14" />
       <div className="flex flex-col gap-1">
         <p className="text-base font-semibold text-slate-800">Understand any slide</p>
         <p className="text-sm text-slate-500">Equations, diagrams and code, explained from what's on screen.</p>

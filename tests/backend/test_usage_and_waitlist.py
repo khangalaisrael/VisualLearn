@@ -238,3 +238,18 @@ async def test_deleting_an_account_anonymises_spend_and_removes_the_waitlist_row
     assert (await db_session.execute(select(func.count()).select_from(UsageEvent))).scalar_one() == spend_rows
     assert (await db_session.execute(select(UsageEvent.user_id))).scalars().all() == [None] * spend_rows
     assert (await db_session.execute(select(func.count()).select_from(ProWaitlistClick))).scalar_one() == 0
+
+
+def test_cost_estimate_prices_prompt_cache_writes_and_reads() -> None:
+    from app.services.usage import estimate_cost_usd
+
+    # claude-haiku-5-5: $0.10 in / $0.50 out per million tokens. Cache
+    # writes cost 1.25x the input price and reads 0.1x; neither is part of
+    # input_tokens.
+    plain = estimate_cost_usd("claude-haiku-5-5", 1_000_000, 0)
+    assert plain == pytest.approx(0.10)
+    written = estimate_cost_usd("claude-haiku-5-5", 0, 0, cache_creation_input_tokens=1_000_000)
+    assert written == pytest.approx(0.125)
+    read = estimate_cost_usd("claude-haiku-5-5", 0, 0, cache_read_input_tokens=1_000_000)
+    assert read == pytest.approx(0.01)
+    assert estimate_cost_usd("unknown-model", 10, 10, cache_read_input_tokens=10) == 0.0

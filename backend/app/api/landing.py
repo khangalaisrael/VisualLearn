@@ -21,6 +21,16 @@ router = APIRouter(tags=["landing"])
 
 DEFAULT_CONTACT = "visionlearn.support@gmail.com"
 
+# The extension's logo (extension/public/icons/logo.svg), inline so the page stays one request.
+LOGO_DATA_URI = (
+    "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'>"
+    "<rect width='96' height='96' rx='22' fill='%232e2a8a'/>"
+    "<g fill='none' stroke='%23c7d2fe' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round'>"
+    "<path d='M18 32V22h10'/><path d='M68 22h10v10'/><path d='M78 64v10H68'/><path d='M28 74H18V64'/></g>"
+    "<path d='M30 34l18 32 18-32' fill='none' stroke='%23fcd34d' stroke-width='9' stroke-linecap='round' stroke-linejoin='round'/>"
+    "</svg>"
+)
+
 _STYLE = """
   :root { --bg:#ffffff; --text:#1e293b; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --accent-soft:#eef2ff; --soft:#f8fafc; --on-accent:#ffffff; }
   @media (prefers-color-scheme: dark) {
@@ -30,8 +40,8 @@ _STYLE = """
   body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
   main { max-width: 880px; margin: 0 auto; padding: 0 20px 64px; }
   header.top { display:flex; align-items:center; justify-content:space-between; padding: 22px 0; }
-  .brand { font-weight: 700; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
-  .brand span { color: var(--accent); }
+  .brand { display:inline-flex; align-items:center; gap:9px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
+  .brand .name span { color: var(--accent); }
   nav a { color: var(--muted); text-decoration: none; font-size: 0.95rem; margin-left: 18px; }
   nav a:hover { color: var(--text); }
   .hero { padding: 48px 0 40px; }
@@ -62,6 +72,7 @@ _HEAD = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
+<link rel="icon" href="__LOGO__">
 <meta name="description" content="A Chrome extension that reads the slide on your screen — equations, diagrams, code — and explains it, then helps you study from it: quizzes, study guides, flashcards, notes and a place to run the code.">
 <meta property="og:title" content="VisionLearn AI">
 <meta property="og:description" content="Understand any lecture slide, then study from it: explanations, quizzes, study guides, flashcards and runnable code, from what's on your screen.">
@@ -71,7 +82,7 @@ _HEAD = """<!doctype html>
 <body>
 <main>
 <header class="top">
-  <a class="brand" href="/">Vision<span>Learn</span> AI</a>
+  <a class="brand" href="/"><img src="__LOGO__" alt="" width="26" height="26"><span class="name">Vision<span>Learn</span> AI</span></a>
   <nav><a href="/#how">How it works</a><a href="/install">Get it</a><a href="/privacy">Privacy</a></nav>
 </header>
 """
@@ -195,7 +206,9 @@ def _fill(template: str) -> str:
 
 
 def _page(title: str, body: str) -> str:
-    return _fill(_HEAD.replace("__TITLE__", title).replace("__STYLE__", _STYLE) + body + _FOOT)
+    return _fill(
+        _HEAD.replace("__TITLE__", title).replace("__STYLE__", _STYLE).replace("__LOGO__", LOGO_DATA_URI) + body + _FOOT
+    )
 
 
 def render_landing() -> str:

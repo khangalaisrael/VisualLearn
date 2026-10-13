@@ -49,6 +49,7 @@ from app.repositories.usage_events import UsageEventRepository
 from app.services.algorithm_tracer import find_algorithm_name, find_array, find_target, format_result
 from app.services.algorithm_tracer import trace as trace_algorithm
 from app.services.chat_service import ChatEffort, ChatService
+from app.services.course_library import Source, find_relevant
 from app.services.usage import estimate_cost_usd
 from app.services.graph_algorithm_tracer import find_graph_algorithm, find_start_node
 from app.services.graph_algorithm_tracer import trace as trace_graph_algorithm
@@ -164,6 +165,24 @@ async def _get_slide(db: AsyncSession, request: ChatRequest, presentation_id: uu
     if slide is None or slide.presentation_id != presentation_id:
         raise HTTPException(status_code=404, detail="Unknown slide_id")
     return slide
+
+
+# How many earlier messages (questions and answers together) a chat turn
+# resends. Each turn pays for every earlier message again, so a very long
+# conversation would cost more with every question; ten exchanges keep the
+# thread of a tutoring conversation, and the slide itself is always in the
+# system prompt whatever is left out here.
+MAX_HISTORY_MESSAGES = 20
+
+
+def recent_history(history: list[tuple[str, str]], limit: int = MAX_HISTORY_MESSAGES) -> list[tuple[str, str]]:
+    """The last `limit` messages of a conversation, starting on a question:
+    when the cut falls on an answer, that answer is dropped too, so the
+    model never sees a reply without the question it answered."""
+    recent = history[-limit:] if limit > 0 else []
+    while recent and recent[0][0] != "user":
+        recent = recent[1:]
+    return recent
 
 
 _SERIES_CONTEXT_SLIDES = 5
@@ -471,6 +490,16 @@ async def _resolve_conversation(
     return conversation.id
 
 
+async def _library_query(db: AsyncSession, request: ChatRequest, conversation_id: uuid.UUID) -> str:
+    """What to search the course library for: the question, plus the one before
+    it in the same chat, so a follow-up ("and why is that?") still finds the
+    slides the conversation is about."""
+    if not request.conversation_id:
+        return request.message
+    previous = [m.content for m in await MessageRepository(db).list_by_conversation(conversation_id) if m.role == "user"]
+    return f"{previous[-1]}\n{request.message}" if previous else request.message
+
+
 async def _stream_response(
     chat_service: ChatService,
     db: AsyncSession,
@@ -482,6 +511,7 @@ async def _stream_response(
     effort: ChatEffort,
     referenced_object_ids: list[str],
     user_id: uuid.UUID | None,
+    sources: list[Source] | None = None,
 ) -> AsyncIterator[str]:
     start = time.perf_counter()
     full_text = ""
@@ -490,7 +520,7 @@ async def _stream_response(
         # Fetched before this turn's user message is persisted, so it's
         # exactly the prior turns — this message is passed separately below.
         prior_messages = await messages.list_by_conversation(conversation_id)
-        history = [(m.role, m.content) for m in prior_messages]
+        history = recent_history([(m.role, m.content) for m in prior_messages])
 
         await messages.create(
             conversation_id=conversation_id,
@@ -521,7 +551,11 @@ async def _stream_response(
                     input_tokens=chunk.usage.input_tokens,
                     output_tokens=chunk.usage.output_tokens,
                     est_cost_usd=estimate_cost_usd(
-                        chat_service.model_name, chunk.usage.input_tokens, chunk.usage.output_tokens
+                        chat_service.model_name,
+                        chunk.usage.input_tokens,
+                        chunk.usage.output_tokens,
+                        cache_creation_input_tokens=chunk.usage.cache_creation_input_tokens,
+                        cache_read_input_tokens=chunk.usage.cache_read_input_tokens,
                     ),
                     conversation_id=conversation_id,
                 )
@@ -542,6 +576,8 @@ async def _stream_response(
                     "referenced_object_ids": referenced_object_ids,
                     "usage": chunk.usage.model_dump(),
                 }
+                if sources is not None:
+                    done_payload["sources"] = [source.__dict__ for source in sources]
                 yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
     except Exception:
         # A raise here can't change the HTTP status (headers/body have
@@ -598,7 +634,15 @@ async def chat(
     conversation_id = await _resolve_conversation(db, request, presentation_uuid, slide_uuid, current_user_id)
     await db.commit()
 
-    base_prompt = load_prompt(_PROMPT_BY_MODE[request.query_mode])
+    # The course brain: a general question from a signed-in student, answered
+    # from the few captured slides and notes it is about.
+    sources: list[Source] | None = None
+    prompt_name = _PROMPT_BY_MODE[request.query_mode]
+    if request.query_mode == "general" and request.library and current_user_id is not None:
+        context_text, sources = await find_relevant(db, current_user_id, await _library_query(db, request, conversation_id))
+        prompt_name = "chat_course.v1"
+
+    base_prompt = load_prompt(prompt_name)
     explanation_mode_prefix = ""
     if request.query_mode == "algorithm":
         explanation_mode_prefix = _explanation_mode_prefix(request.explanation_mode)
@@ -616,6 +660,7 @@ async def chat(
             effort=effort,
             referenced_object_ids=referenced_object_ids,
             user_id=current_user_id,
+            sources=sources,
         ),
         media_type="text/event-stream",
     )

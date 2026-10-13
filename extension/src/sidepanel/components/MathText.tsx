@@ -8,8 +8,8 @@
  * prompts/chat_figure.v5.md / chat_slide.v5.md), rendered via CodeBlock.
  *
  * Outside code, text also gets light formatting: **bold** and *italic* spans,
- * `#`/`##`/`###` headings, `- `/`* ` bullet lists, `1.` numbered lists, and
- * line breaks. A heading, a list item or a bold span may contain math. This
+ * `#`/`##`/`###` headings, `- `/`* ` bullet lists, `1.` numbered lists, pipe
+ * tables (components/markdownTable.ts), and line breaks. A heading, a list item or a bold span may contain math. This
  * is a small pass over lines, not a full markdown parser, kept in-repo
  * rather than pulling in a markdown dependency for a narrow need.
  */
@@ -18,6 +18,7 @@ import katex from "katex";
 import { Fragment, type ReactNode, useMemo } from "react";
 
 import { CodeBlock } from "./CodeBlock";
+import { alignments, isSeparatorRow, looksLikeRow, splitCells } from "./markdownTable";
 
 interface Segment {
   // "code" is a fenced block; "inline" is `code` inside a sentence.
@@ -103,9 +104,9 @@ const BULLET_PATTERN = /^\s*[-*]\s+(.*)$/;
 const NUMBERED_PATTERN = /^\s*(\d+)[.)]\s+(.*)$/;
 
 const HEADING_CLASSES = [
-  "block text-base font-semibold text-slate-800",
-  "block text-sm font-semibold text-slate-800",
-  "block text-sm font-semibold text-slate-700",
+  "mt-3 block text-base font-semibold text-slate-800 first:mt-0",
+  "mt-3 block text-sm font-semibold text-slate-800 first:mt-0",
+  "mt-2 block text-sm font-semibold text-slate-700 first:mt-0",
 ] as const;
 
 /** One piece of a line: plain text (which may hold ** markers), a formula, or `code`. */
@@ -252,6 +253,16 @@ function matchLine(line: Token[], pattern: RegExp): { match: RegExpExecArray; re
   return { match, rest: remainder.length > 0 ? [{ kind: "text", text: remainder }, ...line.slice(1)] : line.slice(1) };
 }
 
+/** How a line lays out: running text, a block of its own, or blank. Past either end counts as blank. */
+function lineKind(lines: Token[][], index: number): "inline" | "block" | "empty" {
+  const line = lines[index];
+  if (line === undefined || line.length === 0) return "empty";
+  if (line.length === 1 && line[0].kind === "math" && line[0].displayMode) return "block";
+  if (matchLine(line, HEADING_PATTERN) || matchLine(line, BULLET_PATTERN) || matchLine(line, NUMBERED_PATTERN)) return "block";
+  if (looksLikeRow(line) && index + 1 < lines.length && isSeparatorRow(lines[index + 1])) return "block";
+  return "inline";
+}
+
 interface OpenList {
   ordered: boolean;
   start: number;
@@ -267,11 +278,11 @@ function renderProse(lines: Token[][], keyPrefix: string): ReactNode[] {
     const items = open.items.map((item, i) => <li key={i}>{renderInline(item, `${key}-${i}`)}</li>);
     nodes.push(
       open.ordered ? (
-        <ol key={key} start={open.start} className="list-decimal pl-5">
+        <ol key={key} start={open.start} className="my-1 list-decimal pl-5">
           {items}
         </ol>
       ) : (
-        <ul key={key} className="list-disc pl-5">
+        <ul key={key} className="my-1 list-disc pl-5">
           {items}
         </ul>
       )
@@ -280,6 +291,60 @@ function renderProse(lines: Token[][], keyPrefix: string): ReactNode[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // A pipe table: a header row, the --- row under it, then its body rows.
+    if (looksLikeRow(line) && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) {
+      if (list !== null) {
+        closeList(list);
+        list = null;
+      }
+      const align = alignments(lines[i + 1]);
+      const header = splitCells(line);
+      const body: Token[][][] = [];
+      let next = i + 2;
+      while (next < lines.length && lines[next].length > 0 && looksLikeRow(lines[next])) {
+        body.push(splitCells(lines[next]));
+        next++;
+      }
+      const key = `${keyPrefix}-table${i}`;
+      const columns = Math.max(header.length, ...body.map((row) => row.length));
+      const cell = (cells: Token[][], column: number, rowKey: string) => (
+        <>{renderInline(cells[column] ?? [], `${rowKey}-${column}`)}</>
+      );
+      nodes.push(
+        <div key={key} className="my-1.5 overflow-x-auto">
+          <table className="w-full border-collapse text-[0.92em]">
+            <thead>
+              <tr>
+                {Array.from({ length: columns }, (_, column) => (
+                  <th
+                    key={column}
+                    style={{ textAlign: align[column] ?? "left" }}
+                    className="border border-slate-200 bg-slate-50 px-2 py-1 font-semibold text-slate-700"
+                  >
+                    {cell(header, column, `${key}-h`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {Array.from({ length: columns }, (_, column) => (
+                    <td key={column} style={{ textAlign: align[column] ?? "left" }} className="border border-slate-200 px-2 py-1 align-top">
+                      {cell(row, column, `${key}-r${rowIndex}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      i = next - 1;
+      continue;
+    }
+
     const heading = matchLine(line, HEADING_PATTERN);
     const bullet = heading ? null : matchLine(line, BULLET_PATTERN);
     const numbered = heading || bullet ? null : matchLine(line, NUMBERED_PATTERN);
@@ -311,9 +376,14 @@ function renderProse(lines: Token[][], keyPrefix: string): ReactNode[] {
     }
     if (line.length > 0) {
       nodes.push(<Fragment key={`${keyPrefix}-l${i}`}>{renderInline(line, `${keyPrefix}-l${i}`)}</Fragment>);
-    }
-    if (i < lines.length - 1) {
-      nodes.push(<br key={`${keyPrefix}-br${i}`} />);
+      // A line break only between two lines of running text: headings, lists,
+      // tables and formulas on their own line are blocks with their own spacing.
+      if (lineKind(lines, i) === "inline" && lineKind(lines, i + 1) === "inline") {
+        nodes.push(<br key={`${keyPrefix}-br${i}`} />);
+      }
+    } else if (lineKind(lines, i - 1) === "inline" && lineKind(lines, i + 1) === "inline") {
+      // A blank line between paragraphs: a paragraph gap, smaller than a whole empty line.
+      nodes.push(<span key={`${keyPrefix}-p${i}`} className="block h-2.5" aria-hidden="true" />);
     }
   }
   if (list !== null) closeList(list);

@@ -122,3 +122,31 @@ def test_constructor_requires_api_key_or_client() -> None:
         assert "api_key or an injected client" in str(exc)
     else:
         raise AssertionError("expected ValueError when neither api_key nor client is provided")
+
+
+async def test_analyze_marks_instructions_for_prompt_caching_and_counts_cache_tokens() -> None:
+    from app.services.usage import accumulated_cost_usd, start_accumulator
+
+    response = _fake_response({"summary": "s", "objects": []})
+    response.usage = SimpleNamespace(
+        input_tokens=1500, output_tokens=200, cache_creation_input_tokens=0, cache_read_input_tokens=1300
+    )
+    fake_client = AsyncMock()
+    fake_client.messages.create.return_value = response
+
+    usage = start_accumulator()
+    analyzer = ClaudeVLMAnalyzer(client=fake_client)
+    await analyzer.analyze(_png_bytes())
+
+    _, kwargs = fake_client.messages.create.call_args
+    (system_block,) = kwargs["system"]
+    assert system_block["type"] == "text"
+    assert system_block["text"]  # the analysis instructions
+    assert system_block["cache_control"] == {"type": "ephemeral"}
+
+    assert (usage.input_tokens, usage.output_tokens) == (1500, 200)
+    assert usage.cache_read_input_tokens == 1300
+    assert usage.cache_creation_input_tokens == 0
+    # claude-haiku-5-5 at $0.10 / $0.50 per million: reads cost 0.1x input.
+    expected = (1500 * 0.10 + 1300 * 0.1 * 0.10 + 200 * 0.50) / 1_000_000
+    assert abs(accumulated_cost_usd("claude-haiku-5-5", usage) - expected) < 1e-12

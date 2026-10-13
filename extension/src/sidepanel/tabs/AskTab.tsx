@@ -212,6 +212,7 @@ export function AskTab({
   const abortRef = useRef<AbortController | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
   const latestUserMessageRef = useRef<HTMLLIElement | null>(null);
+  const askInputRef = useRef<HTMLInputElement | null>(null);
   const [latestUserMessageId, setLatestUserMessageId] = useState<string | null>(null);
   const [algorithmMode, setAlgorithmMode] = useState(false);
   const [explanationMode, setExplanationMode] = useState<ExplanationMode>("university");
@@ -296,6 +297,9 @@ export function AskTab({
           conversationIdRef.current = null;
         }
         void refreshUsage();
+        // Captured from the panel: the next thing to do is ask, so the box is ready
+        // to type in. (From the keyboard shortcut the page keeps the focus.)
+        if (document.hasFocus()) setTimeout(() => askInputRef.current?.focus({ preventScroll: true }), 0);
       } else if (message.type === "SLIDE_ANALYSIS_FAILED") {
         if (message.limitKind) {
           // A usage limit, not a failure: refresh the numbers (which makes
@@ -520,16 +524,23 @@ export function AskTab({
       <p className="sr-only" role="status" aria-live="polite">
         {statusText}
       </p>
-      <div className="flex flex-none items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
+      <div className="flex flex-none items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-slate-800">This slide</h2>
-          <p className="truncate text-sm text-slate-400">
-            {state.status !== "loaded"
-              ? "Capture to see what's on screen"
-              : state.result.series
-                ? `${state.result.series.title} · ${state.result.series.category}`
-                : "Captured. Ask a question below"}
-          </p>
+          {state.status === "loaded" && state.result.series ? (
+            <>
+              <h2 className="truncate text-base font-semibold text-slate-800" title={state.result.series.title}>
+                {state.result.series.title}
+              </h2>
+              <p className="truncate text-sm text-slate-400">{state.result.series.category}</p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-base font-semibold text-slate-800">This slide</h2>
+              <p className="truncate text-sm text-slate-400">
+                {state.status !== "loaded" ? "Capture to see what's on screen" : "Captured. Ask a question below"}
+              </p>
+            </>
+          )}
         </div>
         <button
           type="button"
@@ -822,6 +833,7 @@ export function AskTab({
             }}
           >
             <input
+              ref={askInputRef}
               type="text"
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
