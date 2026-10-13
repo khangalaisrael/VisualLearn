@@ -8,9 +8,12 @@ service can be replaced without a new extension build.
 """
 
 import asyncio
+import hashlib
 import re
 import time
-from dataclasses import dataclass
+from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
 import httpx
@@ -124,18 +127,78 @@ def parse_result(language: Language, payload: dict, duration_ms: int) -> RunResu
     )
 
 
+# Answers that are the program's own and will be the same next time. A timeout
+# or a refusal says something about the sandbox's load, so it is never kept.
+_CACHEABLE: frozenset[RunStatus] = frozenset({"ok", "compile_error", "runtime_error"})
+
+
 class WandboxCodeRunner:
+    """Runs programs on Wandbox, a free service that turns away a sender who
+    is too fast. Everything here is to stay a considerate one:
+
+    - at most `max_concurrent` programs are in flight, and one that cannot
+      get a place within `queue_wait_seconds` is reported as busy;
+    - once the service has refused us, no more are sent for `cooldown_seconds`
+      (they are reported as busy straight away instead of hammering it);
+    - an answer is kept for `cache_seconds`, so running the same program with
+      the same input again costs the service nothing.
+
+    One instance is shared by the whole server, so this state is shared too.
+    """
+
     def __init__(
         self,
         url: str,
         timeout_seconds: float,
         client: httpx.AsyncClient | None = None,
         retry_delays: tuple[float, ...] = _BUSY_RETRY_DELAYS,
+        *,
+        max_concurrent: int = 3,
+        queue_wait_seconds: float = 20.0,
+        cooldown_seconds: float = 15.0,
+        cache_seconds: float = 120.0,
+        cache_entries: int = 200,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._url = url
         self._timeout = timeout_seconds
         self._client = client
         self._retry_delays = retry_delays
+        self._slots = asyncio.Semaphore(max(1, max_concurrent))
+        self._queue_wait = queue_wait_seconds
+        self._cooldown = cooldown_seconds
+        self._cool_until = 0.0
+        self._cache_seconds = cache_seconds
+        self._cache_entries = cache_entries
+        self._cache: OrderedDict[str, tuple[float, RunResult]] = OrderedDict()
+        self._clock = clock
+
+    def _key(self, body: dict) -> str:
+        parts = (body["compiler"], body.get("compiler-option-raw", ""), body["code"], body["stdin"])
+        return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
+
+    def _cached(self, key: str) -> RunResult | None:
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        expires, result = entry
+        if self._clock() >= expires:
+            del self._cache[key]
+            return None
+        self._cache.move_to_end(key)
+        return result
+
+    def _remember(self, key: str, result: RunResult) -> None:
+        if self._cache_seconds <= 0 or result.status not in _CACHEABLE:
+            return
+        self._cache[key] = (self._clock() + self._cache_seconds, result)
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._cache_entries:
+            self._cache.popitem(last=False)
+
+    def _check_cooldown(self) -> None:
+        if self._clock() < self._cool_until:
+            raise CodeRunnerBusy("the sandbox has just refused us; waiting before asking again")
 
     async def _post(self, body: dict) -> httpx.Response:
         if self._client is not None:
@@ -154,11 +217,7 @@ class WandboxCodeRunner:
             raise CodeRunnerUnavailable("unexpected answer from the sandbox")
         return None if is_sandbox_fault(payload) else payload
 
-    async def run(self, language: Language, code: str, stdin: str) -> RunResult:
-        body = {"compiler": _COMPILERS[language], "code": prepare_source(language, code), "stdin": stdin}
-        if language in _COMPILER_OPTIONS:
-            body["compiler-option-raw"] = _COMPILER_OPTIONS[language]
-        started = time.perf_counter()
+    async def _send(self, body: dict) -> dict:
         try:
             payload = await self._attempt(body)
             for delay in self._retry_delays:
@@ -169,8 +228,38 @@ class WandboxCodeRunner:
         except (httpx.HTTPError, ValueError) as exc:
             raise CodeRunnerUnavailable(str(exc)) from exc
         if payload is None:
+            self._cool_until = self._clock() + self._cooldown
             raise CodeRunnerBusy("the sandbox is overloaded or refusing requests for now")
-        return parse_result(language, payload, int((time.perf_counter() - started) * 1000))
+        return payload
+
+    async def run(self, language: Language, code: str, stdin: str) -> RunResult:
+        body = {"compiler": _COMPILERS[language], "code": prepare_source(language, code), "stdin": stdin}
+        if language in _COMPILER_OPTIONS:
+            body["compiler-option-raw"] = _COMPILER_OPTIONS[language]
+        started = time.perf_counter()
+        key = self._key(body)
+        cached = self._cached(key)
+        if cached is not None:
+            return replace(cached, duration_ms=int((time.perf_counter() - started) * 1000))
+        self._check_cooldown()
+        try:
+            await asyncio.wait_for(self._slots.acquire(), timeout=self._queue_wait)
+        except TimeoutError as exc:
+            raise CodeRunnerBusy("too many programs are waiting to run") from exc
+        try:
+            # A refusal may have happened while this one was waiting for a place.
+            self._check_cooldown()
+            # So may another run of the same program, by someone else.
+            cached = self._cached(key)
+            if cached is not None:
+                return replace(cached, duration_ms=int((time.perf_counter() - started) * 1000))
+            sent = time.perf_counter()
+            payload = await self._send(body)
+            result = parse_result(language, payload, int((time.perf_counter() - sent) * 1000))
+        finally:
+            self._slots.release()
+        self._remember(key, result)
+        return result
 
 
 class PlaceholderCodeRunner:

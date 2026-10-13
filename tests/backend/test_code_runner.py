@@ -4,6 +4,7 @@ No test reaches the real sandbox: the endpoint tests use the placeholder
 runner from conftest, and the Wandbox client is given a fake transport.
 """
 
+import asyncio
 import json
 import uuid
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_code_fixer, get_code_runner
+from app.api.deps import get_code_runner as real_code_runner
 from app.core.config import get_settings
 from app.main import app
 from app.models.orm import Session as SessionRow
@@ -413,3 +415,147 @@ async def test_the_sandbox_failing_to_start_a_program_is_busy_not_a_compile_erro
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=mine))) as fake:
         result = await WandboxCodeRunner("https://sandbox.test/run", 5, client=fake, retry_delays=(0, 0)).run("python", "print(1)", "")
     assert result.status == "ok"
+
+
+# --- being a considerate sender: memory, backing off, a waiting line, a global cap ---------------
+
+
+class _Sandbox:
+    """A stand-in for Wandbox that counts what it was sent and answers as told."""
+
+    def __init__(self, *answers: httpx.Response) -> None:
+        self.calls = 0
+        self.sent: list[dict] = []
+        self._answers = list(answers) or [httpx.Response(200, json=_payload(program_output="42\n"))]
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        self.sent.append(json.loads(request.content))
+        return self._answers[min(self.calls, len(self._answers)) - 1]
+
+
+def _runner(handler, now: list[float], **options) -> tuple[WandboxCodeRunner, httpx.AsyncClient]:
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    runner = WandboxCodeRunner(
+        "https://sandbox.test/run", 5, client=client, retry_delays=options.pop("retry_delays", ()), clock=lambda: now[0], **options
+    )
+    return runner, client
+
+
+async def test_identical_runs_are_remembered_for_a_while() -> None:
+    sandbox, now = _Sandbox(), [0.0]
+    runner, client = _runner(sandbox, now, cache_seconds=60)
+    async with client:
+        first = await runner.run("java", "class A {}", "")
+        again = await runner.run("java", "class A {}", "")
+        assert (first.stdout, again.stdout, sandbox.calls) == ("42\n", "42\n", 1)
+
+        # Anything that changes the program's behaviour is a different run.
+        await runner.run("java", "class A {}", "7")
+        await runner.run("java", "class B {}", "")
+        await runner.run("python", "class A {}", "")
+        assert sandbox.calls == 4
+
+        now[0] = 61.0  # remembered for a minute, not for ever
+        await runner.run("java", "class A {}", "")
+        assert sandbox.calls == 5
+
+
+async def test_a_compile_error_is_remembered_but_a_timeout_or_refusal_is_not() -> None:
+    now = [0.0]
+    broken = _Sandbox(httpx.Response(200, json=_payload(status="1", compiler_error="prog.hs:1:1: error: no")))
+    runner, client = _runner(broken, now)
+    async with client:
+        await runner.run("haskell", "oops", "")
+        await runner.run("haskell", "oops", "")
+        assert broken.calls == 1
+
+    slow = _Sandbox(httpx.Response(200, json=_payload(status="137")))
+    runner, client = _runner(slow, now)
+    async with client:
+        assert (await runner.run("haskell", "loop", "")).status == "timeout"
+        assert (await runner.run("haskell", "loop", "")).status == "timeout"
+        assert slow.calls == 2  # the load may have been the reason; ask again
+
+
+async def test_after_a_refusal_the_sandbox_is_left_alone_for_a_while() -> None:
+    sandbox, now = _Sandbox(httpx.Response(429)), [0.0]
+    runner, client = _runner(sandbox, now, retry_delays=(0,), cooldown_seconds=15)
+    async with client:
+        with pytest.raises(CodeRunnerBusy):
+            await runner.run("java", "class A {}", "")
+        assert sandbox.calls == 2  # the try and one retry
+
+        with pytest.raises(CodeRunnerBusy):
+            await runner.run("python", "print(1)", "")  # any program: it is the sender that is being held back
+        assert sandbox.calls == 2  # nothing was sent
+
+        now[0] = 16.0
+        with pytest.raises(CodeRunnerBusy):
+            await runner.run("python", "print(1)", "")
+        assert sandbox.calls == 4  # asked again once the pause was over
+
+
+async def test_only_a_few_programs_are_in_flight_and_a_long_wait_is_reported_as_busy() -> None:
+    release, started = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return httpx.Response(200, json=_payload(program_output="done"))
+
+    runner, client = _runner(slow, [0.0], max_concurrent=1, queue_wait_seconds=0.05)
+    async with client:
+        first = asyncio.create_task(runner.run("java", "class A {}", ""))
+        await started.wait()
+        with pytest.raises(CodeRunnerBusy):  # no place within the wait
+            await runner.run("java", "class B {}", "")
+        release.set()
+        assert (await first).stdout == "done"
+        assert calls == 1
+
+
+async def test_a_program_waiting_behind_its_twin_is_answered_from_the_twin() -> None:
+    release, started = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return httpx.Response(200, json=_payload(program_output="same"))
+
+    runner, client = _runner(slow, [0.0], max_concurrent=1, queue_wait_seconds=5)
+    async with client:
+        first = asyncio.create_task(runner.run("haskell", "main = pure ()", ""))
+        await started.wait()
+        second = asyncio.create_task(runner.run("haskell", "main = pure ()", ""))
+        await asyncio.sleep(0.01)  # the second is now waiting for a place
+        release.set()
+        assert [(await first).stdout, (await second).stdout] == ["same", "same"]
+        assert calls == 1
+
+
+async def test_the_server_shares_one_runner() -> None:
+    assert (await real_code_runner()) is (await real_code_runner())
+
+
+async def test_all_students_together_have_a_daily_ceiling(client: AsyncClient, db_session: AsyncSession) -> None:
+    settings = get_settings()
+    original = (settings.global_code_runs_per_day, settings.admin_emails)
+    settings.global_code_runs_per_day, settings.admin_emails = 2, ""
+    try:
+        body = {"language": "java", "code": "class A {}"}
+        alex = await _sign_in(db_session, "alex@example.com")
+        sam = await _sign_in(db_session, "sam@example.com")
+        assert (await client.post(URL, json=body, headers=alex)).status_code == 200
+        assert (await client.post(URL, json=body, headers=sam)).status_code == 200
+        third = await client.post(URL, json=body, headers=alex)
+        assert third.status_code == 429 and third.headers["X-Limit-Kind"] == "global"
+        assert "all students" in third.json()["detail"]
+    finally:
+        settings.global_code_runs_per_day, settings.admin_emails = original

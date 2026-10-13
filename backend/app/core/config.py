@@ -123,6 +123,16 @@ class Settings(BaseSettings):
     # The sandbox ends a program after about 30 seconds; allow for that and the compile.
     code_run_timeout_seconds: float = 60.0
     rate_limit_code_runs_per_day: int = 50
+    # Across everyone (admins excluded): the sandbox is one free service whose
+    # goodwill all users share, so its use has a ceiling like captures and chat.
+    global_code_runs_per_day: int = 1000
+    # How the server treats the sandbox (services/code_runner.py): programs in
+    # flight at once, how long one may wait for a place, how long to leave it
+    # alone after it has refused us, and how long an identical run is remembered.
+    code_runner_max_concurrent: int = 3
+    code_runner_queue_wait_seconds: float = 20.0
+    code_runner_cooldown_seconds: float = 15.0
+    code_runner_cache_seconds: float = 120.0
 
     # Web research for a quiz's study resources (admins only for now): how many
     # searches one quiz may run, how long it may take, and what a search costs

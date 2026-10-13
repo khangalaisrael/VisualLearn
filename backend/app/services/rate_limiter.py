@@ -165,6 +165,17 @@ async def enforce_global_capture_cap(repo: RateLimitEventRepository, settings: S
         )
 
 
+async def enforce_global_code_run_cap(repo: RateLimitEventRepository, settings: Settings) -> None:
+    at = clock.now()
+    day_start, day_end = day_window(at, settings.rate_limit_timezone)
+    if await repo.count_all_since("code_run", day_start) >= settings.global_code_runs_per_day:
+        raise RateLimitExceeded(
+            kind="global",
+            retry_after_seconds=seconds_until(day_end, at),
+            detail="The code runner has reached today's limit across all students. It is back tomorrow.",
+        )
+
+
 async def enforce_global_chat_cap(repo: RateLimitEventRepository, settings: Settings) -> None:
     at = clock.now()
     day_start, day_end = day_window(at, settings.rate_limit_timezone)

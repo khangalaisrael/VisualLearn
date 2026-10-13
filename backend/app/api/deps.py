@@ -28,6 +28,7 @@ from app.services.rate_limiter import (
     chat_limits,
     code_run_limits,
     enforce_global_chat_cap,
+    enforce_global_code_run_cap,
     enforce_global_capture_cap,
     enforce_rate_limits,
     quiz_limits,
@@ -194,10 +195,25 @@ async def get_code_fixer() -> CodeFixer:
     return _code_fixer
 
 
+_code_runner: CodeRunner | None = None
+
+
 async def get_code_runner() -> CodeRunner:
-    """Tests override this (tests/backend/conftest.py) so they never reach the sandbox."""
-    settings = get_settings()
-    return WandboxCodeRunner(settings.code_runner_url, settings.code_run_timeout_seconds)
+    """One runner for the whole server: its limits on how fast it talks to the
+    sandbox, and its memory of recent runs, only work if they are shared.
+    Tests override this (tests/backend/conftest.py) so they never reach the sandbox."""
+    global _code_runner
+    if _code_runner is None:
+        settings = get_settings()
+        _code_runner = WandboxCodeRunner(
+            settings.code_runner_url,
+            settings.code_run_timeout_seconds,
+            max_concurrent=settings.code_runner_max_concurrent,
+            queue_wait_seconds=settings.code_runner_queue_wait_seconds,
+            cooldown_seconds=settings.code_runner_cooldown_seconds,
+            cache_seconds=settings.code_runner_cache_seconds,
+        )
+    return _code_runner
 
 
 def _build_resource_finder() -> ResourceFinder | None:
@@ -488,9 +504,13 @@ async def enforce_code_run_rate_limit(
     ensure_access(user)
     if user is None or is_admin(user):
         return
+    repo = RateLimitEventRepository(db)
     try:
+        # The ceiling first: the per-user check below records this run once it passes,
+        # and the run being decided on must not count against the ceiling.
+        await enforce_global_code_run_cap(repo, get_settings())
         await enforce_rate_limits(
-            RateLimitEventRepository(db),
+            repo,
             key=rate_limit_key(request, user.id),
             action="code_run",
             limits=code_run_limits(get_settings(), clock.now()),
