@@ -559,3 +559,28 @@ async def test_all_students_together_have_a_daily_ceiling(client: AsyncClient, d
         assert "all students" in third.json()["detail"]
     finally:
         settings.global_code_runs_per_day, settings.admin_emails = original
+
+
+async def test_haskell_is_linked_dynamically_for_speed_and_falls_back_if_that_stops_working() -> None:
+    sandbox = _Sandbox()
+    runner, client = _runner(sandbox, [0.0])
+    async with client:
+        await runner.run("haskell", "main = print 1", "")
+    assert sandbox.sent[0]["compiler"] == "ghc-9.10.1" and sandbox.sent[0]["compiler-option-raw"] == "-dynamic"
+
+    # The sandbox's image loses its shared libraries: the program is run again, linked as before.
+    broken = _payload(status="1", compiler_error="/usr/bin/ld: cannot find -lHSbase-4.20.0.0-ghc9.10.1")
+    sandbox = _Sandbox(httpx.Response(200, json=broken), httpx.Response(200, json=_payload(program_output="1\n")))
+    runner, client = _runner(sandbox, [0.0])
+    async with client:
+        result = await runner.run("haskell", "main = print 1", "")
+    assert (result.status, result.stdout, sandbox.calls) == ("ok", "1\n", 2)
+    assert "compiler-option-raw" in sandbox.sent[0] and "compiler-option-raw" not in sandbox.sent[1]
+
+    # An ordinary mistake in the student's program is not mistaken for that.
+    typo = _payload(status="1", compiler_error="prog.hs:1:8: error: [GHC-88464] Variable not in scope: pritn")
+    sandbox = _Sandbox(httpx.Response(200, json=typo))
+    runner, client = _runner(sandbox, [0.0])
+    async with client:
+        assert (await runner.run("haskell", "main = pritn 1", "")).status == "compile_error"
+    assert sandbox.calls == 1
