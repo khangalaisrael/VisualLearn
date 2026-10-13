@@ -212,6 +212,7 @@ export function AskTab({
   const abortRef = useRef<AbortController | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
   const latestUserMessageRef = useRef<HTMLLIElement | null>(null);
+  const askInputRef = useRef<HTMLInputElement | null>(null);
   const [latestUserMessageId, setLatestUserMessageId] = useState<string | null>(null);
   const [algorithmMode, setAlgorithmMode] = useState(false);
   const [explanationMode, setExplanationMode] = useState<ExplanationMode>("university");
@@ -296,6 +297,9 @@ export function AskTab({
           conversationIdRef.current = null;
         }
         void refreshUsage();
+        // Captured from the panel: the next thing to do is ask, so the box is ready
+        // to type in. (From the keyboard shortcut the page keeps the focus.)
+        if (document.hasFocus()) setTimeout(() => askInputRef.current?.focus({ preventScroll: true }), 0);
       } else if (message.type === "SLIDE_ANALYSIS_FAILED") {
         if (message.limitKind) {
           // A usage limit, not a failure: refresh the numbers (which makes
@@ -829,6 +833,7 @@ export function AskTab({
             }}
           >
             <input
+              ref={askInputRef}
               type="text"
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
