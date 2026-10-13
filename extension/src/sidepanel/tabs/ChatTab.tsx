@@ -1,8 +1,10 @@
 /**
- * Chat: an open conversation with the tutor that is not about a captured
- * slide. Ask anything; the Ask tab is where a slide is discussed. Goes through
- * POST /chat in "general" mode. Signed in, the chat is saved like any other
- * and the last one is picked up again when the panel is reopened.
+ * Chat: an open conversation with the tutor that is not about one slide on
+ * screen. Goes through POST /chat in "general" mode. Signed in, it is the
+ * course brain: each question is answered from the student's own captured
+ * slides and notes that match it, which are listed under the answer and open
+ * where they live. The chat is saved like any other and the last one is
+ * picked up again when the panel is reopened.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,11 +15,14 @@ import { Button } from "../components/Button";
 import { MathText } from "../components/MathText";
 import { extractFollowUpQuestion } from "../follow-up";
 import { FollowUpIcon } from "../recent/parts";
+import type { LibrarySource } from "@shared/types";
 
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** The captured slides and notes this answer drew on (course brain answers only). */
+  sources?: LibrarySource[];
 }
 
 type SaveState = "saving" | "saved" | "failed";
@@ -27,12 +32,38 @@ const LAST_CHAT_KEY = "generalChatId";
 
 /** Ways to begin: each puts the start of a question in the box for the student to finish. */
 const STARTERS = [
-  { label: "Explain a concept step by step", begins: "Explain step by step: " },
+  { label: "What did my slides say about…", begins: "What did my slides say about " },
   { label: "Quiz me on a topic", begins: "Quiz me on " },
+  { label: "Explain a concept step by step", begins: "Explain step by step: " },
   { label: "Plan my revision for an exam", begins: "Help me plan my revision for an exam on " },
 ];
 
-export function ChatTab(): JSX.Element {
+function SlideIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 flex-none" fill="none" aria-hidden="true">
+      <rect x="1.75" y="3" width="12.5" height="8.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M5.5 14h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function NoteIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 flex-none" fill="none" aria-hidden="true">
+      <path d="M4 1.75h5.5L12.25 4.5v9.75H4z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M6 8h4M6 10.75h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ChatTab({
+  onOpenSlide,
+  onOpenNotes,
+}: {
+  /** Opens a captured slide in the Ask tab. */
+  onOpenSlide: (slideId: string) => void;
+  onOpenNotes: () => void;
+}): JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -125,6 +156,8 @@ export function ChatTab(): JSX.Element {
           slide_id: null,
           object_id: null,
           message: question,
+          // Signed in, answers come from the student's own slides and notes.
+          library: Boolean(usage?.signed_in),
         } as const;
         for await (const event of streamChat(request, () => setWaking(true), abort.signal)) {
           if (abort.signal.aborted) break;
@@ -133,6 +166,8 @@ export function ChatTab(): JSX.Element {
             setMessages((prev) => prev.map((m) => (m.id === answerId ? { ...m, content: m.content + event.text } : m)));
           } else if (event.type === "done") {
             conversationIdRef.current = event.data.conversation_id;
+            const sources = event.data.sources;
+            if (sources?.length) setMessages((prev) => prev.map((m) => (m.id === answerId ? { ...m, sources } : m)));
             chrome.storage.local.set({ [LAST_CHAT_KEY]: event.data.conversation_id }).catch(() => undefined);
             void refreshUsage();
           } else {
@@ -153,7 +188,7 @@ export function ChatTab(): JSX.Element {
         setWaking(false);
       }
     },
-    [streaming]
+    [streaming, usage?.signed_in]
   );
 
   const send = () => {
@@ -178,7 +213,9 @@ export function ChatTab(): JSX.Element {
       <div className="flex flex-none items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-slate-800">Chat</h2>
-          <p className="truncate text-sm text-slate-400">Ask anything. No slide needed.</p>
+          <p className="truncate text-sm text-slate-400">
+            {usage?.signed_in ? "Knows your slides and notes." : "Ask anything. No slide needed."}
+          </p>
         </div>
         {messages.length > 0 && (
           <Button variant="secondary" onClick={reset} className="flex-none">
@@ -191,8 +228,9 @@ export function ChatTab(): JSX.Element {
         {messages.length === 0 ? (
           <div className="flex flex-col gap-3">
             <p className="text-sm leading-relaxed text-slate-600">
-              A plain chat with the tutor, for questions that are not about a slide on your screen. To ask about a
-              slide, capture it in the Ask tab.
+              {usage?.signed_in
+                ? "Ask about anything you have studied. The tutor looks through the slides you captured and the notes you saved, answers from them, and shows which ones it used. If they don't cover it, it says so."
+                : "A plain chat with the tutor, for questions that are not about a slide on your screen. Sign in and it answers from your own captured slides and notes."}
             </p>
             <ul className="flex flex-col gap-2">
               {STARTERS.map((starter) => (
@@ -233,6 +271,26 @@ export function ChatTab(): JSX.Element {
                   <div className="max-w-full overflow-x-auto rounded-md border border-amber-100 bg-amber-50/70 px-3.5 py-3 dark:border-indigo-100 dark:bg-indigo-50/40 text-sm leading-relaxed text-slate-700 shadow-subtle">
                     {pending ? <span className="text-slate-400">Thinking…</span> : <MathText text={message.content} />}
                   </div>
+                  {message.sources && message.sources.length > 0 && (
+                    <div className="flex max-w-full flex-col gap-1.5 pt-0.5" aria-label="From your library">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">From your library</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {message.sources.map((source) => (
+                          <button
+                            key={source.ref}
+                            type="button"
+                            onClick={() => (source.kind === "slide" && source.slide_id ? onOpenSlide(source.slide_id) : onOpenNotes())}
+                            title={source.kind === "slide" ? "Open this slide" : "Open your notes"}
+                            className="flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 shadow-subtle transition-colors duration-[120ms] hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                          >
+                            <span className="font-mono text-[10px] font-semibold text-indigo-600 dark:text-indigo-300">{source.ref}</span>
+                            {source.kind === "slide" ? <SlideIcon /> : <NoteIcon />}
+                            <span className="truncate">{source.title}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {!pending && !streaming && usage?.signed_in && (
                     <button
                       type="button"
@@ -308,7 +366,7 @@ export function ChatTab(): JSX.Element {
           type="text"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask anything"
+          placeholder={usage?.signed_in ? "Ask about anything you've studied" : "Ask anything"}
           aria-label="Ask the tutor anything"
           disabled={streaming}
           className="min-w-0 flex-1 rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 transition-colors duration-[120ms] placeholder:text-slate-400 focus:border-indigo-400 disabled:opacity-50"

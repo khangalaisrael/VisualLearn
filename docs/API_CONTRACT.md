@@ -115,7 +115,14 @@ ChatRequest:
   slide_id: str | null            # required for "slide"/"figure"/"algorithm"
   object_id: str | null           # required for "figure"
   message: str
+  library: bool = false           # "general" only: answer from the signed-in student's own slides and notes
 ```
+
+With `library: true` on a signed-in "general" request (the Chat tab), the question is
+searched against the student's captured slides and saved notes
+(`services/course_library.py`, BM25 over their text). Only the best few matches are added
+to the prompt (`prompts/chat_course.v1.md`), which cites them as `[S1]`, `[N1]`; the `done`
+event then also carries `sources`.
 
 **Response:** `text/event-stream`, events:
 ```
@@ -127,7 +134,8 @@ data: {
   "conversation_id": str,
   "message_id": str,
   "referenced_object_ids": [str],
-  "usage": { "input_tokens": int, "output_tokens": int, "cache_read_input_tokens": int, "cache_creation_input_tokens": int }
+  "usage": { "input_tokens": int, "output_tokens": int, "cache_read_input_tokens": int, "cache_creation_input_tokens": int },
+  "sources": [ { "ref": "S1", "kind": "slide" | "note", "title": str, "slide_id": str | null, "note_id": str | null } ]   # library requests only
 }
 
 event: error

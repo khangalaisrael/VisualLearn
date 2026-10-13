@@ -79,6 +79,9 @@ export interface ChatRequest {
   model?: string | null;
   // Only meaningful for query_mode === "algorithm"; omit for other modes.
   explanation_mode?: ExplanationMode;
+  // Only for query_mode === "general": answer from the signed-in student's
+  // own captured slides and notes (the course brain).
+  library?: boolean;
   // Only for query_mode === "tutor": the quiz question being discussed and
   // the option the student chose (null if they skipped it).
   quiz_id?: string;
@@ -93,11 +96,22 @@ export interface ChatUsage {
   cache_creation_input_tokens: number;
 }
 
+/** A captured slide or saved note a course-brain answer drew on; `ref` is what the answer cites ("S1", "N1"). */
+export interface LibrarySource {
+  ref: string;
+  kind: "slide" | "note";
+  title: string;
+  slide_id: string | null;
+  note_id: string | null;
+}
+
 export interface ChatDoneEvent {
   conversation_id: string;
   message_id: string;
   referenced_object_ids: string[];
   usage: ChatUsage;
+  // Present when the request asked for the course library.
+  sources?: LibrarySource[];
 }
 
 export interface ChatErrorEvent {

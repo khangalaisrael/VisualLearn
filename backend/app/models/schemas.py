@@ -442,6 +442,10 @@ class ChatRequest(BaseModel):
     # Only used for query_mode == "algorithm" (docs/AlgorithmsMVP.md
     # Phase 5) — ignored otherwise, so other modes don't need to send it.
     explanation_mode: ExplanationMode = "university"
+    # Only for query_mode == "general": answer from the signed-in student's own
+    # captured slides and notes (services/course_library.py). The Chat tab sets
+    # it; the Code tab's tutor, which also uses "general", does not.
+    library: bool = False
     # Only for query_mode == "tutor": the quiz question being discussed and
     # the option the student chose (null if they skipped it).
     quiz_id: str | None = None
