@@ -128,6 +128,7 @@ const STATUS_DOTS: Record<CodeRunResponse["status"], string> = {
 };
 const TERMINAL_LABEL = "text-[11px] font-medium uppercase tracking-wide text-[var(--vl-editor-dim)]";
 const TERMINAL_TEXT = "whitespace-pre-wrap break-words font-mono [font-variant-ligatures:none]";
+const DEFAULT_PANEL = 240;
 const MIN_PANEL = 120;
 const MIN_EDITOR = 140;
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -195,7 +196,7 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
   const [cursor, setCursor] = useState<CursorPosition>({ line: 1, column: 1, selected: 0 });
   const [panel, setPanel] = useState<PanelTab>("output");
   const [panelOpen, setPanelOpen] = useState(true);
-  const [panelHeight, setPanelHeight] = useState(240);
+  const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [tutorQuestion, setTutorQuestion] = useState<{ id: number; text: string } | null>(null);
@@ -614,12 +615,25 @@ export function CodeTab({ incoming, active }: { incoming: IncomingCode | null; a
           {panelOpen && (
             <div
               role="separator"
+              tabIndex={0}
               aria-orientation="horizontal"
               aria-label="Resize the panel"
-              title="Drag to resize"
+              aria-valuenow={panelHeight}
+              aria-valuemin={MIN_PANEL}
+              title="Drag up or down to resize. Double-click to reset."
               onPointerDown={startDrag}
-              className="-mt-1.5 h-2 flex-none cursor-row-resize touch-none bg-transparent hover:bg-indigo-400/40"
-            />
+              onDoubleClick={() => setPanelHeight(DEFAULT_PANEL)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                event.preventDefault();
+                const room = Math.max(MIN_PANEL, (layoutRef.current?.clientHeight ?? 600) - MIN_EDITOR);
+                const next = panelHeight + (event.key === "ArrowUp" ? 32 : -32);
+                setPanelHeight(Math.min(Math.max(next, MIN_PANEL), room));
+              }}
+              className="group relative flex h-3.5 flex-none cursor-row-resize touch-none items-center justify-center bg-white/[0.06] outline-none before:absolute before:inset-x-0 before:-top-2 before:bottom-[-0.5rem] before:content-[''] hover:bg-indigo-400/25 focus-visible:bg-indigo-400/30 active:bg-indigo-400/35"
+            >
+              <span className="h-1 w-12 rounded-full bg-white/35 transition-colors group-hover:bg-white/70 group-focus-visible:bg-white/80" aria-hidden="true" />
+            </div>
           )}
           <div className="flex flex-none items-center gap-0.5 bg-[var(--vl-editor-bar)] px-1.5" role="tablist" aria-label="Panel">
             {tabs.map((tab) => (
