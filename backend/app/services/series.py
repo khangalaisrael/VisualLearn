@@ -7,6 +7,7 @@ list is loaded (api/v1/series.py).
 
 import asyncio
 import logging
+import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -35,6 +36,16 @@ _MAX_HEADINGS = 4
 _MAX_SUBTOPICS = 5
 # A capture older than this no longer says where the next one belongs.
 _PREVIOUS_CAPTURE_MINUTES = 90
+# A capture this soon after a lecture slide from the same page continues that
+# slide's series without asking the sorter (see _follow_on).
+_FOLLOW_ON_MINUTES = 20
+_SUBTOPIC_CHARS = 120
+# A heading like these may start the exercises at the end of a lecture, which
+# the sorter files as "practice": such slides are always given to the sorter.
+_PRACTICE_HEADING = re.compile(
+    r"\b(exercises?|practice|problems?|questions?|quiz|tutorial|homework|assignments?|worksheet|your turn|try it)\b",
+    re.IGNORECASE,
+)
 # The sorter may widen a series' title only while the series is this new:
 # it was named after its first slide, before the rest of the lecture was
 # seen. Later the name is the student's to keep or change.
@@ -123,6 +134,46 @@ async def _previous_capture(
     )
 
 
+async def _follow_on(
+    db: AsyncSession, user_id: uuid.UUID, slide: Slide, objects: Sequence[ObjectRecord], shown: list[Series]
+) -> tuple[Series, str] | None:
+    """The series and subtopic for a slide whose place is not in doubt, so the
+    sorter's model call can be skipped: the student's previous capture was a
+    lecture slide on the same page, minutes ago, and this slide has a heading
+    of its own that does not look like the start of exercises. The heading
+    becomes the subtopic, as the sorter would make it. Anything less certain
+    goes to the sorter."""
+    heading = next((" ".join(o.extracted_text.split()) for o in objects if o.type == "title" and o.extracted_text), "")
+    if not heading or _PRACTICE_HEADING.search(heading):
+        return None
+    made_at = _as_utc(slide.created_at) if slide.created_at is not None else datetime.now(UTC)
+    previous = (
+        await db.execute(
+            select(Slide)
+            .join(Presentation, Presentation.id == Slide.presentation_id)
+            .where(
+                Presentation.user_id == user_id,
+                Slide.id != slide.id,
+                Slide.series_id.is_not(None),
+                Slide.created_at <= made_at,
+            )
+            .order_by(Slide.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if (
+        previous is None
+        or previous.presentation_id != slide.presentation_id
+        or (previous.content_kind or "lecture") != "lecture"
+        or made_at - _as_utc(previous.created_at) > timedelta(minutes=_FOLLOW_ON_MINUTES)
+    ):
+        return None
+    series = next((s for s in shown if s.id == previous.series_id), None)
+    if series is None:
+        return None
+    return series, heading[:_SUBTOPIC_CHARS]
+
+
 async def find_or_create_series(db: AsyncSession, user_id: uuid.UUID, category: str, title: str) -> Series:
     """A new series whose name matches an existing one (ignoring case) joins it."""
     for series in await list_series(db, user_id):
@@ -184,6 +235,17 @@ async def assign_series(
         )
         all_series = [s for s in all_series if s.id in earlier]
     shown = all_series[:MAX_EXISTING_SERIES]
+
+    # The next slide of the lecture being captured: no model call needed.
+    if not as_captured:
+        follow = await _follow_on(db, user_id, slide, objects, shown)
+        if follow is not None:
+            series, subtopic = follow
+            place_slide(slide, series, subtopic=subtopic, kind="lecture")
+            await db.flush()
+            logger.info("series_sort_skipped slide_id=%s series_id=%s", slide.id, series.id)
+            return series
+
     usage = start_accumulator()
     try:
         subtopics = await _subtopics_by_series(db, [s.id for s in shown], slide if as_captured else None)
