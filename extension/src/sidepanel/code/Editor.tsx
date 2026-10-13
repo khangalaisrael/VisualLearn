@@ -7,8 +7,8 @@
  *
  * The component owns one EditorView for its lifetime and is controlled the
  * React way: `value` in, `onChange` out. Text set from outside (a handover,
- * "Make it runnable", switching language) replaces the document without
- * touching the undo history of typing.
+ * "Make runnable", switching language) starts a fresh document with its own
+ * undo history; the Code tab offers its own Undo for a fix.
  */
 
 import { autocompletion, closeBrackets, closeBracketsKeymap, completeAnyWord, completionKeymap } from "@codemirror/autocomplete";
@@ -159,56 +159,56 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const callbacks = useRef({ onChange, onRun, onCursor });
   callbacks.current = { onChange, onRun, onCursor };
 
+  /** A fresh editor state for `doc`: the full setup, with an empty undo history. */
+  const createState = (doc: string) =>
+    EditorState.create({
+      doc,
+      extensions: [
+        lineNumbers(),
+        highlightActiveLineGutter(),
+        highlightSpecialChars(),
+        history(),
+        drawSelection(),
+        dropCursor(),
+        EditorState.allowMultipleSelections.of(true),
+        indentOnInput(),
+        bracketMatching(),
+        closeBrackets(),
+        autocompletion({ override: [completeAnyWord], activateOnTyping: true, icons: false }),
+        rectangularSelection(),
+        highlightActiveLine(),
+        highlightSelectionMatches(),
+        search({ top: true }),
+        lintGutter(),
+        syntaxHighlighting(highlightStyle),
+        EditorState.tabSize.of(4),
+        languageSlot.current.of([LANGUAGES[language](), indentUnit.of(INDENT[language])]),
+        themeSlot.current.of(themeFor(fontSize)),
+        EditorView.contentAttributes.of({ "aria-label": ariaLabel, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
+        keymap.of([
+          { key: "Mod-Enter", run: () => (callbacks.current.onRun(), true), preventDefault: true },
+          { key: "Mod-/", run: toggleComment },
+          ...closeBracketsKeymap,
+          ...defaultKeymap,
+          ...searchKeymap,
+          ...historyKeymap,
+          ...completionKeymap,
+          indentWithTab,
+        ]),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());
+          if (update.docChanged || update.selectionSet) {
+            const { head, from, to } = update.state.selection.main;
+            const line = update.state.doc.lineAt(head);
+            callbacks.current.onCursor({ line: line.number, column: head - line.from + 1, selected: to - from });
+          }
+        }),
+      ],
+    });
+
   useEffect(() => {
     if (!host.current) return;
-    const runKey = { key: "Mod-Enter", run: () => (callbacks.current.onRun(), true), preventDefault: true };
-    const editor = new EditorView({
-      parent: host.current,
-      state: EditorState.create({
-        doc: value,
-        extensions: [
-          lineNumbers(),
-          highlightActiveLineGutter(),
-          highlightSpecialChars(),
-          history(),
-          drawSelection(),
-          dropCursor(),
-          EditorState.allowMultipleSelections.of(true),
-          indentOnInput(),
-          bracketMatching(),
-          closeBrackets(),
-          autocompletion({ override: [completeAnyWord], activateOnTyping: true, icons: false }),
-          rectangularSelection(),
-          highlightActiveLine(),
-          highlightSelectionMatches(),
-          search({ top: true }),
-          lintGutter(),
-          syntaxHighlighting(highlightStyle),
-          EditorState.tabSize.of(4),
-          languageSlot.current.of([LANGUAGES[language](), indentUnit.of(INDENT[language])]),
-          themeSlot.current.of(themeFor(fontSize)),
-          EditorView.contentAttributes.of({ "aria-label": ariaLabel, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
-          keymap.of([
-            runKey,
-            { key: "Mod-/", run: toggleComment },
-            ...closeBracketsKeymap,
-            ...defaultKeymap,
-            ...searchKeymap,
-            ...historyKeymap,
-            ...completionKeymap,
-            indentWithTab,
-          ]),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());
-            if (update.docChanged || update.selectionSet) {
-              const { head, from, to } = update.state.selection.main;
-              const line = update.state.doc.lineAt(head);
-              callbacks.current.onCursor({ line: line.number, column: head - line.from + 1, selected: to - from });
-            }
-          }),
-        ],
-      }),
-    });
+    const editor = new EditorView({ parent: host.current, state: createState(value) });
     view.current = editor;
     return () => {
       editor.destroy();
@@ -218,16 +218,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Text changed from outside (a handover, a fix, another language's draft).
+  // Text replaced from outside (a handover, a fix, another language's draft)
+  // starts a fresh state, so Ctrl+Z never brings back a different program.
   useEffect(() => {
     const editor = view.current;
-    if (!editor) return;
-    const current = editor.state.doc.toString();
-    if (current === value) return;
-    editor.dispatch({
-      changes: { from: 0, to: current.length, insert: value },
-      selection: EditorSelection.cursor(Math.min(editor.state.selection.main.head, value.length)),
-    });
+    if (!editor || editor.state.doc.toString() === value) return;
+    editor.setState(createState(value));
+    callbacks.current.onCursor({ line: 1, column: 1, selected: 0 });
+    // Only a new value replaces the document; createState reads the other props itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   useEffect(() => {
