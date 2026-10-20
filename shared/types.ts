@@ -470,3 +470,41 @@ export interface AdminWaitlistResponse {
   total_clicks: number;
   entries: AdminWaitlistEntry[];
 }
+
+export type FeedbackRating = "up" | "down";
+// "summary" is a slide's summary (rated by slide_id), "chat" an assistant reply (by message_id).
+export type FeedbackTarget = "summary" | "chat";
+
+export interface FeedbackCreateRequest {
+  target: FeedbackTarget;
+  slide_id?: string;
+  message_id?: string;
+  rating: FeedbackRating;
+  comment?: string;
+  // The id an earlier rating of this answer came back with, so a change replaces it.
+  feedback_id?: string;
+}
+
+export interface FeedbackOut {
+  id: string;
+  rating: FeedbackRating;
+}
+
+export interface AdminFeedbackEntry {
+  id: string;
+  rating: FeedbackRating;
+  target: FeedbackTarget;
+  comment: string | null;
+  answer_excerpt: string;
+  email: string | null; // null = signed out, or an account since deleted
+  created_at: string;
+}
+
+export interface AdminFeedbackResponse {
+  up: number;
+  down: number;
+  down_with_comment: number;
+  signed_in: number;
+  signed_out: number;
+  entries: AdminFeedbackEntry[]; // 👎 first, then newest first
+}

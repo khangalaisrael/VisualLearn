@@ -146,6 +146,9 @@ class Settings(BaseSettings):
 
     # Notes are kept until deleted, so their number per account is bounded.
     max_notes_per_user: int = 500
+    # 👍/👎 ratings per day, per account or (signed out) per IP address: far
+    # more than a student gives, low enough that the table can't be flooded.
+    rate_limit_feedback_per_day: int = 60
 
     # Chats (and the slide content behind them) are deleted this many days
     # after their last message — see services/retention.py.

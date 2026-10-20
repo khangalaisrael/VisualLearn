@@ -152,6 +152,25 @@ class AdminWaitlistResponse(BaseModel):
     entries: list[AdminWaitlistEntry]
 
 
+class AdminFeedbackEntry(BaseModel):
+    id: str
+    rating: Literal["up", "down"]
+    target: Literal["summary", "chat"]
+    comment: str | None
+    answer_excerpt: str
+    email: str | None  # None = signed out, or an account since deleted
+    created_at: datetime
+
+
+class AdminFeedbackResponse(BaseModel):
+    up: int
+    down: int
+    down_with_comment: int
+    signed_in: int
+    signed_out: int
+    entries: list[AdminFeedbackEntry]  # 👎 first, then newest first
+
+
 class CaptureConversation(BaseModel):
     id: str
     title: str
@@ -272,6 +291,25 @@ class NoteUpdateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     body: str | None = Field(default=None, min_length=1, max_length=20_000)
     starred: bool | None = None
+
+
+class FeedbackCreateRequest(BaseModel):
+    """A rating of one answer: `slide_id` for a summary, `message_id` for a
+    chat reply. `feedback_id` is the id an earlier rating of the same answer
+    came back with, so changing 👍 to 👎 updates it instead of adding another
+    (a signed-in student's rating is found without it)."""
+
+    target: Literal["summary", "chat"]
+    slide_id: str | None = None
+    message_id: str | None = None
+    rating: Literal["up", "down"]
+    comment: str | None = Field(default=None, max_length=1000)
+    feedback_id: str | None = None
+
+
+class FeedbackOut(BaseModel):
+    id: str
+    rating: Literal["up", "down"]
 
 
 class QuizQuestion(BaseModel):

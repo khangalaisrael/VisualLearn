@@ -8,6 +8,7 @@ from app.api.v1 import (
     chat,
     code,
     conversations,
+    feedback,
     health,
     notes,
     presentations,
@@ -29,6 +30,7 @@ api_router.include_router(admin.router)
 api_router.include_router(presentations.router)
 api_router.include_router(series.router)
 api_router.include_router(notes.router)
+api_router.include_router(feedback.router)
 api_router.include_router(quizzes.router)
 api_router.include_router(study_aids.router)
 api_router.include_router(code.router)

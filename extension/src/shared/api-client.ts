@@ -3,6 +3,7 @@
  */
 
 import type {
+  AdminFeedbackResponse,
   AdminOverview,
   AdminUsersResponse,
   AdminWaitlistResponse,
@@ -12,6 +13,8 @@ import type {
   ChatRequest,
   ConversationDetail,
   ConversationListResponse,
+  FeedbackCreateRequest,
+  FeedbackOut,
   HealthResponse,
   LectureListResponse,
   LimitKind,
@@ -664,6 +667,11 @@ export function createNote(note: NoteCreateRequest): Promise<NoteOut> {
   return authedJson("/notes", jsonBody("POST", note), "Couldn't save that note");
 }
 
+/** A 👍 or 👎 on one answer; works signed out too. */
+export function sendFeedback(feedback: FeedbackCreateRequest): Promise<FeedbackOut> {
+  return authedJson("/feedback", jsonBody("POST", feedback), "Couldn't send that feedback");
+}
+
 export function updateNote(noteId: string, changes: NoteUpdateRequest): Promise<NoteOut> {
   return authedJson(`/notes/${noteId}`, jsonBody("PATCH", changes), "Couldn't save your changes");
 }
@@ -746,6 +754,10 @@ export function getAdminUsers(): Promise<AdminUsersResponse> {
 
 export function getAdminWaitlist(): Promise<AdminWaitlistResponse> {
   return authedJson("/admin/waitlist", {}, "Couldn't load the waitlist");
+}
+
+export function getAdminFeedback(): Promise<AdminFeedbackResponse> {
+  return authedJson("/admin/feedback", {}, "Couldn't load feedback");
 }
 
 export function joinProWaitlist(source: WaitlistSource): Promise<{ joined: boolean }> {

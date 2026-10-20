@@ -41,6 +41,7 @@ import type {
   SlideAnalyzedMessage,
 } from "../../service-worker/messages";
 import { Button } from "../components/Button";
+import { FeedbackButtons } from "../components/FeedbackButtons";
 import { InviteOnlyCard, isBlockedByInvite } from "../components/InviteOnlyCard";
 import { LimitCard } from "../components/LimitCard";
 import { MathText } from "../components/MathText";
@@ -72,6 +73,8 @@ interface ChatMessage {
   timestamp: number;
   /** On a divider: the subtopic of the slide the student moved on from. */
   previous?: string;
+  /** The server's id for a finished reply, which feedback is given against. */
+  serverId?: string;
 }
 
 /** The part of a chat that was about one slide. */
@@ -341,6 +344,7 @@ export function AskTab({
     setMessages(
       restore.messages.map((m) => ({
         id: m.id,
+        serverId: m.id,
         role: m.role,
         content: m.content,
         timestamp: new Date(m.created_at).getTime(),
@@ -449,6 +453,8 @@ export function AskTab({
             );
           } else if (event.type === "done") {
             conversationIdRef.current = event.data.conversation_id;
+            const serverId = event.data.message_id;
+            setMessages((prev) => prev.map((m) => (m.id === assistantMessageId ? { ...m, serverId } : m)));
             void refreshUsage();
           } else if (event.type === "error") {
             setChatError(event.data.message);
@@ -585,7 +591,11 @@ export function AskTab({
 
       {state.status === "loaded" && (
         <div className="flex flex-col gap-3">
-          <p className="rounded-md bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">{state.result.summary}</p>
+          <div className="flex flex-col gap-1">
+            <p className="rounded-md bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">{state.result.summary}</p>
+            {/* Keyed by slide, so a new capture starts unrated. */}
+            <FeedbackButtons key={state.result.slide_id} target="summary" answerId={state.result.slide_id} />
+          </div>
           {state.result.objects.length === 0 ? (
             <p className="text-sm text-slate-400">Nothing readable was found on this slide.</p>
           ) : (
@@ -747,6 +757,9 @@ export function AskTab({
                     >
                       {isPendingAssistant ? <TypingIndicator /> : <MathText text={message.content} />}
                     </div>
+                    {message.role === "assistant" && !isPendingAssistant && !isStreaming && message.serverId && (
+                      <FeedbackButtons target="chat" answerId={message.serverId} />
+                    )}
                     {message.role === "assistant" && !isPendingAssistant && !isStreaming && usage?.signed_in && (
                       <button
                         type="button"

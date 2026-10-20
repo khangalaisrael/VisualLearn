@@ -15,7 +15,7 @@ from app.core.config import get_settings
 
 router = APIRouter(tags=["privacy"])
 
-LAST_UPDATED = "13 October 2026"
+LAST_UPDATED = "20 October 2026"
 
 _PAGE = """<!doctype html>
 <html lang="en">
@@ -65,6 +65,7 @@ _PAGE = """<!doctype html>
 <tr><td><strong>What the slide contains</strong> (extracted text, equations, summaries)</td><td>To show you the result and to answer your questions about it. This may include whatever appears on the slide, including course material.</td></tr>
 <tr><td><strong>Your questions and the answers</strong></td><td>To hold the conversation and, if you are signed in, to show it again in <em>Recent chats</em>.</td></tr>
 <tr><td><strong>Notes, quizzes and study aids</strong> you save or ask for, if you are signed in</td><td>To show them to you again. Notes are kept until you delete them; quizzes and study aids are deleted with the slides they were written from.</td></tr>
+<tr><td><strong>Feedback you give an answer</strong>: a 👍 or 👎, an optional comment, and a copy of the answer you rated</td><td>To find and fix answers that went wrong. Only sent when you press 👍 or 👎. If you are signed in it is linked to your account; if not, it is kept with no account and no IP address.</td></tr>
 <tr><td><strong>Programs you write or run</strong> in the Code tab, and what they print</td><td>To run them. Your program and its input are sent to our server and on to Wandbox, which compiles and runs it and returns the output. <strong>We do not store the program</strong>; your draft stays in your browser. If you ask the tutor about your code or press <em>Make it runnable</em>, the code is also sent to Anthropic, and a question about it is kept with your chat like any other question.</td></tr>
 <tr><td><strong>Google account email and Google's account identifier</strong>, only if you sign in</td><td>To keep your chats private to you and available across devices. We receive nothing else from your Google account.</td></tr>
 <tr><td><strong>Usage records</strong>: which action you took (capture or chat), how many AI tokens it used and its estimated cost, and when you reached a limit</td><td>To keep running costs sustainable, spot abuse and see how much people want a paid plan. Not used for advertising.</td></tr>
@@ -86,6 +87,7 @@ _PAGE = """<!doctype html>
 <ul>
 <li>Chats and the slide content behind them: deleted <strong>__DAYS__ days</strong> after your last message in that chat. Captures made without a chat are deleted __DAYS__ days after capture.</li>
 <li>Notes you save or write: kept until you delete them or delete your account. They are not removed after __DAYS__ days, because a note is something you chose to keep.</li>
+<li>Feedback on answers: kept until you delete your account, when it is deleted with it. Feedback given while signed out is not linked to anyone, so it cannot be picked out and deleted later.</li>
 <li>Sign-in sessions: expire after 30 days.</li>
 <li>Usage counters used to enforce the daily and monthly limits (including the IP address for people who are not signed in): 31 days.</li>
 <li>Usage records (action, token counts, estimated cost): kept without a time limit but <strong>disconnected from you</strong> when you delete your account. Waitlist entries are deleted with your account.</li>
@@ -108,7 +110,7 @@ _PAGE = """<!doctype html>
 <li>We use your data only to provide the features described on this page, which serve the extension's single purpose of helping students understand and study lecture slides.</li>
 <li>We transfer it only to the services listed under <em>Who processes your data</em>, and only as needed to provide those features, to keep the service secure, or to comply with the law.</li>
 <li>We do not sell it, and we do not use or transfer it for advertising or to judge creditworthiness or for lending.</li>
-<li>No one at VisionLearn reads your slides, chats, notes or programs. The owner's dashboard shows only account emails, counts and costs. The exceptions are where you ask us to look at something to help you, where it is needed for security or to investigate abuse, where the law requires it, and where the data has been aggregated and made anonymous.</li>
+<li>No one at VisionLearn reads your slides, chats, notes or programs. The owner's dashboard shows only account emails, counts and costs, plus the answers you chose to rate with 👍 or 👎 and any comment you added, since sending those is asking us to look. The other exceptions are where you ask us to look at something to help you, where it is needed for security or to investigate abuse, where the law requires it, and where the data has been aggregated and made anonymous.</li>
 </ul>
 
 <h2>Security</h2>

@@ -54,7 +54,9 @@ def _event(user_id, action="analyze", cost=0.001, when=T0 - timedelta(hours=1), 
 # --- access -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", ["/api/v1/admin/overview", "/api/v1/admin/users", "/api/v1/admin/waitlist"])
+@pytest.mark.parametrize(
+    "path", ["/api/v1/admin/overview", "/api/v1/admin/users", "/api/v1/admin/waitlist", "/api/v1/admin/feedback"]
+)
 async def test_admin_endpoints_are_for_admins_only(client: AsyncClient, db_session: AsyncSession, path: str) -> None:
     student, _ = await _sign_in(db_session, "student@example.com")
     admin, _ = await _sign_in(db_session, ADMIN_EMAIL)

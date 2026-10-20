@@ -155,7 +155,7 @@ of them with screenshots from your own use at 1280×800 or 640×400.
 - **Personally identifiable information**: the Google account email, when the user signs in.
 - **Web history**: the title and address of a page the user captures (without its query string).
 - **Website content**: the screenshot of the captured tab and the text read from it.
-- **Personal communications**: the questions the user types to the tutor, kept with the chat, and code they ask the tutor about.
+- **Personal communications**: the questions the user types to the tutor, kept with the chat, and code they ask the tutor about. Also the 👍/👎 and optional comment a user gives an answer, kept with a copy of that answer.
 - **User activity / website content**: if the dashboard offers a category for text the user types, such as the code they run, tick it too. The program is sent to a third-party compiler (Wandbox) and is not stored by VisionLearn.
 
 If unsure about a box, tick it: declaring too much costs nothing, declaring too little can get the

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, createNote, getAuthState, getConversation, streamChat } from "../../shared/api-client";
 import { refreshUsage, useUsage } from "../../shared/usage-store";
 import { Button } from "../components/Button";
+import { FeedbackButtons } from "../components/FeedbackButtons";
 import { MathText } from "../components/MathText";
 import { extractFollowUpQuestion } from "../follow-up";
 import { FollowUpIcon } from "../recent/parts";
@@ -23,6 +24,8 @@ interface ChatMessage {
   content: string;
   /** The captured slides and notes this answer drew on (course brain answers only). */
   sources?: LibrarySource[];
+  /** The server's id for a finished reply, which feedback is given against. */
+  serverId?: string;
 }
 
 type SaveState = "saving" | "saved" | "failed";
@@ -98,7 +101,7 @@ export function ChatTab({
         const detail = await getConversation(stored);
         if (cancelled) return;
         conversationIdRef.current = detail.id;
-        setMessages(detail.messages.map((m) => ({ id: m.id, role: m.role, content: m.content })));
+        setMessages(detail.messages.map((m) => ({ id: m.id, serverId: m.id, role: m.role, content: m.content })));
       } catch {
         // Expired, deleted, or another account's: start fresh.
         chrome.storage.local.remove(LAST_CHAT_KEY).catch(() => undefined);
@@ -166,8 +169,9 @@ export function ChatTab({
             setMessages((prev) => prev.map((m) => (m.id === answerId ? { ...m, content: m.content + event.text } : m)));
           } else if (event.type === "done") {
             conversationIdRef.current = event.data.conversation_id;
-            const sources = event.data.sources;
-            if (sources?.length) setMessages((prev) => prev.map((m) => (m.id === answerId ? { ...m, sources } : m)));
+            const sources = event.data.sources?.length ? event.data.sources : undefined;
+            const serverId = event.data.message_id;
+            setMessages((prev) => prev.map((m) => (m.id === answerId ? { ...m, sources, serverId } : m)));
             chrome.storage.local.set({ [LAST_CHAT_KEY]: event.data.conversation_id }).catch(() => undefined);
             void refreshUsage();
           } else {
@@ -290,6 +294,9 @@ export function ChatTab({
                         ))}
                       </div>
                     </div>
+                  )}
+                  {!pending && !streaming && message.serverId && (
+                    <FeedbackButtons target="chat" answerId={message.serverId} />
                   )}
                   {!pending && !streaming && usage?.signed_in && (
                     <button

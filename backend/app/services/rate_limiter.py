@@ -120,6 +120,11 @@ def code_run_limits(settings: Settings, at: datetime) -> list[Limit]:
     return [Limit("daily", day_start, day_end, settings.rate_limit_code_runs_per_day, "today's limit for running code")]
 
 
+def feedback_limits(settings: Settings, at: datetime) -> list[Limit]:
+    day_start, day_end = day_window(at, settings.rate_limit_timezone)
+    return [Limit("daily", day_start, day_end, settings.rate_limit_feedback_per_day, "today's limit for feedback")]
+
+
 def seconds_until(moment: datetime, at: datetime) -> int:
     return max(0, int((moment - at).total_seconds()))
 

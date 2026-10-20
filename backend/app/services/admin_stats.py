@@ -1,4 +1,5 @@
-"""Numbers for the admin dashboard: spend, per-user usage, outliers, waitlist.
+"""Numbers for the admin dashboard: spend, per-user usage, outliers, waitlist,
+and the 👍/👎 students gave answers.
 
 Everything is derived from `usage_events` (never purged, estimated cost),
 `rate_limit_events` (what the global cap counts) and `pro_waitlist_clicks`.
@@ -17,9 +18,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.models.orm import ProWaitlistClick, UsageEvent, User
+from app.models.orm import Feedback, ProWaitlistClick, UsageEvent, User
 from app.models.schemas import (
     AdminDay,
+    AdminFeedbackEntry,
+    AdminFeedbackResponse,
     AdminOverview,
     AdminUser,
     AdminUsersResponse,
@@ -31,6 +34,8 @@ from app.services.rate_limiter import day_window, month_window
 
 SERIES_DAYS = 14
 WINDOW_DAYS = 30
+# Feedback entries the admin page lists; the totals count all of them.
+FEEDBACK_SHOWN = 100
 # Below this, an "outlier" is just noise: a few cents of spend isn't a problem.
 # (One capture costs about a tenth of a cent, so 5 cents is dozens of captures.)
 OUTLIER_MIN_COST_USD = 0.05
@@ -182,3 +187,30 @@ async def build_waitlist(db: AsyncSession) -> AdminWaitlistResponse:
         entry.sources = sorted(sources[user_id])
     entries = sorted(grouped.values(), key=lambda entry: entry.last_click, reverse=True)
     return AdminWaitlistResponse(unique_users=len(entries), total_clicks=len(rows), entries=entries)
+
+
+async def build_feedback(db: AsyncSession) -> AdminFeedbackResponse:
+    rows = (
+        await db.execute(select(Feedback, User.email).outerjoin(User, User.id == Feedback.user_id))
+    ).all()
+    # 👎 first, since those are the answers to fix; newest first within each.
+    ordered = sorted(rows, key=lambda row: (row[0].rating != "down", -_utc(row[0].updated_at).timestamp()))
+    return AdminFeedbackResponse(
+        up=sum(1 for feedback, _ in rows if feedback.rating == "up"),
+        down=sum(1 for feedback, _ in rows if feedback.rating == "down"),
+        down_with_comment=sum(1 for feedback, _ in rows if feedback.rating == "down" and feedback.comment),
+        signed_in=sum(1 for feedback, _ in rows if feedback.user_id is not None),
+        signed_out=sum(1 for feedback, _ in rows if feedback.user_id is None),
+        entries=[
+            AdminFeedbackEntry(
+                id=str(feedback.id),
+                rating="up" if feedback.rating == "up" else "down",
+                target="summary" if feedback.target == "summary" else "chat",
+                comment=feedback.comment,
+                answer_excerpt=feedback.answer_excerpt,
+                email=email,
+                created_at=_utc(feedback.updated_at),
+            )
+            for feedback, email in ordered[:FEEDBACK_SHOWN]
+        ],
+    )

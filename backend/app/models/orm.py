@@ -210,6 +210,27 @@ class Note(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Feedback(Base):
+    """A 👍 or 👎 on one answer: a slide's summary (`target` "summary",
+    `slide_id`) or a chat reply (`target` "chat", `message_id`). `user_id` is
+    null for a signed-out student. The ids are plain columns, not foreign
+    keys, and `answer_excerpt` keeps the rated text, so the feedback outlives
+    the capture or chat it was given on. Deleted with the account."""
+
+    __tablename__ = "feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    target: Mapped[str] = mapped_column(String(8))  # "summary" | "chat"
+    slide_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    rating: Mapped[str] = mapped_column(String(4))  # "up" | "down"
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_excerpt: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Quiz(Base):
     """A multiple-choice quiz written from one series' slides
     (services/quiz_generator.py). `questions` is a list of

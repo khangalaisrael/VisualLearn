@@ -1,4 +1,5 @@
-"""Admin dashboard data: GET /admin/overview, /admin/users, /admin/waitlist.
+"""Admin dashboard data: GET /admin/overview, /admin/users, /admin/waitlist,
+/admin/feedback.
 
 Read-only, for the owner only. `require_admin` needs a signed-in session
 whose verified Google email is in ADMIN_EMAILS; everyone else gets 403, on
@@ -12,7 +13,7 @@ from app.api.deps import require_admin, verify_api_key
 from app.core import clock
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.schemas import AdminOverview, AdminUsersResponse, AdminWaitlistResponse
+from app.models.schemas import AdminFeedbackResponse, AdminOverview, AdminUsersResponse, AdminWaitlistResponse
 from app.services import admin_stats
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(verify_api_key), Depends(require_admin)])
@@ -31,3 +32,8 @@ async def users(db: AsyncSession = Depends(get_db)) -> AdminUsersResponse:
 @router.get("/waitlist", response_model=AdminWaitlistResponse)
 async def waitlist(db: AsyncSession = Depends(get_db)) -> AdminWaitlistResponse:
     return await admin_stats.build_waitlist(db)
+
+
+@router.get("/feedback", response_model=AdminFeedbackResponse)
+async def feedback(db: AsyncSession = Depends(get_db)) -> AdminFeedbackResponse:
+    return await admin_stats.build_feedback(db)

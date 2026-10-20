@@ -1,6 +1,7 @@
 /**
  * Owner dashboard, opened from Settings (admin accounts only) as a full tab.
- * Read-only: spend, per-user usage with outliers, and Pro waitlist demand.
+ * Read-only: spend, per-user usage with outliers, Pro waitlist demand, and
+ * the 👍/👎 students gave answers.
  * The server enforces who may read this (ADMIN_EMAILS); hiding the button
  * for everyone else is only a courtesy. Costs are estimates from a price
  * table, not the provider's bill.
@@ -8,10 +9,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { AdminOverview, AdminUsersResponse, AdminWaitlistResponse } from "@shared/types";
+import type { AdminFeedbackResponse, AdminOverview, AdminUsersResponse, AdminWaitlistResponse } from "@shared/types";
 
 import {
   ApiError,
+  getAdminFeedback,
   getAdminOverview,
   getAdminUsers,
   getAdminWaitlist,
@@ -23,6 +25,7 @@ interface Data {
   overview: AdminOverview;
   users: AdminUsersResponse;
   waitlist: AdminWaitlistResponse;
+  feedback: AdminFeedbackResponse;
 }
 
 type State =
@@ -125,14 +128,66 @@ function DayChart({ days }: { days: AdminOverview["days"] }): JSX.Element {
   );
 }
 
+function FeedbackSection({ feedback }: { feedback: AdminFeedbackResponse }): JSX.Element {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-subtle">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-800">
+          Answer feedback · {feedback.up} 👍, {feedback.down} 👎
+        </h2>
+        <p className="text-xs text-slate-400">
+          {plural(feedback.down_with_comment, "👎 with a comment", "👎 with comments")} ·{" "}
+          {feedback.signed_in} signed in, {feedback.signed_out} signed out
+        </p>
+      </div>
+      {feedback.entries.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-400">No feedback yet.</p>
+      ) : (
+        <ul className="mt-3 flex flex-col">
+          {feedback.entries.map((entry) => (
+            <li key={entry.id} className="flex gap-3 border-t border-slate-100 py-3 first:border-t-0">
+              <span className="text-base leading-5" aria-label={entry.rating === "up" ? "Good answer" : "Bad answer"}>
+                {entry.rating === "up" ? "👍" : "👎"}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                {entry.comment && <p className="text-sm font-medium text-slate-800">“{entry.comment}”</p>}
+                <details className="text-sm text-slate-600">
+                  <summary className="cursor-pointer truncate text-slate-500">
+                    {entry.target === "summary" ? "Slide summary" : "Chat answer"}:{" "}
+                    {entry.answer_excerpt.slice(0, 140) || "(empty)"}
+                  </summary>
+                  <p className="mt-1 whitespace-pre-wrap break-words rounded-md bg-slate-50 px-3 py-2">
+                    {entry.answer_excerpt}
+                  </p>
+                </details>
+                <p className="text-xs text-slate-400">
+                  {entry.email ?? "Signed out"} · {when(entry.created_at)}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-3 text-xs text-slate-400">
+        👎 first, then newest. The latest 100 are listed; the totals count all of them.
+      </p>
+    </section>
+  );
+}
+
 export function AdminApp(): JSX.Element {
   const [state, setState] = useState<State>({ status: "loading" });
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const [overview, users, waitlist] = await Promise.all([getAdminOverview(), getAdminUsers(), getAdminWaitlist()]);
-      setState({ status: "ready", data: { overview, users, waitlist } });
+      const [overview, users, waitlist, feedback] = await Promise.all([
+        getAdminOverview(),
+        getAdminUsers(),
+        getAdminWaitlist(),
+        getAdminFeedback(),
+      ]);
+      setState({ status: "ready", data: { overview, users, waitlist, feedback } });
     } catch (error) {
       if (error instanceof ApiError && (error.status === 403 || error.status === 401)) {
         setState({ status: "forbidden" });
@@ -272,6 +327,8 @@ export function AdminApp(): JSX.Element {
               that comparison. Costs are estimates from a price table.
             </p>
           </section>
+
+          <FeedbackSection feedback={state.data.feedback} />
 
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-subtle">
             <div className="flex items-center justify-between">

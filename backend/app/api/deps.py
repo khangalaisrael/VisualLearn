@@ -31,6 +31,7 @@ from app.services.rate_limiter import (
     enforce_global_code_run_cap,
     enforce_global_capture_cap,
     enforce_rate_limits,
+    feedback_limits,
     quiz_limits,
     study_aid_limits,
 )
@@ -519,6 +520,25 @@ async def enforce_code_run_rate_limit(
     except RateLimitExceeded as exc:
         await _record_limit_hit(db, user, exc)
         raise
+
+
+async def enforce_feedback_rate_limit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> None:
+    """Signed-out students can rate answers too, so they are counted per IP
+    address. Hitting this is not recorded as a limit hit: it says nothing
+    about demand for the paid tier, which is what the admin page uses those for."""
+    ensure_access(user)
+    if is_admin(user):
+        return
+    await enforce_rate_limits(
+        RateLimitEventRepository(db),
+        key=rate_limit_key(request, user.id if user else None),
+        action="feedback",
+        limits=feedback_limits(get_settings(), clock.now()),
+    )
 
 
 async def enforce_study_aid_rate_limit(
