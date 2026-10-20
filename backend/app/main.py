@@ -8,6 +8,7 @@ from app.api.privacy import router as privacy_router
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.core.request_logging import RequestLoggingMiddleware, handle_crash
 
 configure_logging()
 settings = get_settings()
@@ -27,6 +28,9 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-API-Key"],
 )
+# Added last, so it runs outermost and times everything, CORS included.
+app.add_middleware(RequestLoggingMiddleware)
+app.add_exception_handler(Exception, handle_crash)
 
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(privacy_router)
