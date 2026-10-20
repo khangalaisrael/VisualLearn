@@ -592,7 +592,10 @@ export function AskTab({
       {state.status === "loaded" && (
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <p className="rounded-md bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">{state.result.summary}</p>
+            {/* The summary can hold maths ("$\Theta(n^3)$"), rendered like an answer's. */}
+            <div className="rounded-md bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">
+              <MathText text={state.result.summary} />
+            </div>
             {/* Keyed by slide, so a new capture starts unrated. */}
             <FeedbackButtons key={state.result.slide_id} target="summary" answerId={state.result.slide_id} />
           </div>
