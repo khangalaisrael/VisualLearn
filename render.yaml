@@ -3,7 +3,9 @@
 # deploy/hosted/Dockerfile and redeploys on every push to main.
 services:
   - type: web
-    name: visionlearn-api
+    name: visionlearn-api-ohio
+    # Same region as the Neon database (aws us-east-2), so queries stay local.
+    region: ohio
     runtime: docker
     plan: free
     dockerfilePath: ./deploy/hosted/Dockerfile
