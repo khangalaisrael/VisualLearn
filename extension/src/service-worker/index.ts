@@ -12,15 +12,17 @@ import type {
   BackgroundMessage,
   CaptureRequestMessage,
   CaptureStartedMessage,
-  FigureSelectedMessage,
-  OpenFigureChatMessage,
   SlideAnalysisFailedMessage,
   SlideAnalyzedMessage,
 } from "./messages";
 import type { SlideAnalysisResponse } from "@shared/types";
 
+// The icon click is handled here (chrome.action.onClicked below) rather than
+// by Chrome opening the panel itself: with openPanelOnActionClick the click
+// didn't hand this extension the activeTab grant, so every capture failed.
+// It has no host permissions, so that grant is its only way to see a tab.
 chrome.sidePanel
-  .setPanelBehavior({ openPanelOnActionClick: true })
+  .setPanelBehavior({ openPanelOnActionClick: false })
   .catch((error) => console.error("[VisionLearn] failed to set side panel behavior", error));
 
 // Per-tab de-dupe: pressing Capture twice on an unchanged slide shouldn't
@@ -145,7 +147,7 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
     const previous = lastResultByTab.get(tabId);
     if (previous?.hash === imageHash) {
       // Unchanged screen: answer from memory (no upload, no quota used).
-      deliverResult(previous.result, tabId);
+      deliverResult(previous.result);
       return;
     }
 
@@ -167,7 +169,7 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
     // Remembered only on success, so a failed capture (a usage limit, a
     // network error) can be retried on the same slide.
     lastResultByTab.set(tabId, { hash: imageHash, result });
-    deliverResult(result, tabId);
+    deliverResult(result);
 
     // Best effort: a failure here must never hide a result the user already has.
     await saveCapture({
@@ -186,67 +188,54 @@ async function handleCaptureRequest(message: CaptureRequestMessage, tabId: numbe
     console.error("[VisionLearn] slide analysis failed", error);
     const outgoing: SlideAnalysisFailedMessage = {
       type: "SLIDE_ANALYSIS_FAILED",
-      message: error instanceof Error ? error.message : String(error),
+      message: captureErrorMessage(error),
       ...(error instanceof ApiError ? { limitKind: error.limitKind, retryAfterSeconds: error.retryAfterSeconds } : {}),
     };
     chrome.runtime.sendMessage(outgoing).catch(() => undefined);
   }
 }
 
-function deliverResult(result: SlideAnalysisResponse, tabId: number): void {
+// Nothing is ever drawn on, injected into, or listened for on the page
+// itself: the result goes to the side panel only, so a site has nothing of
+// ours in its DOM to notice. Figures are picked in the panel's list.
+function deliverResult(result: SlideAnalysisResponse): void {
   const outgoing: SlideAnalyzedMessage = { type: "SLIDE_ANALYZED", result };
-  // chrome.runtime.sendMessage only reaches extension pages (the side
-  // panel); it does NOT reach a content script in a tab — that needs
-  // chrome.tabs.sendMessage(tabId, ...) instead (found live-testing the
-  // overlay renderer: the content script's listener never fired without
-  // this). Both are sent so the side panel's object list and the
-  // content script's overlay (content-script/overlay.ts) stay in sync.
   chrome.runtime.sendMessage(outgoing).catch(() => {
     // No side panel listening (e.g. not open yet) — that's fine.
   });
-  chrome.tabs.sendMessage(tabId, outgoing).catch(() => {
-    // No content script listening on this tab (e.g. a chrome:// page) —
-    // fine, there's simply no overlay to draw there.
-  });
 }
+
+/** Chrome's own wording when a capture runs without the activeTab grant
+ * (the tab moved to a new page since the icon was clicked) means nothing
+ * to a student, so it is replaced with what to do about it. */
+function captureErrorMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return /activeTab|<all_urls>/.test(text)
+    ? "This page changed since you last clicked the VisionLearn icon. Click the icon in the toolbar to capture it."
+    : text;
+}
+
+// Clicking the icon opens the panel and captures this tab at once. The click
+// grants activeTab on this tab until it moves to a new page, so the panel's
+// Capture button keeps working while the student pages through the slides.
+// sidePanel.open must come before any await, while the gesture still counts.
+chrome.action.onClicked.addListener((tab) => {
+  if (tab.windowId !== undefined) {
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
+  }
+  if (tab.id !== undefined) {
+    enqueueCapture({ type: "CAPTURE_REQUEST", presentationId: null, slideNumber: 1 }, tab.id);
+  }
+});
 
 async function resolveActiveTabId(): Promise<number | undefined> {
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return activeTab?.id;
 }
 
-// Storage key for the handoff described in handleOpenFigureChat's comment.
-const PENDING_FIGURE_SELECTION_KEY = "pendingFigureSelection";
-
-async function handleOpenFigureChat(message: OpenFigureChatMessage, tab: chrome.tabs.Tab | undefined): Promise<void> {
-  const outgoing: FigureSelectedMessage = {
-    type: "FIGURE_SELECTED",
-    slide: message.slide,
-    objectId: message.objectId,
-  };
-
-  // chrome.sidePanel.open() isn't available to content scripts (only
-  // extension pages/the service worker), which is why this round-trips
-  // through here instead of the content script calling it directly. It
-  // must be called synchronously-ish off the user gesture that triggered
-  // this message, before any other await — see MDN's sidePanel.open docs.
-  if (tab?.windowId !== undefined) {
-    await chrome.sidePanel.open({ windowId: tab.windowId }).catch((error) => {
-      console.error("[VisionLearn] failed to open side panel", error);
-    });
-  }
-
-  // If the panel was already open, this reaches its listener directly.
-  // If we just opened it above, its listener won't be registered yet —
-  // same race the capture flow already handles (see the comment on
-  // SLIDE_ANALYZED above) — so also persist it for the panel to pick up
-  // on mount (AskTab.tsx), then clear it once consumed.
-  chrome.runtime.sendMessage(outgoing).catch(() => undefined);
-  await chrome.storage.local.set({ [PENDING_FIGURE_SELECTION_KEY]: outgoing });
-}
-
-// Keyboard capture (Alt+Shift+S by default; users can change it at
-// chrome://extensions/shortcuts). The side panel can only be opened from a
+// Keyboard capture. No key is bound by default: Chrome swallows a bound key
+// before the page sees it, which a site could notice, so a student who wants
+// one sets it at chrome://extensions/shortcuts. The side panel can only be opened from a
 // user gesture, and the shortcut is one, so it is opened before anything else.
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command !== "capture-slide" || tab?.id === undefined) return;
@@ -257,11 +246,6 @@ chrome.commands.onCommand.addListener((command, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage, sender) => {
-  if (message.type === "OPEN_FIGURE_CHAT") {
-    void handleOpenFigureChat(message, sender.tab);
-    return false;
-  }
-
   if (message.type !== "CAPTURE_REQUEST") {
     return false;
   }

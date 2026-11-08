@@ -107,22 +107,44 @@ function RichText({ text, className }: { text: string; className: string }): JSX
   );
 }
 
-export function ObjectCard({ object }: { object: SlideObject }): JSX.Element {
+export function ObjectCard({
+  object,
+  selected,
+  onAsk,
+}: {
+  object: SlideObject;
+  /** This object is the one questions are currently scoped to. */
+  selected: boolean;
+  /** Scope the next questions to this object (Figure mode). */
+  onAsk: () => void;
+}): JSX.Element {
   const tableRows = object.type === "table" && object.extracted_text ? parseTable(object.extracted_text) : null;
 
   return (
-    <li className="flex flex-col gap-2 rounded-md bg-white p-4 text-sm shadow-subtle">
+    <li
+      className={`flex flex-col gap-2 rounded-md bg-white p-4 text-sm shadow-subtle ${selected ? "ring-2 ring-indigo-400" : ""}`}
+    >
       <div className="flex items-center justify-between">
         <span
           className={`rounded-full px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${TYPE_STYLES[object.type]}`}
         >
           {object.type}
         </span>
-        {object.confidence < LOW_CONFIDENCE && (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
-            May be misread
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {object.confidence < LOW_CONFIDENCE && (
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
+              May be misread
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onAsk}
+            disabled={selected}
+            className="rounded-full px-2 py-0.5 text-xs font-medium text-indigo-600 transition-colors duration-[120ms] hover:bg-indigo-50 disabled:cursor-default disabled:text-slate-400 disabled:hover:bg-transparent dark:text-indigo-300"
+          >
+            {selected ? "Asking about this" : "Ask about this →"}
+          </button>
+        </div>
       </div>
 
       {object.type === "equation" && object.latex && (

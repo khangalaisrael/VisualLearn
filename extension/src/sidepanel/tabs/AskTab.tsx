@@ -3,9 +3,8 @@
  * from it, and chat about it. Milestone 3 (see docs/ROADMAP.md) wires the
  * chat box below the capture result to POST /chat in "slide" query mode,
  * grounded on every object detected on the captured slide. "Figure" mode
- * (grounded on a single selected object) is triggered from the page's
- * overlay renderer, not a picker in this tab — see the figure-mode note
- * below.
+ * (grounded on a single selected object) is picked from the list of what
+ * was read from the slide — see the figure-mode note below.
  *
  * The "Algorithm mode" checkbox switches the query_mode to "algorithm"
  * (docs/AlgorithmsMVP.md Phase 1) instead of "slide" for the next question —
@@ -18,12 +17,9 @@
  * default and a no-op server-side, matching the algorithm prompt's
  * baseline tone.
  *
- * Figure mode is triggered from the page itself, not this tab: clicking a
- * figure in the content script's overlay (content-script/overlay.ts)
- * sends OPEN_FIGURE_CHAT, which the service worker turns into a
- * FIGURE_SELECTED message (relayed live if this panel is already open,
- * or persisted to chrome.storage.local for this tab to pick up on mount
- * if it just got opened — see the mount effect below). Once set, the next
+ * Figure mode is picked in this tab, never on the page (nothing is drawn
+ * there, so a site can't notice the extension): each object in the "what
+ * was read" list has an "Ask about this" button. Once set, the next
  * question(s) use query_mode "figure" grounded on that one object instead
  * of the whole slide, until cleared.
  */
@@ -36,7 +32,6 @@ import type {
   BackendWakingMessage,
   CaptureRequestMessage,
   CaptureStartedMessage,
-  FigureSelectedMessage,
   SlideAnalysisFailedMessage,
   SlideAnalyzedMessage,
 } from "../../service-worker/messages";
@@ -51,8 +46,6 @@ import { ObjectCardSkeleton } from "../components/ObjectCardSkeleton";
 import { extractFollowUpQuestion } from "../follow-up";
 import { StartScreen, WhatsNewCard } from "../components/StartScreen";
 import { BackIcon, ChevronIcon, CloseIcon, ForwardIcon, FollowUpIcon } from "../recent/parts";
-
-const PENDING_FIGURE_SELECTION_KEY = "pendingFigureSelection";
 
 interface FigureSelection {
   objectId: string;
@@ -223,35 +216,12 @@ export function AskTab({
   // The list of what was read from the slide is there to check, not to scroll
   // past on the way to the chat, so it starts folded.
   const [showObjects, setShowObjects] = useState(false);
-  // Mirrors `state`'s loaded slide_id (or null) without applyFigureSelection
-  // needing `state` itself as a dependency — keeps it referentially stable
-  // so the message-listener effects below don't tear down and re-register
-  // on every state change.
-  const loadedSlideIdRef = useRef<string | null>(null);
   useEffect(() => {
-    loadedSlideIdRef.current = state.status === "loaded" ? state.result.slide_id : null;
     if (state.status === "loaded" || state.status === "idle") lastShownRef.current = state;
   }, [state]);
 
   useEffect(() => {
     void refreshUsage();
-  }, []);
-
-  const applyFigureSelection = useCallback((slide: SlideAnalyzedMessage["result"], objectId: string) => {
-    // If this panel already has the same slide loaded (the common case —
-    // it was open, the student clicked a figure on the page they were
-    // already chatting about), keep the existing conversation going,
-    // just now scoped to one figure. Otherwise (panel was just opened by
-    // the click, or a different slide was loaded) cold-restore full
-    // "loaded" state from the slide data the message carries — see
-    // OpenFigureChatMessage's docstring for why it carries the full
-    // result rather than just ids.
-    if (loadedSlideIdRef.current !== slide.slide_id) {
-      setState({ status: "loaded", result: slide });
-      setMessages([]);
-      conversationIdRef.current = null;
-    }
-    setFigureSelection({ objectId });
   }, []);
 
   useEffect(() => {
@@ -261,7 +231,6 @@ export function AskTab({
         | SlideAnalyzedMessage
         | SlideAnalysisFailedMessage
         | BackendWakingMessage
-        | FigureSelectedMessage
     ) => {
       if (message.type === "CAPTURE_STARTED") {
         // Started elsewhere (the keyboard shortcut): show the same progress.
@@ -315,27 +284,12 @@ export function AskTab({
         }
       } else if (message.type === "BACKEND_WAKING") {
         setState((prev) => (prev.status === "loading" ? { status: "loading", waking: true } : prev));
-      } else if (message.type === "FIGURE_SELECTED") {
-        applyFigureSelection(message.slide, message.objectId);
       }
       return false;
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
-  }, [applyFigureSelection]);
-
-  // Handles the case where clicking a figure on the page opened this
-  // panel fresh — the live message above would have been sent before
-  // this listener existed, so the service worker also persists it (see
-  // service-worker/index.ts's handleOpenFigureChat) for pickup here.
-  useEffect(() => {
-    void chrome.storage.local.get(PENDING_FIGURE_SELECTION_KEY).then((stored) => {
-      const pending = stored[PENDING_FIGURE_SELECTION_KEY] as FigureSelectedMessage | undefined;
-      if (!pending) return;
-      chrome.storage.local.remove(PENDING_FIGURE_SELECTION_KEY).catch(() => undefined);
-      applyFigureSelection(pending.slide, pending.objectId);
-    });
-  }, [applyFigureSelection]);
+  }, []);
 
   useEffect(() => {
     if (!restore) return;
@@ -618,7 +572,15 @@ export function AskTab({
               {showObjects && (
                 <ul id="slide-objects" className="flex flex-col gap-3">
                   {state.result.objects.map((object) => (
-                    <ObjectCard key={object.id} object={object} />
+                    <ObjectCard
+                      key={object.id}
+                      object={object}
+                      selected={figureSelection?.objectId === object.id}
+                      onAsk={() => {
+                        setFigureSelection({ objectId: object.id });
+                        askInputRef.current?.focus();
+                      }}
+                    />
                   ))}
                 </ul>
               )}

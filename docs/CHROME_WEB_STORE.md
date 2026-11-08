@@ -93,7 +93,7 @@ The backend needs no change: it checks the Google token with Google, whichever c
 VisionLearn turns the lecture slides you are already looking at into something you can ask questions about and study from.
 
 CAPTURE AND ASK
-Open a slide in any tab (a PDF, Google Slides, your university's lecture site) and press Capture, or Alt+Shift+S. VisionLearn reads what is on it, including equations, diagrams, graphs, tables and code, and answers your questions about it. Answers stick to what is on the slide and remember the earlier slides of the same lecture.
+Open a slide in any tab (a PDF, Google Slides, your university's lecture site), click the VisionLearn icon and press Capture. VisionLearn reads what is on it, including equations, diagrams, graphs, tables and code, and answers your questions about it. Answers stick to what is on the slide and remember the earlier slides of the same lecture.
 
 YOUR LECTURES, SORTED BY TOPIC
 Sign in with Google and every capture is filed into a series for its topic, so a term's slides end up organised without any effort. Search them any time.
@@ -142,11 +142,11 @@ of them with screenshots from your own use at 1280×800 or 640×400.
 
 | Permission | Justification |
 |---|---|
-| `activeTab` | Takes a screenshot of the current tab when the student presses Capture or the keyboard shortcut. |
+| `activeTab` | Takes a screenshot of the current tab, and reads its title to group captures by lecture, only after the student clicks the VisionLearn icon on that tab and presses Capture. The extension has no host permissions and runs nothing in web pages. |
 | `sidePanel` | The extension's whole interface is Chrome's side panel, next to the lecture. |
 | `storage` | Keeps settings, the sign-in session, code drafts and small thumbnails of captured slides on the user's device. |
 | `identity` | Optional Google sign-in, so a student's series, quizzes and notes are private to them and available on their other devices. |
-| Host permissions (`<all_urls>`) | Lecture slides live on many different sites (university portals, Google Slides, PDFs, course pages), so the extension must be able to capture whichever tab the student is studying when they press Capture, read that page's title to group captures by lecture, and draw outlines over the parts of the slide it read so the student can ask about one figure. Nothing is read until the student presses Capture. |
+| Host permissions (`visionlearn.fyi`, `visionlearn-api.onrender.com`, `localhost`) | Only VisionLearn's own server, which the extension sends captures and questions to. No other site. `localhost` is for development builds. |
 
 **Remote code:** No. All code is in the package; the server only returns data (text and analysis results).
 

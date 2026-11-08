@@ -19,7 +19,12 @@
     }
   },
   "permissions": ["activeTab", "identity", "sidePanel", "storage"],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": [
+    "https://visionlearn.fyi/*",
+    "https://visionlearn-api.onrender.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
   "oauth2": {
     "client_id": "156756671908-pftlqf00isph66l4mbjgn5mtsu1nrg51.apps.googleusercontent.com",
     "scopes": ["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"]
@@ -28,19 +33,11 @@
     "service_worker": "src/service-worker/index.ts",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content-script/index.ts"],
-      "run_at": "document_idle"
-    }
-  ],
   "side_panel": {
     "default_path": "src/sidepanel/index.html"
   },
   "commands": {
     "capture-slide": {
-      "suggested_key": { "default": "Alt+Shift+S" },
       "description": "Capture the current slide"
     }
   }
