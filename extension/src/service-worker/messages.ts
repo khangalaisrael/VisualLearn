@@ -38,9 +38,16 @@ export interface BackendWakingMessage {
   type: "BACKEND_WAKING";
 }
 
+/** The slide summary so far, while the analysis is still being written. */
+export interface SlideSummaryPartialMessage {
+  type: "SLIDE_SUMMARY_PARTIAL";
+  summary: string;
+}
+
 export type BackgroundMessage = CaptureRequestMessage;
 export type SidePanelMessage =
   | CaptureStartedMessage
   | SlideAnalyzedMessage
   | SlideAnalysisFailedMessage
-  | BackendWakingMessage;
+  | BackendWakingMessage
+  | SlideSummaryPartialMessage;

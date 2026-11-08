@@ -30,6 +30,7 @@ import { ApiError, createNote, streamChat } from "../../shared/api-client";
 import { activeCaptureLimit, refreshUsage, useUsage } from "../../shared/usage-store";
 import type {
   BackendWakingMessage,
+  SlideSummaryPartialMessage,
   CaptureRequestMessage,
   CaptureStartedMessage,
   SlideAnalysisFailedMessage,
@@ -37,6 +38,7 @@ import type {
 } from "../../service-worker/messages";
 import { Button } from "../components/Button";
 import { FeedbackButtons } from "../components/FeedbackButtons";
+import { WakingIntro } from "../components/WakingIntro";
 import { InviteOnlyCard, isBlockedByInvite } from "../components/InviteOnlyCard";
 import { LimitCard } from "../components/LimitCard";
 import { MathText } from "../components/MathText";
@@ -53,7 +55,7 @@ interface FigureSelection {
 
 type LoadState =
   | { status: "idle" }
-  | { status: "loading"; waking?: boolean }
+  | { status: "loading"; waking?: boolean; summary?: string }
   | { status: "loaded"; result: SlideAnalyzedMessage["result"] }
   | { status: "error"; message: string };
 
@@ -231,6 +233,7 @@ export function AskTab({
         | SlideAnalyzedMessage
         | SlideAnalysisFailedMessage
         | BackendWakingMessage
+        | SlideSummaryPartialMessage
     ) => {
       if (message.type === "CAPTURE_STARTED") {
         // Started elsewhere (the keyboard shortcut): show the same progress.
@@ -283,7 +286,10 @@ export function AskTab({
           setState({ status: "error", message: message.message });
         }
       } else if (message.type === "BACKEND_WAKING") {
-        setState((prev) => (prev.status === "loading" ? { status: "loading", waking: true } : prev));
+        setState((prev) => (prev.status === "loading" ? { ...prev, waking: true } : prev));
+      } else if (message.type === "SLIDE_SUMMARY_PARTIAL") {
+        // The summary as it is written: something to read while the rest is analyzed.
+        setState((prev) => (prev.status === "loading" ? { status: "loading", summary: message.summary } : prev));
       }
       return false;
     };
@@ -527,9 +533,15 @@ export function AskTab({
           <StartScreen active={active} onOpenSeries={onOpenSeries} />
         )}
 
-        {state.status === "loading" && state.waking && <WakingNotice />}
+        {state.status === "loading" && state.waking && !state.summary && <WakingIntro />}
 
-      {state.status === "loading" && (
+      {state.status === "loading" && state.summary && (
+        <div className="rounded-md bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">
+          <MathText text={state.summary} />
+        </div>
+      )}
+
+      {state.status === "loading" && (!state.waking || state.summary) && (
         <ul className="flex flex-col gap-3">
           <ObjectCardSkeleton />
           <ObjectCardSkeleton />

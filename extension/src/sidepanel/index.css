@@ -95,6 +95,53 @@ kbd,
   .typing-dot {
     animation: typing-pulse 1.2s ease-in-out infinite;
   }
+
+  /* The waking-up intro (components/WakingIntro.tsx). Each element starts
+     after its own --d delay; draws, fades and short rises only. */
+  .vl-draw {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: vl-draw 700ms ease-out var(--d, 0ms) forwards;
+  }
+  .vl-fade {
+    opacity: 0;
+    animation: vl-fade 400ms ease-out var(--d, 0ms) forwards;
+  }
+  .vl-rise {
+    opacity: 0;
+    transform: translateY(6px);
+    animation: vl-rise 450ms ease-out var(--d, 0ms) forwards;
+  }
+  .vl-scan {
+    opacity: 0;
+    animation:
+      vl-fade 200ms ease-out var(--d, 0ms) forwards,
+      vl-scan 1800ms ease-in-out var(--d, 0ms) infinite alternate;
+  }
+  @keyframes vl-draw {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes vl-fade {
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes vl-rise {
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes vl-scan {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(108px);
+    }
+  }
 }
 
 :root {

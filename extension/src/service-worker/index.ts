@@ -9,6 +9,7 @@ import { ApiError, analyzeSlide, getAuthState } from "../shared/api-client";
 import { LOCAL_RETENTION_DAYS, latestPresentationFor, purgeOlderThan, saveCapture } from "../shared/capture-store";
 import type {
   BackendWakingMessage,
+  SlideSummaryPartialMessage,
   BackgroundMessage,
   CaptureRequestMessage,
   CaptureStartedMessage,
@@ -98,6 +99,10 @@ async function analyzeWithLecture(
       onWaking: () => {
         const waking: BackendWakingMessage = { type: "BACKEND_WAKING" };
         chrome.runtime.sendMessage(waking).catch(() => undefined);
+      },
+      onSummary: (summary) => {
+        const partial: SlideSummaryPartialMessage = { type: "SLIDE_SUMMARY_PARTIAL", summary };
+        chrome.runtime.sendMessage(partial).catch(() => undefined);
       },
     });
   try {

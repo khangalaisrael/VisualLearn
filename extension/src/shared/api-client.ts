@@ -352,6 +352,32 @@ async function fetchWakingBackend(
  * Exempt from the X-API-Key requirement (docs/API_CONTRACT.md §1), so a
  * bad connection, not a bad key, is the only reason this can fail.
  */
+/** When the current warm-up began, while it hasn't been answered yet; null otherwise. */
+let warmUpStartedAt: number | null = null;
+
+/**
+ * Starts waking the server as soon as the side panel opens, so it is
+ * usually awake by the time the student captures. Quiet and best effort: it
+ * uses no quota, shows nothing, and a failure is simply ignored (the capture
+ * itself still waits for the server as before). Render keeps the request
+ * open while the server boots, so one call is enough.
+ */
+export function warmUpBackend(): void {
+  if (warmUpStartedAt !== null) return;
+  warmUpStartedAt = Date.now();
+  void getConfig()
+    .then(({ backendUrl }) => fetch(`${backendUrl}/api/v1/health`))
+    .catch(() => undefined)
+    .finally(() => {
+      warmUpStartedAt = null;
+    });
+}
+
+/** How long ago the still-running warm-up began, in seconds (0 when none is running). */
+export function warmUpSeconds(): number {
+  return warmUpStartedAt === null ? 0 : (Date.now() - warmUpStartedAt) / 1000;
+}
+
 export async function checkHealth(backendUrl: string, onWaking?: () => void): Promise<HealthResponse> {
   const response = await fetchWakingBackend(`${backendUrl}/api/v1/health`, {}, onWaking, HEALTH_ATTEMPT_TIMEOUT_MS);
   if (!response.ok) {
@@ -379,6 +405,8 @@ export interface AnalyzeSlideParams {
   lectureTitle?: string;
   pageUrl?: string;
   onWaking?: () => void;
+  /** Called with the slide summary so far, while the analysis is still running. */
+  onSummary?: (summarySoFar: string) => void;
 }
 
 export class ApiError extends Error {
@@ -430,9 +458,13 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
     formData.append("page_url", params.pageUrl);
   }
 
+  // With onSummary, the server is asked to stream: the summary arrives while
+  // it is written, then the full result. A server without streaming just
+  // answers with JSON, which is read the usual way below.
+  const accept: Record<string, string> = params.onSummary ? { Accept: "text/event-stream" } : {};
   const response = await fetchWakingBackend(
     `${backendUrl}/api/v1/slides/analyze`,
-    { method: "POST", headers: { "X-API-Key": apiKey, ...(await authHeader()) }, body: formData },
+    { method: "POST", headers: { "X-API-Key": apiKey, ...accept, ...(await authHeader()) }, body: formData },
     params.onWaking,
     ANALYZE_ATTEMPT_TIMEOUT_MS
   );
@@ -446,6 +478,21 @@ export async function analyzeSlide(params: AnalyzeSlideParams): Promise<SlideAna
     throw errorFromResponse(response, body, "Analysis request failed");
   }
 
+  if (params.onSummary && response.body && response.headers.get("Content-Type")?.startsWith("text/event-stream")) {
+    let summary = "";
+    for await (const event of readSse(response.body.getReader())) {
+      if (event.name === "summary") {
+        summary += (event.data as { text: string }).text;
+        params.onSummary(summary);
+      } else if (event.name === "done") {
+        return event.data as SlideAnalysisResponse;
+      } else if (event.name === "error") {
+        throw new ApiError((event.data as { message?: string }).message ?? "Analysis failed", 500);
+      }
+    }
+    throw new ApiError("The analysis ended before it finished. Try again.", 500);
+  }
+
   return (await response.json()) as SlideAnalysisResponse;
 }
 
@@ -454,21 +501,51 @@ export type ChatStreamEvent =
   | { type: "done"; data: ChatDoneEvent }
   | { type: "error"; data: ChatErrorEvent };
 
-function parseSseEvent(raw: string): ChatStreamEvent | null {
-  let eventName = "message";
+/** One server-sent event: its name and its parsed JSON data. */
+interface SseEvent {
+  name: string;
+  data: unknown;
+}
+
+function parseSseBlock(raw: string): SseEvent | null {
+  let name = "message";
   let dataText = "";
   for (const line of raw.split("\n")) {
     if (line.startsWith("event:")) {
-      eventName = line.slice(6).trim();
+      name = line.slice(6).trim();
     } else if (line.startsWith("data:")) {
       dataText += line.slice(5).trim();
     }
   }
-  if (!dataText) {
-    return null;
-  }
+  return dataText ? { name, data: JSON.parse(dataText) as unknown } : null;
+}
 
-  const data = JSON.parse(dataText) as unknown;
+/**
+ * The events of a server-sent-event response body. SSE over a POST can't use
+ * EventSource (GET-only), so the body is read directly and split on blank lines.
+ */
+async function* readSse(reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<SseEvent> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    let separatorIndex = buffer.indexOf("\n\n");
+    while (separatorIndex !== -1) {
+      const event = parseSseBlock(buffer.slice(0, separatorIndex));
+      buffer = buffer.slice(separatorIndex + 2);
+      if (event) {
+        yield event;
+      }
+      separatorIndex = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+function toChatEvent({ name: eventName, data }: SseEvent): ChatStreamEvent | null {
   if (eventName === "delta") {
     return { type: "delta", text: (data as { text: string }).text };
   }
@@ -514,8 +591,6 @@ export async function* streamChat(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
 
   // Stop button: cancelling the reader ends the pending read() with
   // done=true, which closes the connection so the server stops generating.
@@ -525,22 +600,10 @@ export async function* streamChat(
   }
   signal?.addEventListener("abort", () => void reader.cancel().catch(() => undefined), { once: true });
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    buffer += decoder.decode(value, { stream: true });
-
-    let separatorIndex = buffer.indexOf("\n\n");
-    while (separatorIndex !== -1) {
-      const rawEvent = buffer.slice(0, separatorIndex);
-      buffer = buffer.slice(separatorIndex + 2);
-      const event = parseSseEvent(rawEvent);
-      if (event) {
-        yield event;
-      }
-      separatorIndex = buffer.indexOf("\n\n");
+  for await (const raw of readSse(reader)) {
+    const event = toChatEvent(raw);
+    if (event) {
+      yield event;
     }
   }
 }

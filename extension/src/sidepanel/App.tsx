@@ -8,18 +8,26 @@
  * shared/handoff.ts.
  */
 
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
-import { getSlide } from "../shared/api-client";
+import { getSlide, warmUpBackend } from "../shared/api-client";
 import { onHandoff } from "../shared/handoff";
 import { AskTab, type RestoredChat } from "./tabs/AskTab";
-import { ChatTab } from "./tabs/ChatTab";
-import { CodeTab, type IncomingCode } from "./tabs/CodeTab";
-import { NotesTab } from "./tabs/NotesTab";
-import { RecentTab } from "./tabs/RecentTab";
-import { SettingsTab } from "./tabs/SettingsTab";
+import type { IncomingCode } from "./tabs/CodeTab";
 import { UsageMeter } from "./components/UsageMeter";
 import { WelcomeScreen } from "./WelcomeScreen";
+
+// Every tab but Ask is loaded the first time it is opened, so the panel starts
+// without the code editor and the other tabs' code.
+const ChatTab = lazy(() => import("./tabs/ChatTab").then((m) => ({ default: m.ChatTab })));
+const CodeTab = lazy(() => import("./tabs/CodeTab").then((m) => ({ default: m.CodeTab })));
+const NotesTab = lazy(() => import("./tabs/NotesTab").then((m) => ({ default: m.NotesTab })));
+const RecentTab = lazy(() => import("./tabs/RecentTab").then((m) => ({ default: m.RecentTab })));
+const SettingsTab = lazy(() => import("./tabs/SettingsTab").then((m) => ({ default: m.SettingsTab })));
+
+function TabLoading(): JSX.Element {
+  return <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Loading…</div>;
+}
 
 type View = "ask" | "chat" | "code" | "recent" | "notes" | "settings";
 
@@ -63,6 +71,12 @@ export function App(): JSX.Element {
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   // The latest code handed over from an answer or a slide.
   const [incomingCode, setIncomingCode] = useState<IncomingCode | null>(null);
+  // Chat and Code stay mounted once opened, so nothing in progress is lost,
+  // but they are not loaded at all until then.
+  const [opened, setOpened] = useState<ReadonlySet<View>>(() => new Set<View>(["ask"]));
+  useEffect(() => {
+    setOpened((prev) => (prev.has(view) ? prev : new Set(prev).add(view)));
+  }, [view]);
 
   useEffect(
     () =>
@@ -72,6 +86,9 @@ export function App(): JSX.Element {
       }),
     []
   );
+
+  // Wake the server now, so it is usually up by the time a slide is captured.
+  useEffect(() => warmUpBackend(), []);
 
   useEffect(() => {
     chrome.storage.local.get([HAS_SEEN_WELCOME_KEY, SEEN_WHATS_NEW_KEY]).then((stored) => {
@@ -164,45 +181,51 @@ export function App(): JSX.Element {
           }}
         />
       </div>
-      <div className={view === "chat" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
-        <ChatTab
-          onOpenSlide={(slideId) => {
-            void getSlide(slideId)
-              .then((slide) => {
-                setRestore({ conversationId: null, slide, messages: [] });
+      <Suspense fallback={<TabLoading />}>
+        {opened.has("chat") && (
+          <div className={view === "chat" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
+            <ChatTab
+              onOpenSlide={(slideId) => {
+                void getSlide(slideId)
+                  .then((slide) => {
+                    setRestore({ conversationId: null, slide, messages: [] });
+                    go("ask");
+                  })
+                  // Deleted since (or past the 30 days): the library is the next best place.
+                  .catch(() => go("recent"));
+              }}
+              onOpenNotes={() => go("notes")}
+            />
+          </div>
+        )}
+        {opened.has("code") && (
+          <div className={view === "code" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
+            <CodeTab incoming={incomingCode} active={view === "code"} />
+          </div>
+        )}
+        {view === "recent" && (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <RecentTab
+              key={recentVisit}
+              initialSeriesId={seriesToOpen}
+              onOpen={(chat) => {
+                setRestore(chat);
                 go("ask");
-              })
-              // Deleted since (or past the 30 days): the library is the next best place.
-              .catch(() => go("recent"));
-          }}
-          onOpenNotes={() => go("notes")}
-        />
-      </div>
-      <div className={view === "code" ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
-        <CodeTab incoming={incomingCode} active={view === "code"} />
-      </div>
-      {view === "recent" && (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <RecentTab
-            key={recentVisit}
-            initialSeriesId={seriesToOpen}
-            onOpen={(chat) => {
-              setRestore(chat);
-              go("ask");
-            }}
-          />
-        </div>
-      )}
-      {view === "notes" && (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <NotesTab />
-        </div>
-      )}
-      {view === "settings" && (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <SettingsTab />
-        </div>
-      )}
+              }}
+            />
+          </div>
+        )}
+        {view === "notes" && (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <NotesTab />
+          </div>
+        )}
+        {view === "settings" && (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <SettingsTab />
+          </div>
+        )}
+      </Suspense>
     </div>
   );
 }
