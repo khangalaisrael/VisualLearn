@@ -441,6 +441,31 @@ async def _build_tutor_context(
     return "<quiz_data>\n" + "\n\n".join(lines) + "\n</quiz_data>", referenced, slide
 
 
+_CURRENT_SLIDE_MODES = {"slide", "figure", "algorithm"}
+
+
+def _current_slide_prefix(moved_to_new_slide: bool) -> str:
+    """Put first, so it outranks the history: a chat that followed the
+    student across a series carries earlier slides' messages, and a bare
+    "Summarize" or "Explain this slide" was being read as "summarize our
+    conversation" instead of being about the slide just captured."""
+    text = (
+        "IMPORTANT — this takes precedence over everything below. The slide content given at the end of "
+        "this prompt is the student's CURRENT slide. Requests like \"Summarize\", \"Explain this slide\", "
+        "\"Give an example\" or \"Simplify\" are always about that current slide, never about the "
+        "conversation so far. Earlier messages may be about previous slides; use them only as background. "
+        "Read EVERY question as being about the current slide by default, even when the student does not say "
+        "\"this slide\": \"what does this mean?\", \"why?\", \"how does it work?\" or a bare term all refer to "
+        "what is on the slide. Only treat a question as unrelated when it plainly cannot be about the slide."
+    )
+    if moved_to_new_slide:
+        text += (
+            "\nThe student has JUST captured a new slide: the earlier messages are about a previous slide, "
+            "and this question is about the new one."
+        )
+    return text + "\n\n"
+
+
 async def _same_series(
     db: AsyncSession, first: uuid.UUID | None, second: uuid.UUID | None, user_id: uuid.UUID | None
 ) -> bool:
@@ -461,7 +486,8 @@ async def _resolve_conversation(
     presentation_id: uuid.UUID | None,
     slide_id: uuid.UUID | None,
     current_user_id: uuid.UUID | None,
-) -> uuid.UUID:
+) -> tuple[uuid.UUID, bool]:
+    """The chat this turn belongs to, and whether it just moved to a new slide."""
     conversations = ConversationRepository(db)
     if request.conversation_id:
         conversation_uuid = _parse_uuid(request.conversation_id, "conversation_id")
@@ -477,17 +503,18 @@ async def _resolve_conversation(
             if not await _same_series(db, conversation.slide_id, slide_id, current_user_id):
                 raise HTTPException(status_code=404, detail="Unknown conversation_id")
             conversation.presentation_id = presentation_id
+        moved = slide_id is not None and conversation.slide_id is not None and conversation.slide_id != slide_id
         if slide_id is not None:
             conversation.slide_id = slide_id
         conversation.last_activity_at = datetime.now(UTC)
-        return conversation.id
+        return conversation.id, moved
     conversation = await conversations.create(
         presentation_id=presentation_id,
         user_id=current_user_id,
         title=request.message.strip()[:80] or None,
         slide_id=slide_id,
     )
-    return conversation.id
+    return conversation.id, False
 
 
 async def _library_query(db: AsyncSession, request: ChatRequest, conversation_id: uuid.UUID) -> str:
@@ -631,7 +658,9 @@ async def chat(
             context_text, referenced_object_ids = await _build_slide_context(db, request, presentation_uuid)
         slide_uuid = _parse_uuid(request.slide_id, "slide_id") if request.slide_id else None
 
-    conversation_id = await _resolve_conversation(db, request, presentation_uuid, slide_uuid, current_user_id)
+    conversation_id, moved_to_new_slide = await _resolve_conversation(
+        db, request, presentation_uuid, slide_uuid, current_user_id
+    )
     await db.commit()
 
     # The course brain: a general question from a signed-in student, answered
@@ -646,7 +675,10 @@ async def chat(
     explanation_mode_prefix = ""
     if request.query_mode == "algorithm":
         explanation_mode_prefix = _explanation_mode_prefix(request.explanation_mode)
-    system_prompt = f"{explanation_mode_prefix}{base_prompt}\n\n{context_text}".rstrip()
+    current_slide_prefix = ""
+    if request.query_mode in _CURRENT_SLIDE_MODES:
+        current_slide_prefix = _current_slide_prefix(moved_to_new_slide)
+    system_prompt = f"{current_slide_prefix}{explanation_mode_prefix}{base_prompt}\n\n{context_text}".rstrip()
     effort = _EFFORT_BY_MODE[request.query_mode]
 
     return StreamingResponse(
