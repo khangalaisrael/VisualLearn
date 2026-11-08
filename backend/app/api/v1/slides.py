@@ -17,12 +17,16 @@ image reappearing in a different presentation is a cache hit but not an
 existing Slide row.
 """
 
+import asyncio
 import hashlib
+import json
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +42,7 @@ from app.api.deps import (
 from app.core.cache import get_redis
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.orm import Series
+from app.models.orm import Presentation, Series
 from app.models.schemas import SlideAnalysisResponse
 from app.repositories.objects import ObjectRepository
 from app.repositories.presentations import PresentationRepository
@@ -58,6 +62,7 @@ router = APIRouter(tags=["slides"], dependencies=[Depends(verify_api_key), Depen
 
 @router.post("/slides/analyze", response_model=SlideAnalysisResponse)
 async def analyze_slide(
+    http_request: Request,
     image: UploadFile = File(...),
     presentation_id: str | None = Form(default=None),
     slide_number: int = Form(...),
@@ -69,7 +74,7 @@ async def analyze_slide(
     analyzer: SlideAnalyzer = Depends(get_slide_analyzer),
     sorter: SeriesSorter = Depends(get_series_sorter),
     current_user_id: uuid.UUID | None = Depends(get_current_user_id),
-) -> SlideAnalysisResponse:
+) -> SlideAnalysisResponse | StreamingResponse:
     """Analyze a captured slide image.
 
     The image hash used for de-duplication and caching is computed here
@@ -132,6 +137,71 @@ async def analyze_slide(
                 lecture_key=key,
             )
 
+    async def finish(on_summary: Callable[[str], Awaitable[None]] | None) -> SlideAnalysisResponse:
+        return await _analyze_and_store(
+            db=db,
+            cache=cache,
+            slides=slides,
+            analyzer=analyzer,
+            sorter=sorter,
+            presentation=presentation,
+            image_bytes=image_bytes,
+            image_hash=image_hash,
+            slide_number=slide_number,
+            current_user_id=current_user_id,
+            on_summary=on_summary,
+        )
+
+    # A client that asks for a stream gets the summary as it is written,
+    # then the full result. Anything that fails before this point (limits,
+    # a bad upload) is still an ordinary HTTP error.
+    if "text/event-stream" in http_request.headers.get("accept", ""):
+        return StreamingResponse(_stream_analysis(finish), media_type="text/event-stream")
+    return await finish(None)
+
+
+async def _stream_analysis(
+    finish: Callable[[Callable[[str], Awaitable[None]] | None], Awaitable[SlideAnalysisResponse]],
+) -> AsyncIterator[str]:
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    async def on_summary(text: str) -> None:
+        await queue.put(f"event: summary\ndata: {json.dumps({'text': text})}\n\n")
+
+    async def run() -> None:
+        try:
+            result = await finish(on_summary)
+            await queue.put(f"event: done\ndata: {result.model_dump_json()}\n\n")
+        except Exception:
+            logger.exception("slide_analysis_stream_failed")
+            payload = {"error": "slide_analysis_failed", "message": "The slide couldn't be analyzed. Try again."}
+            await queue.put(f"event: error\ndata: {json.dumps(payload)}\n\n")
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while (event := await queue.get()) is not None:
+            yield event
+    finally:
+        if not task.done():
+            task.cancel()
+
+
+async def _analyze_and_store(
+    *,
+    db: AsyncSession,
+    cache: CacheService,
+    slides: SlideRepository,
+    analyzer: SlideAnalyzer,
+    sorter: SeriesSorter,
+    presentation: Presentation,
+    image_bytes: bytes,
+    image_hash: str,
+    slide_number: int,
+    current_user_id: uuid.UUID | None,
+    on_summary: Callable[[str], Awaitable[None]] | None,
+) -> SlideAnalysisResponse:
     usage = start_accumulator()
     start = time.perf_counter()
     objects_repo = ObjectRepository(db)
@@ -155,7 +225,11 @@ async def analyze_slide(
             result = cached_result
             cache_hit = True
         else:
-            result = await analyzer.analyze(image_bytes)
+            stream = getattr(analyzer, "analyze_streaming", None)
+            if on_summary is not None and stream is not None:
+                result = await stream(image_bytes, on_summary)
+            else:
+                result = await analyzer.analyze(image_bytes)
             await cache.set(image_hash, result, model_used=analyzer.model_name)
             cache_hit = False
         slide = await slides.create(

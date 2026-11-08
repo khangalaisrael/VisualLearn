@@ -17,6 +17,7 @@ import openai
 
 from app.core.prompt_loader import load_prompt
 from app.services.slide_analyzer import AnalysisResult
+from app.services.slide_classifier import classify_slide, prepare_image
 from app.services.usage import record_response_usage
 from app.services.vlm_output import GRAPH_LOCALIZATION_SCHEMA, OUTPUT_SCHEMA, detect_media_type, parse_analysis_payload
 
@@ -43,8 +44,10 @@ class OpenAIVLMAnalyzer:
         self._graph_localization_prompt = load_prompt("graph_localization.v1")
 
     async def analyze(self, image_bytes: bytes) -> AnalysisResult:
-        media_type = detect_media_type(image_bytes)
-        image_b64 = base64.standard_b64encode(image_bytes).decode("ascii")
+        # A plain text slide is sent smaller (slide_classifier.py).
+        sent_bytes, sent_type = prepare_image(image_bytes, classify_slide(image_bytes))
+        media_type = sent_type or detect_media_type(sent_bytes)
+        image_b64 = base64.standard_b64encode(sent_bytes).decode("ascii")
 
         response = await self._client.chat.completions.create(
             model=self.model_name,

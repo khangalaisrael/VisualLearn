@@ -16,13 +16,24 @@ behind the `SlideAnalyzer` protocol.
 
 import base64
 import json
+import logging
+from collections.abc import Awaitable, Callable
 
 import anthropic
 
 from app.core.prompt_loader import load_prompt
 from app.services.slide_analyzer import AnalysisResult
+from app.services.slide_classifier import classify_slide, prepare_image
 from app.services.usage import record_response_usage
-from app.services.vlm_output import GRAPH_LOCALIZATION_SCHEMA, OUTPUT_SCHEMA, detect_media_type, parse_analysis_payload
+from app.services.vlm_output import (
+    GRAPH_LOCALIZATION_SCHEMA,
+    OUTPUT_SCHEMA,
+    detect_media_type,
+    parse_analysis_payload,
+    partial_summary,
+)
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "claude-haiku-5-5"
 # Claude Haiku 5.5 thinks adaptively by default and thinking tokens count
@@ -55,10 +66,44 @@ class ClaudeVLMAnalyzer:
         self._graph_localization_prompt = load_prompt("graph_localization.v1")
 
     async def analyze(self, image_bytes: bytes) -> AnalysisResult:
-        media_type = detect_media_type(image_bytes)
-        image_b64 = base64.standard_b64encode(image_bytes).decode("ascii")
+        response = await self._client.messages.create(**self._request(image_bytes))
+        record_response_usage(response, "input_tokens", "output_tokens")
+        text_block = next(block for block in response.content if block.type == "text")
+        payload = json.loads(text_block.text)
+        return await parse_analysis_payload(payload, image_bytes, self._locate_graph_nodes)
 
-        response = await self._client.messages.create(
+    async def analyze_streaming(
+        self, image_bytes: bytes, on_summary: Callable[[str], Awaitable[None]]
+    ) -> AnalysisResult:
+        """Same as analyze(), but hands over the slide summary while it is
+        still being written. The summary is the first field of the output
+        schema, so the student can start reading it before the objects are done."""
+        text = ""
+        sent = ""
+        async with self._client.messages.stream(**self._request(image_bytes)) as stream:
+            async for delta in stream.text_stream:
+                text += delta
+                summary = partial_summary(text)
+                if summary is not None and len(summary) > len(sent):
+                    await on_summary(summary[len(sent) :])
+                    sent = summary
+            response = await stream.get_final_message()
+        record_response_usage(response, "input_tokens", "output_tokens")
+        text_block = next(block for block in response.content if block.type == "text")
+        payload = json.loads(text_block.text)
+        return await parse_analysis_payload(payload, image_bytes, self._locate_graph_nodes)
+
+    def _request(self, image_bytes: bytes) -> dict:
+        # A plain text slide is sent smaller and read with less effort
+        # (slide_classifier.py); figures keep full size and effort.
+        kind = classify_slide(image_bytes)
+        sent_bytes, sent_type = prepare_image(image_bytes, kind)
+        media_type = sent_type or detect_media_type(sent_bytes)
+        image_b64 = base64.standard_b64encode(sent_bytes).decode("ascii")
+        effort = "low" if kind != "visual" and self._effort == "medium" else self._effort
+        logger.info("Slide classified as %s; sending %d of %d bytes", kind, len(sent_bytes), len(image_bytes))
+
+        return dict(
             model=self.model_name,
             max_tokens=_MAX_TOKENS,
             # The instructions are identical on every capture, so they are
@@ -69,7 +114,7 @@ class ClaudeVLMAnalyzer:
             output_config={
                 # Analysis is high-volume and latency-sensitive (<8s target,
                 # docs/ARCHITECTURE.md §6) — "medium" per docs/PROMPTS.md §2.
-                "effort": self._effort,
+                "effort": effort,
                 "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA},
             },
             messages=[
@@ -85,11 +130,6 @@ class ClaudeVLMAnalyzer:
                 }
             ],
         )
-
-        record_response_usage(response, "input_tokens", "output_tokens")
-        text_block = next(block for block in response.content if block.type == "text")
-        payload = json.loads(text_block.text)
-        return await parse_analysis_payload(payload, image_bytes, self._locate_graph_nodes)
 
     async def _locate_graph_nodes(self, crop_bytes: bytes) -> dict:
         """The second, focused pass (docs/adr/ADR-010) — given just a crop

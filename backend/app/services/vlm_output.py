@@ -23,7 +23,9 @@ edge connectivity; neither VLM pass is ever asked to do that.
 """
 
 import asyncio
+import json
 import logging
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -166,6 +168,38 @@ OUTPUT_SCHEMA = {
     "required": ["summary", "objects"],
     "additionalProperties": False,
 }
+
+
+_SUMMARY_START = re.compile(r'^\s*\{\s*"summary"\s*:\s*"')
+
+
+def partial_summary(text: str) -> str | None:
+    """The slide summary as far as it has been written, from the start of a
+    still-streaming analysis response (`{"summary": "...`). None until the
+    summary has started. An escape sequence cut off at the end is left out
+    until the rest of it arrives."""
+    match = _SUMMARY_START.match(text)
+    if match is None:
+        return None
+    raw = []
+    i = match.end()
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            break
+        if char == "\\":
+            length = 6 if text[i + 1 : i + 2] == "u" else 2
+            if i + length > len(text):
+                break  # incomplete escape: wait for the rest
+            raw.append(text[i : i + length])
+            i += length
+            continue
+        raw.append(char)
+        i += 1
+    try:
+        return json.loads('"' + "".join(raw) + '"')
+    except ValueError:
+        return None
 
 
 def detect_media_type(image_bytes: bytes) -> str:

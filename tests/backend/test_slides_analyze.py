@@ -1,6 +1,7 @@
 """Tests for POST /slides/analyze (docs/API_CONTRACT.md §2)."""
 
 import io
+import json
 
 from httpx import AsyncClient
 from PIL import Image
@@ -258,3 +259,45 @@ async def test_a_slide_the_presentation_has_is_not_analysed_again_after_its_cach
     assert again.json()["slide_id"] == first.json()["slide_id"]
     assert again.json()["cache_hit"] is True
     assert again.json()["summary"] == first.json()["summary"]
+
+
+async def test_analyze_streams_the_summary_then_the_result(client: AsyncClient) -> None:
+    from app.api.deps import get_slide_analyzer
+    from app.main import app
+    from app.services.slide_analyzer import AnalysisResult, PlaceholderSlideAnalyzer
+
+    class StreamingAnalyzer(PlaceholderSlideAnalyzer):
+        async def analyze_streaming(self, image_bytes, on_summary):
+            await on_summary("Merge sort ")
+            await on_summary("splits the list.")
+            result = await self.analyze(image_bytes)
+            return AnalysisResult(objects=result.objects, summary="Merge sort splits the list.")
+
+    async def streaming_analyzer() -> StreamingAnalyzer:
+        return StreamingAnalyzer()
+
+    app.dependency_overrides[get_slide_analyzer] = streaming_analyzer
+    response = await client.post(
+        "/api/v1/slides/analyze",
+        files={"image": ("slide.png", _fake_png_bytes(), "image/png")},
+        data={"slide_number": "1"},
+        headers={"X-API-Key": "test-api-key", "Accept": "text/event-stream"},
+    )
+
+    assert response.status_code == 200
+    events = [block.split("\n", 1) for block in response.text.strip().split("\n\n")]
+    names = [name.removeprefix("event: ") for name, _ in events]
+    assert names == ["summary", "summary", "done"]
+    done = json.loads(events[-1][1].removeprefix("data: "))
+    assert done["summary"] == "Merge sort splits the list."
+    assert done["slide_id"]
+
+
+async def test_analyze_without_stream_header_still_returns_json(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/slides/analyze",
+        files={"image": ("slide.png", _fake_png_bytes(), "image/png")},
+        data={"slide_number": "1"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+    assert response.headers["content-type"].startswith("application/json")
