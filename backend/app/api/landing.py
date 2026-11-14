@@ -62,6 +62,16 @@ _STYLE = """
   kbd { border-bottom-width:2px; }
   .box { background:var(--accent-soft); border-radius:16px; padding:22px 24px; }
   .box p { margin: 6px 0; }
+  .demo { margin-top: 36px; display:grid; grid-template-columns: 1.2fr 1fr; gap:14px; }
+  @media (max-width: 680px) { .demo { grid-template-columns: 1fr; } }
+  .slide, .panel { border:1px solid var(--line); border-radius:16px; background:var(--soft); padding:18px 20px; }
+  .slide .tag, .panel .tag { font-size:0.72rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+  .slide h4 { margin:0 0 8px; font-size:1.05rem; }
+  .slide pre { margin:10px 0 0; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:0.82rem; overflow-x:auto; }
+  .bubble { border-radius:12px; padding:9px 12px; font-size:0.9rem; margin:8px 0; max-width:92%; }
+  .bubble.q { background:var(--accent); color:var(--on-accent); margin-left:auto; }
+  .bubble.a { background:var(--bg); border:1px solid var(--line); }
+  .demo-note { text-align:center; color:var(--muted); font-size:0.82rem; margin:10px 0 0; }
   footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; display:flex; flex-wrap:wrap; gap:8px 20px; }
   footer a, .box a, .step a { color: var(--accent); }
 """
@@ -107,6 +117,23 @@ _HOME = """
     <a class="btn" href="/install">__CTA__</a>
     <span class="note">Free for students · Chrome extension</span>
   </div>
+</section>
+
+<section aria-label="Example">
+  <div class="demo">
+    <div class="slide">
+      <div class="tag">A lecture slide</div>
+      <h4>Merge sort: running time</h4>
+      <div>Split the list in half, sort each half, merge. Each level of splitting costs <em>n</em> work and there are log&#8322; <em>n</em> levels.</div>
+      <pre>T(n) = 2&middot;T(n/2) + n</pre>
+    </div>
+    <div class="panel">
+      <div class="tag">VisionLearn side panel</div>
+      <div class="bubble q">Why is this n log n?</div>
+      <div class="bubble a">Halving the list gives about log&#8322; n levels, and every level merges n items in total. n work &times; log n levels = n log n.</div>
+    </div>
+  </div>
+  <p class="demo-note">An illustrative example, not a real capture.</p>
 </section>
 
 <section id="how">

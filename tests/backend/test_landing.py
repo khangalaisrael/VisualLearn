@@ -108,3 +108,9 @@ async def test_a_link_cannot_break_out_of_its_attribute(client: AsyncClient, dow
     install = (await client.get("/install")).text
     assert "<script" not in install
     assert "&quot;" in install
+
+
+def test_home_shows_labelled_example():
+    html = render_landing()
+    assert "Why is this n log n?" in html
+    assert "illustrative example, not a real capture" in html
