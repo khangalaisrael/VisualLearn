@@ -42,7 +42,11 @@ _STYLE = """
   header.top { display:flex; align-items:center; justify-content:space-between; padding: 22px 0; }
   .brand { display:inline-flex; align-items:center; gap:9px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
   .brand .name span { color: var(--accent); }
-  nav a { color: var(--muted); text-decoration: none; font-size: 0.95rem; margin-left: 18px; }
+  nav { display:flex; gap: 6px 18px; white-space: nowrap; }
+  nav a { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+  .brand { white-space: nowrap; }
+  @media (max-width: 480px) { header.top { gap: 12px; } nav { gap: 12px; } nav a { font-size: 0.88rem; } .hero { padding-top: 28px; } }
+  .grid.two { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
   nav a:hover { color: var(--text); }
   .hero { padding: 48px 0 40px; }
   .pill { display:inline-block; background:var(--accent-soft); color:var(--accent); font-size:0.8rem; font-weight:600; padding:4px 12px; border-radius:999px; }
@@ -146,7 +150,7 @@ _HOME = """
 
 <section>
   <h2>What it understands</h2>
-  <div class="grid">
+  <div class="grid two">
     <div class="card"><h3>Equations</h3><p>Read and typeset properly, with plain-language explanations alongside.</p></div>
     <div class="card"><h3>Diagrams and graphs</h3><p>Nodes, edges and structure picked out, so you can ask about a single figure.</p></div>
     <div class="card"><h3>Code and tables</h3><p>Syntax-highlighted code and tidy tables instead of a blob of text.</p></div>
