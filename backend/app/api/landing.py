@@ -32,9 +32,9 @@ LOGO_DATA_URI = (
 )
 
 _STYLE = """
-  :root { --bg:#ffffff; --text:#0f172a; --muted:#5b6678; --line:#e6e8f0; --accent:#4f46e5; --accent2:#7c3aed; --accent-soft:#eef2ff; --soft:#f8f9fc; --on-accent:#ffffff; --glow:rgba(99,102,241,.22); --shadow:0 1px 2px rgba(15,23,42,.05),0 12px 32px -12px rgba(15,23,42,.14); }
+  :root { --bg:#ffffff; --text:#0f172a; --muted:#5b6678; --line:#e6e8f0; --accent:#3b36b8; --accent2:#2e2a8a; --hl:#fcd34d; --hl-soft:rgba(252,211,77,.55); --accent-soft:#eef0ff; --soft:#f8f9fc; --on-accent:#ffffff; --glow:rgba(99,102,241,.22); --shadow:0 1px 2px rgba(15,23,42,.05),0 12px 32px -12px rgba(15,23,42,.14); }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#0a0d1a; --text:#e8ecf6; --muted:#98a2b8; --line:#1b2238; --accent:#8b8ff8; --accent2:#a78bfa; --accent-soft:#17163a; --soft:#0f1426; --on-accent:#0a0d1a; --glow:rgba(129,140,248,.18); --shadow:0 1px 2px rgba(0,0,0,.4),0 16px 40px -16px rgba(0,0,0,.7); }
+    :root { --bg:#0a0d1a; --text:#e8ecf6; --muted:#98a2b8; --line:#1b2238; --accent:#9aa0ff; --accent2:#c7d2fe; --hl:#fcd34d; --hl-soft:rgba(252,211,77,.38); --accent-soft:#17163a; --soft:#0f1426; --on-accent:#0a0d1a; --glow:rgba(129,140,248,.18); --shadow:0 1px 2px rgba(0,0,0,.4),0 16px 40px -16px rgba(0,0,0,.7); }
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
@@ -52,11 +52,13 @@ _STYLE = """
   .hero .lead { margin-left:auto; margin-right:auto; }
   .hero .cta { justify-content:center; }
   .pill { display:inline-flex; align-items:center; gap:8px; background:var(--accent-soft); color:var(--accent); font-size:0.78rem; font-weight:600; letter-spacing:.02em; padding:6px 14px; border-radius:999px; border:1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
-  .pill::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
-  h1 { font-size: clamp(2.4rem, 7.5vw, 4.1rem); line-height: 1.04; letter-spacing: -0.035em; font-weight:800; margin: 22px 0 18px; background:linear-gradient(180deg, var(--text) 40%, color-mix(in srgb, var(--text) 62%, var(--accent)) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .pill::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--hl); box-shadow:0 0 0 4px color-mix(in srgb, var(--hl) 35%, transparent); }
+  h1 { font-size: clamp(2.4rem, 7.5vw, 4.1rem); line-height: 1.04; letter-spacing: -0.035em; font-weight:800; margin: 22px 0 18px; color:var(--text); }
+  .hl { background:linear-gradient(transparent 58%, var(--hl-soft) 58%, var(--hl-soft) 92%, transparent 92%); padding:0 .02em; border-radius:2px; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
   .lead { font-size: 1.14rem; color: var(--muted); max-width: 640px; margin: 0; }
   .cta { margin-top: 32px; display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
-  .btn { display:inline-block; background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; text-decoration:none; font-weight:600; padding:13px 26px; border-radius:12px; box-shadow:0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.22); transition: transform .15s, box-shadow .15s; }
+  .btn { display:inline-block; background:var(--accent2); color:#fff; text-decoration:none; font-weight:600; padding:13px 26px; border-radius:12px; box-shadow:0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.22); transition: transform .15s, box-shadow .15s; }
+  @media (prefers-color-scheme: dark) { .btn { background:var(--hl); color:#1e1b4b; box-shadow:0 8px 24px -8px rgba(252,211,77,.45); } }
   .btn:hover { transform: translateY(-1px); box-shadow:0 12px 28px -8px color-mix(in srgb, var(--accent) 80%, transparent), inset 0 1px 0 rgba(255,255,255,.22); }
   .note { color: var(--muted); font-size: 0.9rem; }
   h2 { font-size: 1.6rem; letter-spacing: -0.025em; font-weight:700; margin: 72px 0 20px; }
@@ -67,7 +69,7 @@ _STYLE = """
   .card h3 { margin: 0 0 7px; font-size: 1.02rem; letter-spacing:-0.01em; }
   .card p { margin: 0; color: var(--muted); font-size: 0.94rem; }
   .step { display:flex; gap:16px; align-items:flex-start; margin: 18px 0; }
-  .num { flex:none; width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; font-weight:700; font-size:.9rem; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px -4px color-mix(in srgb, var(--accent) 70%, transparent); }
+  .num { flex:none; width:32px; height:32px; border-radius:50%; background:var(--accent2); color:#fff; font-weight:700; font-size:.9rem; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px -4px color-mix(in srgb, var(--accent) 70%, transparent); }
   kbd, code { background:var(--soft); border:1px solid var(--line); border-radius:6px; padding:1px 7px; font-size:0.88em; }
   kbd { border-bottom-width:2px; }
   .box { background:linear-gradient(135deg, var(--accent-soft), var(--soft)); border:1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); border-radius:20px; padding:26px 28px; }
@@ -78,13 +80,20 @@ _STYLE = """
   .chrome i { width:10px; height:10px; border-radius:50%; background:var(--line); display:block; }
   .chrome span { margin-left:10px; font-size:.76rem; color:var(--muted); }
   .slide, .panel { padding:22px 24px; }
+  .slide { position:relative; }
+  .slide::before, .slide::after { content:""; position:absolute; width:22px; height:22px; border:3px solid var(--hl); pointer-events:none; }
+  .slide::before { top:12px; left:12px; border-right:0; border-bottom:0; border-top-left-radius:6px; }
+  .slide::after { bottom:12px; right:12px; border-left:0; border-top:0; border-bottom-right-radius:6px; }
+  .slide { padding:30px 32px; }
+  .pillars { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px; margin-top:20px; }
+  .pillars .card h3::before { content:""; display:block; width:28px; height:4px; border-radius:2px; background:var(--hl); margin-bottom:12px; }
   .panel { border-left:1px solid var(--line); background:var(--bg); }
   @media (max-width: 680px) { .panel { border-left:0; border-top:1px solid var(--line); } }
   .slide .tag, .panel .tag { font-size:0.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); margin-bottom:12px; }
   .slide h4 { margin:0 0 8px; font-size:1.1rem; letter-spacing:-0.01em; }
   .slide pre { margin:12px 0 0; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:11px 14px; font-size:0.84rem; overflow-x:auto; }
   .bubble { border-radius:14px; padding:10px 14px; font-size:0.9rem; margin:9px 0; max-width:92%; }
-  .bubble.q { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; margin-left:auto; border-bottom-right-radius:4px; }
+  .bubble.q { background:var(--accent2); color:#fff; margin-left:auto; border-bottom-right-radius:4px; }
   .bubble.a { background:var(--soft); border:1px solid var(--line); border-bottom-left-radius:4px; }
   .demo-note { text-align:center; color:var(--muted); font-size:0.82rem; margin:12px 0 0; }
   footer { margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; display:flex; flex-wrap:wrap; gap:8px 22px; }
@@ -98,9 +107,10 @@ _HEAD = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
+<meta name="theme-color" content="#2e2a8a">
 <link rel="icon" href="__LOGO__">
 <meta name="description" content="A Chrome extension that reads the slide on your screen — equations, diagrams, code — and explains it, then helps you study from it: quizzes, study guides, flashcards, notes and a place to run the code.">
-<meta property="og:title" content="VisionLearn AI">
+<meta property="og:title" content="VisionLearn AI: see the slide, get it">
 <meta property="og:description" content="Understand any lecture slide, then study from it: explanations, quizzes, study guides, flashcards and runnable code, from what's on your screen.">
 <meta property="og:type" content="website">
 <style>__STYLE__</style>
@@ -127,7 +137,7 @@ _FOOT = """
 _HOME = """
 <section class="hero">
   <span class="pill">__PILL__</span>
-  <h1>Understand any lecture slide.</h1>
+  <h1>Understand any <span class="hl">lecture slide</span>.</h1>
   <p class="lead">VisionLearn reads the slide on your screen — equations, diagrams, graphs and code — and explains it. Then it helps you study from what you captured: quizzes, study guides, flashcards, notes, and a place to run the code.</p>
   <div class="cta">
     <a class="btn" href="/install">__CTA__</a>
@@ -151,6 +161,15 @@ _HOME = """
     </div>
   </div>
   <p class="demo-note">An illustrative example, not a real capture.</p>
+</section>
+
+<section>
+  <h2>Why it feels different</h2>
+  <div class="pillars">
+    <div class="card"><h3>Starts from your screen</h3><p>No uploading, no copying text out of a PDF. Point it at the slide you are already looking at.</p></div>
+    <div class="card"><h3>Made for STEM</h3><p>Equations, diagrams, graphs and code are first-class, and the code can be run in the side panel.</p></div>
+    <div class="card"><h3>Yours, and quiet</h3><p>It reads nothing until you press Capture. No ads, no trackers, and you can delete everything.</p></div>
+  </div>
 </section>
 
 <section id="how">
@@ -284,7 +303,7 @@ def render_landing() -> str:
         )
     pill = "Invite-only beta" if settings.invite_only else "A small student project"
     return _page(
-        "VisionLearn AI — understand any lecture slide",
+        "VisionLearn AI: see the slide, get it",
         _HOME.replace("__CTA__", cta).replace("__GET_BOX__", box).replace("__PILL__", pill),
     )
 

@@ -24,7 +24,7 @@ async def test_home_page_is_public_and_describes_the_product(client: AsyncClient
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     html = response.text
-    assert "Understand any lecture slide" in html
+    assert "Understand any" in html and "lecture slide" in html
     assert 'href="/privacy"' in html  # the policy Google and the Web Store link to
     # What the extension does beyond explaining a slide.
     for feature in ("Quizzes with a tutor", "Study guides, cheat sheets, flashcards", "Notes you keep", "Run the code"):
