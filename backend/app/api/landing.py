@@ -137,7 +137,7 @@ _FOOT = """
 _HOME = """
 <section class="hero">
   <span class="pill">__PILL__</span>
-  <h1>Understand any <span class="hl">lecture slide</span>.</h1>
+  <h1>Understand any lecture slide.</h1>
   <p class="lead">VisionLearn reads the slide on your screen — equations, diagrams, graphs and code — and explains it. Then it helps you study from what you captured: quizzes, study guides, flashcards, notes, and a place to run the code.</p>
   <div class="cta">
     <a class="btn" href="/install">__CTA__</a>
